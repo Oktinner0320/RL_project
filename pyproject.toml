@@ -1,0 +1,56 @@
+[project]
+name = "cloud-edge-rl"
+version = "0.1.0"
+description = "Notebook-controlled framework for risk-aware federated RL research"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "torch==2.11.0",
+  "gymnasium==1.3.0",
+  "modal==1.6.0",
+  "numpy>=2.2,<3",
+  "pandas>=2.2,<4",
+  "scipy>=1.15,<2",
+  "scikit-learn>=1.6,<2",
+  "matplotlib>=3.10,<4",
+]
+
+[dependency-groups]
+dev = ["jupyterlab>=4.4,<5", "ipykernel>=6.29,<8", "nbformat>=5.10,<6", "nbclient>=0.10,<1", "pytest>=8,<10", "ruff>=0.11"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/cloud_edge_rl"]
+
+[tool.uv]
+required-version = "==0.12.11"
+environments = ["sys_platform == 'win32'", "sys_platform == 'linux'"]
+
+[tool.uv.sources]
+torch = [
+  { index = "pytorch-cpu", marker = "sys_platform == 'win32'" },
+  { index = "pytorch-cu128", marker = "sys_platform == 'linux'" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I"]
