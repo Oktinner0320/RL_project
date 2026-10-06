@@ -1,0 +1,20 @@
+{
+  "name": "pqn",
+  "repository": "https://github.com/mttga/purejaxql",
+  "commit": "47af6d7b35c89ddfe633aaf7341bdb8964cb7cce",
+  "revision": "main",
+  "commit_date": "2025-11-12T14:57:27Z",
+  "license_api": {
+    "key": "apache-2.0",
+    "name": "Apache License 2.0",
+    "spdx_id": "Apache-2.0",
+    "url": "https://api.github.com/licenses/apache-2.0",
+    "node_id": "MDc6TGljZW5zZTI="
+  },
+  "archive_url": "https://codeload.github.com/mttga/purejaxql/zip/47af6d7b35c89ddfe633aaf7341bdb8964cb7cce",
+  "archive_sha256": "4328701c1637d0ad45bc5f84dea5c3cb77fc16b4a328a4c51f9f1e7e560d02f0",
+  "archive_bytes": 1431767,
+  "download_date": "2026-10-05",
+  "source_modified": false,
+  "local_path": "reference_algorithms/repos/pqn"
+}

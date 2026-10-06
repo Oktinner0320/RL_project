@@ -1,0 +1,20 @@
+{
+  "name": "metacs_fl",
+  "repository": "https://github.com/alan-lira/metacs-fl",
+  "commit": "ecab759c95549dac7ca767ee1bde3c3c223b7ebb",
+  "revision": "v0.2.0",
+  "commit_date": "2026-05-19T00:24:33Z",
+  "license_api": {
+    "key": "other",
+    "name": "Other",
+    "spdx_id": "NOASSERTION",
+    "url": null,
+    "node_id": "MDc6TGljZW5zZTA="
+  },
+  "archive_url": "https://codeload.github.com/alan-lira/metacs-fl/zip/ecab759c95549dac7ca767ee1bde3c3c223b7ebb",
+  "archive_sha256": "d2f2ee48f6309979b26110affa6cbaa6e2a0f491cd4ca68b701378674a85ee6a",
+  "archive_bytes": 1934002,
+  "download_date": "2026-10-05",
+  "source_modified": false,
+  "local_path": "reference_algorithms/repos/metacs_fl"
+}

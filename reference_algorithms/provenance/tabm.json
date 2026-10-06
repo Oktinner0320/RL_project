@@ -1,0 +1,20 @@
+{
+  "name": "tabm",
+  "repository": "https://github.com/yandex-research/tabm",
+  "commit": "28e47ae301c92ec37787dde1ce923a0793f405b4",
+  "revision": "main",
+  "commit_date": "2025-11-10T07:17:57Z",
+  "license_api": {
+    "key": "apache-2.0",
+    "name": "Apache License 2.0",
+    "spdx_id": "Apache-2.0",
+    "url": "https://api.github.com/licenses/apache-2.0",
+    "node_id": "MDc6TGljZW5zZTI="
+  },
+  "archive_url": "https://codeload.github.com/yandex-research/tabm/zip/28e47ae301c92ec37787dde1ce923a0793f405b4",
+  "archive_sha256": "f327af6b9fab51dd792579032832b3a7d66ceeacc338e7acaf96fb7e1f2d33dd",
+  "archive_bytes": 55283811,
+  "download_date": "2026-10-05",
+  "source_modified": false,
+  "local_path": "reference_algorithms/repos/tabm"
+}

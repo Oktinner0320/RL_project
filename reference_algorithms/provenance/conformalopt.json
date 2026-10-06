@@ -1,0 +1,14 @@
+{
+  "name": "conformalopt",
+  "repository": "https://github.com/chrismohrii/conformalopt",
+  "commit": "86bbd61408ed3602269e39754d7b3db73948a240",
+  "revision": "main",
+  "commit_date": "2025-05-27T20:41:41Z",
+  "license_api": null,
+  "archive_url": "https://codeload.github.com/chrismohrii/conformalopt/zip/86bbd61408ed3602269e39754d7b3db73948a240",
+  "archive_sha256": "e8ba919c6f9a778248ed85aff09b4cb3074030accc1f8e82d9c0c1f82099f20b",
+  "archive_bytes": 1414273,
+  "download_date": "2026-10-05",
+  "source_modified": false,
+  "local_path": "reference_algorithms/repos/conformalopt"
+}

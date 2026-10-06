@@ -1,0 +1,20 @@
+{
+  "name": "tabular_gia",
+  "repository": "https://github.com/scaleoutsystems/tabular-GIA",
+  "commit": "075278b23e90966da2a51db586c9a33a0facd622",
+  "revision": "main",
+  "commit_date": "2026-05-30T21:30:51Z",
+  "license_api": {
+    "key": "apache-2.0",
+    "name": "Apache License 2.0",
+    "spdx_id": "Apache-2.0",
+    "url": "https://api.github.com/licenses/apache-2.0",
+    "node_id": "MDc6TGljZW5zZTI="
+  },
+  "archive_url": "https://codeload.github.com/scaleoutsystems/tabular-GIA/zip/075278b23e90966da2a51db586c9a33a0facd622",
+  "archive_sha256": "ce08c4b580dc8b00910e8625a511e508fb42b86603198376259db3165c2c801b",
+  "archive_bytes": 234248,
+  "download_date": "2026-10-05",
+  "source_modified": false,
+  "local_path": "reference_algorithms/repos/tabular_gia"
+}

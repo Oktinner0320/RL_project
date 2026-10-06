@@ -1,0 +1,14 @@
+{
+  "name": "ocp_unlock",
+  "repository": "https://github.com/trustml-lab/ocp-semi-bandit",
+  "commit": "4e7cbbe56ebcdc84ea37c127ddf9c843c82097f5",
+  "revision": "main",
+  "commit_date": "2026-06-14T04:47:42Z",
+  "license_api": null,
+  "archive_url": "https://codeload.github.com/trustml-lab/ocp-semi-bandit/zip/4e7cbbe56ebcdc84ea37c127ddf9c843c82097f5",
+  "archive_sha256": "9041d35eabc26618edfebc832dba4aa5a6b34f363b79634c16a3ea4cdcc186ca",
+  "archive_bytes": 292147,
+  "download_date": "2026-10-05",
+  "source_modified": false,
+  "local_path": "reference_algorithms/repos/ocp_unlock"
+}
