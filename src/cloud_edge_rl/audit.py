@@ -98,7 +98,18 @@ def order_candidates(
 ) -> list[AuditCandidate]:
     """同一记录池比较审计选点，不读取真实恢复率。 / Rank the same pool without reconstruction labels."""
     if policy == "periodic":
-        return candidates[:: config["period"]]
+        # Sample within each trajectory, then share the budget across trajectories.
+        # 各轨迹分别按周期取样，再交替分配预算，避免前一条轨迹耗尽全部调用。
+        groups = {}
+        for item in candidates:
+            groups.setdefault((item.run_id, item.episode), []).append(item)
+        sampled = [items[:: config["period"]] for items in groups.values()]
+        return [
+            items[index]
+            for index in range(max(map(len, sampled), default=0))
+            for items in sampled
+            if index < len(items)
+        ]
     if policy == "random":
         order = np.random.default_rng(seed).permutation(len(candidates))
         return [candidates[i] for i in order]
@@ -227,8 +238,8 @@ def run_audits(
     return summary
 
 
-def risk_training_rows(root: Path, audit_run_ids: list[str]) -> pd.DataFrame:
-    """最终评价标签不能进入风险拟合。 / Final evaluation labels cannot enter risk fitting."""
+def read_audits(root: Path, audit_run_ids: list[str]) -> pd.DataFrame:
+    """读取实际审计记录，是否允许拟合由调用阶段控制。 / Read actual audits; each stage controls permitted splits."""
     rows = []
     for run_id in audit_run_ids:
         rows.extend(
@@ -237,7 +248,12 @@ def risk_training_rows(root: Path, audit_run_ids: list[str]) -> pd.DataFrame:
             .read_text(encoding="utf-8")
             .splitlines()
         )
-    frame = pd.DataFrame(rows)
+    return pd.DataFrame(rows)
+
+
+def risk_training_rows(root: Path, audit_run_ids: list[str]) -> pd.DataFrame:
+    """最终评价标签不能进入风险拟合。 / Final evaluation labels cannot enter risk fitting."""
+    frame = read_audits(root, audit_run_ids)
     if not frame["split"].eq("train").all():
         raise ValueError("只允许训练运行的审计标签 / Risk fitting accepts training runs only")
     return frame

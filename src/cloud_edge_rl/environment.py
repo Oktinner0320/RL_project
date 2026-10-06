@@ -45,6 +45,10 @@ class CloudEdgeEnv(gym.Env):
                 "无风险模型时风险权重必须为 0 / Unavailable risk requires risk_weight=0"
             )
         environment = config["environment"]
+        if environment["history_window"] < 2:
+            raise ValueError(
+                "公开参与窗口至少包含上一轮 / Public participation window must include a past round"
+            )
         self.client_sizes = np.asarray(environment["client_sizes"], dtype=int)
         self.actions = [
             Action(index, tuple(client_ids), batch_size)
@@ -59,6 +63,9 @@ class CloudEdgeEnv(gym.Env):
                 "resources": spaces.Box(0, np.inf, (count, 3), dtype=np.float32),
                 "progress": spaces.Box(-np.inf, np.inf, (5,), dtype=np.float32),
                 "history": spaces.Box(0, np.inf, (count, 3), dtype=np.float32),
+                "participation_window": spaces.MultiBinary(
+                    (environment["history_window"] - 1, count)
+                ),
                 "candidates": spaces.Box(-np.inf, np.inf, (len(self.actions), 5), dtype=np.float32),
                 "risk_available": spaces.MultiBinary(1),
             }
@@ -82,6 +89,10 @@ class CloudEdgeEnv(gym.Env):
         self.download_bytes = 0
         self.processed_samples = 0
         self.history = np.zeros((len(self.client_sizes), 3), dtype=np.float32)
+        self.participation_window = np.zeros(
+            (self.config["environment"]["history_window"] - 1, len(self.client_sizes)),
+            dtype=np.int8,
+        )
         self.seen_samples = [set() for _ in self.client_sizes]
         self.utility = np.asarray(
             self.config["environment"]["utility_prior"], dtype=np.float64
@@ -170,6 +181,7 @@ class CloudEdgeEnv(gym.Env):
                 dtype=np.float32,
             ),
             "history": self.history.copy(),
+            "participation_window": self.participation_window.copy(),
             "candidates": self.candidates.copy(),
             "risk_available": np.asarray([self.risk is not None], dtype=np.int8),
         }
@@ -191,6 +203,10 @@ class CloudEdgeEnv(gym.Env):
             )
         )
         result = self.backend.step_round(action)
+        # 最近参与信息向所有策略公开。 / The same recent participation history is public to every policy.
+        self.participation_window = np.roll(self.participation_window, -1, axis=0)
+        self.participation_window[-1] = 0
+        self.participation_window[-1, list(action.client_ids)] = 1
         counts = {update.client_id: len(update.sample_ids) for update in result.updates}
         cost = self.resources.estimate(
             action.client_ids,
@@ -291,6 +307,7 @@ class CloudEdgeEnv(gym.Env):
                 "download_bytes": self.download_bytes,
                 "processed_samples": self.processed_samples,
                 "history": self.history,
+                "participation_window": self.participation_window,
                 "seen_samples": self.seen_samples,
                 "utility": self.utility,
                 "pending_updates": self.pending_updates,
@@ -315,6 +332,7 @@ class CloudEdgeEnv(gym.Env):
             "download_bytes",
             "processed_samples",
             "history",
+            "participation_window",
             "seen_samples",
             "utility",
             "pending_updates",

@@ -31,6 +31,8 @@ def source_identity(project_root: Path) -> dict:
     names = ["pyproject.toml", "uv.lock", ".python-version", "experiment.ipynb"]
     paths = [project_root / name for name in names]
     paths += sorted((project_root / "src").rglob("*.py"))
+    paths += sorted((project_root / "reference_algorithms/provenance").glob("*.json"))
+    paths += sorted((project_root / "reference_algorithms/repos").rglob("*.py"))
     digest = hashlib.sha256()
     for path in paths:
         digest.update(path.relative_to(project_root).as_posix().encode())
@@ -67,9 +69,10 @@ def make_run_spec(
     risk_version: str,
     inputs: dict,
     project_root: Path,
+    provenance: dict | None = None,
 ) -> RunSpec:
     """从唯一配置入口生成稳定运行标识。 / Build a stable ID from notebook config and sources."""
-    provenance = source_identity(project_root)
+    provenance = source_identity(project_root) if provenance is None else json_copy(provenance)
     payload = json_copy(
         {
             "stage": stage,
