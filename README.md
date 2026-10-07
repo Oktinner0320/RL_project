@@ -2,17 +2,21 @@
 
 [中文](README.md) | [English](README.en.md)
 
+课程论文材料见 [paper/README.md](paper/README.md)：详细中文提纲、英文 Typst 骨架、ACM 风格课程适配模板，以及编译和版面核验说明。成稿正文预算为 20 页，当前骨架按实际内容分页。
+
+近期外部算法筛选与实测见 [reference_algorithms/REPORT.md](reference_algorithms/REPORT.md)，主项目接入结果见 [BASELINE_INTEGRATION_RESULTS.md](docs/BASELINE_INTEGRATION_RESULTS.md)。六个官方仓库、独立 UV 测试环境及原始结果均保存在 `reference_algorithms/`；测试参数仍只在 `experiment.ipynb` 的 CONFIG 单元设置。
+
 本项目研究：动态调度改变训练轨迹后，经验隐私风险代理是否出现系统性低估，以及不确定性和有限梯度反演审计能否提高决策可靠性。客户端选择与批量大小的联合调度是应用场景，模型效用、时间和能量是共同评价维度。
 
-这是供研究者填写算法的工程框架。数据处理、Gymnasium 环境、资源模拟、基线调度、审计记录、实验编排和 Modal 接口由框架提供；PyTorch 模型、FedSGD、DQN/PPO、风险估计器与梯度反演由您实现。相关接口仍以 `NotImplementedError` 停止，不提供假梯度、替代收敛曲线或虚构实验结果。
+研究者的 PyTorch 模型、FedSGD、DQN/PPO、风险估计器与梯度反演接口保留在 `core.py`，尚未实现的接口仍明确停止。经您授权，另在 `comparisons/` 接入可运行的第三方基线：官方小型 MLP 的 FedSGD 对照与 IG 反演、MLP/TabM 风险回归、MetaCS 目标适配、PyTorch PQN 移植和 ConformalOpt/OCP 审计序列对照。选择第三方基线不会修改或自动代替您的核心。接入计划与验收见 [BASELINE_INTEGRATION.md](docs/BASELINE_INTEGRATION.md)。
 
 ## 安装与入口
 
 在项目目录运行：
 
 ```powershell
-uv sync --locked
-uv run jupyter lab
+uv sync --locked --extra comparisons
+uv run --extra comparisons jupyter lab
 ```
 
 打开 [experiment.ipynb](experiment.ipynb)。所有全局实验参数、阶段开关、运行输入和 Modal 资源都在 Notebook 的唯一 `CONFIG` 单元格中调整。Python 和 UV 版本由 `.python-version`、`pyproject.toml` 指定，依赖解析以 `uv.lock` 为准。本机使用 CPU PyTorch 做调试和分析，Modal Linux 镜像使用锁定的 CUDA wheel。
@@ -22,11 +26,25 @@ Notebook 的默认执行只检查本地运行环境并准备 Adult 数据；研�
 检查框架：
 
 ```powershell
-uv run pytest
-uv run ruff check .
+uv run --extra comparisons pytest
+uv run --extra comparisons ruff check .
 ```
 
-测试替身只位于 `tests/`，用于验证接口、计量和隔离；测试通过不代表学习算法完成、梯度反演有效或 Modal 云训练已经验收。
+测试替身只位于 `tests/`，用于验证接口、计量和隔离；第三方适配器另有真实官方代码的定向测试。测试通过不代表您的核心已经完成，也不代表正式研究结果成立。
+
+## 接入的第三方基线
+
+`CONFIG.components` 默认选择 `researcher`。`CONFIG.variants` 中的 `reference-*`、`metacs`、`pqn` 明确选择第三方组件；风险检查点记录实现与架构，评价阶段冻结训练设置。所有方法收到相同的公开资源、候选评分和最近参与窗口。
+
+PQN 从官方 JAX 实现移植为 PyTorch，串行调用真实 Gymnasium/FedSGD 环境。MetaCS 调用官方目标与历史公平性函数，对共同 12 个动作精确枚举；该适配没有执行原版 LNS 搜索。
+
+Notebook 最后一节通过 `CONFIG.comparisons.workflow.enabled` 运行完整基线闭环，默认关闭。该流程按配置的阶段顺序连接真实产物：采集 → 攻击预算测量 → 审计 → MLP/TabM 风险拟合 → PQN 训练 → 独立验证/测试审计 → 风险与六种调度对照 → 各调度轨迹的独立审计 → 校准。六种调度各自使用相同攻击预算；最终审计标签不回流拟合、训练或校准。当前周期取样比较的是已审计子集：固定双客户端策略可能只覆盖其中一个客户端，不能据此判断全客户端或最坏客户端风险。产物 ID 自动传递，配置快照与源码版本随每个运行保存。训练默认使用 Modal；本机 CPU 仅用于工程测试和显式调试。
+
+当前 64 步 PQN 和 2 个 OCP arms 是小规模可行性配置，不能作为充分调参或最终论文实验。正式比较通过同一 CONFIG 单元扩大配对种子、训练与攻击预算；OCP 原生协议要求足够多的真实审计条目，不会复制数据满足长度条件。其覆盖率仅针对已审计序列，信息揭示次数不等于节省实际攻击次数。
+
+当前风险拟合的 24 个标签各来自两条运行的 12 次审计，均处于预热轮次；不能据此声称覆盖了完整训练阶段。固定策略留出审计包含预热后上传。风险 MAE 较低也不等于低估更少或调度更安全，应同时检查低估量和真实攻击标签。OCP 上游损失常数固定为 40，传入的 `C` 不是有效调参项；接入保持原生规则。
+
+固定仓库仍在 `reference_algorithms/repos/`，不会整体并入包；缺少源码请按[参考目录说明](reference_algorithms/README.md)恢复。ConformalOpt/OCP 的许可记录和 PQN 移植归属见 [THIRD_PARTY.md](docs/THIRD_PARTY.md)。
 
 ## 文件与职责
 
@@ -37,6 +55,7 @@ uv run ruff check .
 | `data.py`、`metrics.py` | 官方数据处理、原字段重构评价和风险误差指标 |
 | `environment.py`、`resources.py` | Gymnasium 交互、联合动作、资源计量、预算和公开状态 |
 | `baselines.py` | 固定、轮询、时延贪心、风险贪心，以及共享预热函数 |
+| `comparisons/` | 第三方基线适配、显式组件选择、真实审计校准比较与闭环编排 |
 | `audit.py` | 保存实际上传、执行有限审计、隔离攻击输入与参考真值 |
 | `pipeline.py`、`config.py` | 阶段编排、配置快照、源码与依赖身份 |
 | `modal_runner.py`、`artifacts.py` | 云任务、Volume、运行状态和产物存储 |
@@ -57,7 +76,7 @@ uv run ruff check .
 
 输入输出字段定义在 `types.py`。`ClientUpdate.sample_ids` 属于可信评价侧；`AttackInput` 包括更新前模型、其公开构建配置 `model_config`、单客户端批平均梯度、已知标签、批量大小和公开编码信息。构建配置必须对应源上传的架构、激活函数、损失和 dtype，不能用审计阶段当前配置替代。不要将参考记录或真实重构结果传入策略和攻击函数。
 
-`CloudEdgeEnv` 遵循 Gymnasium 的 `reset` / `step` 接口。公开观察包含资源、进度、采样历史、候选动作收益/开销/风险以及 `risk_available`。`progress` 的顺序为验证损失、验证准确率、已用时间比例、已用轮数比例、剩余样本预算比例；完整训练轮超预算后，最后一项可以为负。需要扁平向量时可使用 Gymnasium 的 `spaces.flatten`。
+`CloudEdgeEnv` 遵循 Gymnasium 的 `reset` / `step` 接口。公开观察包含资源、进度、采样历史、最近参与窗口 `participation_window`、候选动作收益/开销/风险以及 `risk_available`。参与窗口记录已经执行的客户端选择，所有策略均可见。`progress` 的顺序为验证损失、验证准确率、已用时间比例、已用轮数比例、剩余样本预算比例；完整训练轮超预算后，最后一项可以为负。需要扁平向量时可使用 Gymnasium 的 `spaces.flatten`。
 
 ## 实验闭环
 
@@ -79,6 +98,8 @@ Notebook 调用 `modal_runner` 提交配置快照。Modal 使用同一源码和 
 
 `runs/<run_id>/` 保存每次运行的输入和结果。相同源码与实验输入产生稳定身份，已有运行不会被静默覆盖。`workflow.reuse_completed` 启用时，重复执行会读取已完成摘要；相同身份的失败或未完成运行仍会报错。恢复操作在唯一配置单元格中更改 `experiment.tag`，并将旧检查点设为新运行的显式输入。
 
+比较闭环的 Notebook 控制器中断时，先确认旧控制器已停止，再在唯一 CONFIG 单元中设置新的 `comparisons.workflow.tag` 和旧 Manifest 路径 `comparisons.workflow.resume_manifest`。最后一节会保留旧 Manifest，只读接回已保存的 Modal 调用 ID，并将完成阶段记入新的独占日志；不会重新提交这些训练。算法、种子、资源与预算必须匹配。原有任务保留原来源记录，新阶段记录实际使用的新源码身份。远程算法失败仍明确报错，不能通过恢复绕过失败。
+
 同一风险版本下的完整恢复，需要用户保存并恢复策略、优化器、随机状态、回放缓冲区及包装环境的 `snapshot()`；恢复使用 `load_snapshot()`，不要再 `reset` 或重复预热。切换风险版本时保留策略权重、清空旧版本 replay 并开始新阶段。这些算法状态迁移由 `core.py` 的实现负责，框架不会暗中替您决定。
 
 小额云预算是实验规划目标，不是 Modal 计费硬上限。资源超时与审计预算用于限制工作量，实际计费应结合真实调用记录和 Modal 账单检查。
@@ -87,4 +108,6 @@ Notebook 调用 `modal_runner` 提交配置快照。Modal 使用同一源码和 
 
 实际环境、Notebook、测试与 Modal 验证记录见 [VERIFICATION.md](docs/VERIFICATION.md)。调参后，`validate` 和 `evaluate` 都通过 `inputs.training_run_ids` 继承对应训练快照；透明基线使用 `evaluate_baselines`，避免用当前默认参数覆盖已经选定的 trial。
 
-代码与函数使用中英文简要说明，必要的接口检查直接报错，不静默补造输入或降级到替代算法。已完成一次真实 Modal 镜像构建、L4 运行环境检查与产物下载；这证明云端环境连通，不代表算法级训练验收。框架验收与研究结论分开记录，项目尚不能声称已完成风险校准、RL 训练、独立攻击评价或课程研究结论。
+代码与函数使用中英文简要说明，必要的接口检查直接报错，不静默补造输入或降级到替代算法。2026-10-05 已完成 Modal L4 的 13 阶段、26 个真实运行及 26 单元执行 Notebook；145 项测试通过。首轮审计覆盖失败和随后产物 I/O 控制器超时均保留记录，显式恢复接回 19 个原调用，仅提交 7 个新任务。实际结果与原始 CSV 见 [集成实测记录](docs/BASELINE_INTEGRATION_RESULTS.md)。研究者核心仍待您实现。
+
+本次仅验证小规模闭环：200 次迭代、一次重启的攻击弱于边际先验，六种调度审计的 EMR 均为零；四种贪心/MetaCS 对照在预热后选择完全相同动作，风险差异不能归因于调度改进。TabM 降低 MAE 但没有减少平均低估；SQT/LQT 的完全覆盖伴随接近 1 的风险上界，OCP 未达到 0.9 目标覆盖。本次校准仅做事后对照，没有修改调度奖励。正式研究仍需扩大预算、覆盖与配对种子。
