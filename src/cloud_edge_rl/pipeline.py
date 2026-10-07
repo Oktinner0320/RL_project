@@ -12,8 +12,16 @@ import torch
 
 from . import core
 from .artifacts import RunStore
-from .audit import read_candidates, risk_training_rows, run_audits, save_upload
+from .audit import read_audits, read_candidates, risk_training_rows, run_audits, save_upload
 from .baselines import FixedPolicy, RiskGreedyPolicy, RoundRobinPolicy, TimeGreedyPolicy, run_warmup
+from .comparisons.dispatch import (
+    make_attack,
+    make_backend,
+    make_risk,
+    required_sources,
+    train_policy,
+)
+from .comparisons.sources import source_records, source_root
 from .config import RunSpec
 from .data import prepare_adult
 from .environment import FEATURE_NAMES, CloudEdgeEnv
@@ -109,7 +117,7 @@ def _make_environment(spec: RunSpec, data, root: Path, store: RunStore) -> Recor
     config["environment"]["client_sizes"] = [len(rows) for rows in data.client_indices]
     if min(config["environment"]["client_sizes"]) < max(config["environment"]["batch_sizes"]):
         raise ValueError("客户端记录不足以支持动作批量 / A client is smaller than an action batch")
-    backend = core.FederatedBackend(data, {**config["model"], "seed": spec.seed})
+    backend = make_backend(spec, root, data)
     mode = config["risk"]["mode"]
     if mode == "unavailable":
         risk = None
@@ -121,14 +129,16 @@ def _make_environment(spec: RunSpec, data, root: Path, store: RunStore) -> Recor
             raise ValueError("风险检查点版本不匹配 / Risk checkpoint version mismatch")
         if tuple(checkpoint["feature_names"]) != FEATURE_NAMES:
             raise ValueError("风险特征契约不匹配 / Risk feature schema mismatch")
-        risk = core.RiskEstimator({**config["risk"], "seed": spec.seed}, spec.risk_version)
+        if checkpoint["implementation"] != spec.config["components"]["risk"]:
+            raise ValueError("风险实现与检查点不匹配 / Risk implementation differs from checkpoint")
+        risk = make_risk(spec, root)
         risk.load_checkpoint(checkpoint["state"])
     else:
         raise ValueError(f"未知风险模式 / Unknown risk mode: {mode}")
     return RecordingEnv(CloudEdgeEnv(config, backend, risk), store, root, data, spec)
 
 
-def _policy(spec: RunSpec, root: Path):
+def _policy(spec: RunSpec, root: Path, actions=None):
     """构造透明基线或载入用户策略。 / Build a transparent baseline or load the user's agent."""
     match spec.method:
         case "fixed":
@@ -139,6 +149,24 @@ def _policy(spec: RunSpec, root: Path):
             return TimeGreedyPolicy()
         case "risk_greedy":
             return RiskGreedyPolicy(spec.config["reward"])
+        case "metacs":
+            from .comparisons.scheduling import MetaCSPolicy
+
+            return MetaCSPolicy(
+                actions,
+                {
+                    **spec.config["comparisons"]["metacs"],
+                    "risk_weight": spec.config["reward"]["risk_weight"],
+                },
+                source_root(spec.config, root),
+            )
+        case "pqn":
+            from .comparisons.dispatch import load_policy
+
+            state = torch.load(
+                root / spec.inputs["agent_checkpoint"], map_location="cpu", weights_only=False
+            )
+            return load_policy(spec, state["agent"])
         case "dqn" | "ppo":
             state = torch.load(
                 root / spec.inputs["agent_checkpoint"], map_location="cpu", weights_only=False
@@ -179,6 +207,11 @@ def run_experiment(spec: RunSpec, root: Path) -> dict:
     root = Path(root)
     with RunStore(root, spec) as store:
         store.write_json("runtime.json", runtime_info())
+        sources = required_sources(spec.config, spec.method, spec.stage)
+        if sources:
+            store.write_json(
+                "reference_sources.json", source_records(source_root(spec.config, root), sources)
+            )
         if spec.stage == "runtime_check":
             result = {"run_id": spec.run_id, "stage": spec.stage, **runtime_info()}
         else:
@@ -201,8 +234,7 @@ def run_experiment(spec: RunSpec, root: Path) -> dict:
                     raise ValueError(
                         "独立审计必须使用测试运行 / Final audits require held-out runs"
                     )
-                attack_config = {**spec.config["attack"], "seed": spec.seed}
-                attack = core.GradientAttack(attack_config)
+                attack = make_attack(spec, root, store.path / "attack_details")
                 audit_config = deepcopy(spec.config["audit"])
                 if spec.stage == "benchmark_attack":
                     policy = "benchmark"
@@ -223,9 +255,7 @@ def run_experiment(spec: RunSpec, root: Path) -> dict:
                 )
             elif spec.stage in ("fit_risk", "calibrate_risk"):
                 frame = risk_training_rows(root, spec.inputs["audit_run_ids"])
-                risk = core.RiskEstimator(
-                    {**spec.config["risk"], "seed": spec.seed}, spec.risk_version
-                )
+                risk = make_risk(spec, root)
                 risk.fit(
                     np.stack(frame["features"]),
                     frame["feature_recovery"].to_numpy(),
@@ -235,6 +265,7 @@ def run_experiment(spec: RunSpec, root: Path) -> dict:
                     {
                         "risk_version": spec.risk_version,
                         "feature_names": FEATURE_NAMES,
+                        "implementation": spec.config["components"]["risk"],
                         "state": risk.checkpoint(),
                     },
                     "risk.pt",
@@ -243,6 +274,58 @@ def run_experiment(spec: RunSpec, root: Path) -> dict:
                     "risk_version": spec.risk_version,
                     "training_uploads": len(frame),
                     "training_runs": int(frame["run_id"].nunique()),
+                }
+                if spec.config["components"]["risk"] != "researcher":
+                    result["fit_metadata"] = risk.fit_metadata
+            elif spec.stage == "evaluate_risk":
+                frame = read_audits(root, spec.inputs["audit_run_ids"])
+                if (
+                    not frame["split"].eq(spec.config["execution"]["split"]).all()
+                    or frame["split"].eq("train").any()
+                ):
+                    raise ValueError(
+                        "风险评价需独立验证/测试审计 / Risk evaluation requires held-out audits"
+                    )
+                saved = torch.load(
+                    root / spec.inputs["risk_checkpoint"], map_location="cpu", weights_only=False
+                )
+                if (
+                    saved["risk_version"] != spec.risk_version
+                    or saved["implementation"] != spec.config["components"]["risk"]
+                ):
+                    raise ValueError("风险评价检查点不匹配 / Risk evaluation checkpoint mismatch")
+                risk = make_risk(spec, root)
+                risk.load_checkpoint(saved["state"])
+                prediction = risk.predict(np.stack(frame["features"]))
+                residual = frame["feature_recovery"].to_numpy() - prediction.mean
+                frame = frame.assign(
+                    reference_mean=prediction.mean,
+                    reference_uncertainty=prediction.uncertainty,
+                    signed_error=residual,
+                    underestimation=np.maximum(residual, 0),
+                )
+                frame.to_csv(store.path / "risk_predictions.csv", index=False)
+                result = {
+                    "uploads": len(frame),
+                    "mae": float(np.abs(residual).mean()),
+                    "mean_underestimation": float(np.maximum(residual, 0).mean()),
+                    "worst_underestimation": float(np.maximum(residual, 0).max()),
+                    "risk_version": risk.version,
+                    "implementation": spec.config["components"]["risk"],
+                }
+            elif spec.stage == "compare_calibration":
+                from .comparisons.calibration import compare_calibration
+
+                frame = read_audits(root, spec.inputs["audit_run_ids"])
+                summaries, timeline, metadata = compare_calibration(
+                    source_root(spec.config, root), frame, spec.config["comparisons"]["calibration"]
+                )
+                timeline.to_csv(store.path / "calibration_timeline.csv", index=False)
+                store.write_json("calibration_metadata.json", metadata)
+                result = {
+                    "methods": summaries,
+                    "axis": "audited uploads only",
+                    "metadata": metadata,
                 }
             elif spec.stage in ("collect", "train_policy", "validate", "evaluate"):
                 if spec.stage == "validate" and spec.config["execution"]["split"] != "validation":
@@ -259,13 +342,6 @@ def run_experiment(spec: RunSpec, root: Path) -> dict:
                         if previous_path
                         else None
                     )
-                    rl_config = {
-                        **spec.config["rl"],
-                        "seed": spec.seed,
-                        "algorithm": spec.method,
-                        "risk_version": spec.risk_version,
-                        "warmup_actions": spec.config["execution"]["warmup_actions"],
-                    }
 
                     def save_training(state):
                         """每个训练断点记录风险版本。 / Attach the risk version to every training state."""
@@ -278,7 +354,7 @@ def run_experiment(spec: RunSpec, root: Path) -> dict:
                             "training.pt",
                         )
 
-                    training = core.train_agent(env, rl_config, previous, save_training)
+                    training = train_policy(spec, root, env, previous, save_training)
                     save_training(training.checkpoint)
                     store.save_checkpoint(
                         {
@@ -289,8 +365,15 @@ def run_experiment(spec: RunSpec, root: Path) -> dict:
                         "agent.pt",
                     )
                     result = {"trained": True, "risk_version": spec.risk_version}
+                    if spec.method == "pqn":
+                        result.update(
+                            learned_steps=training.checkpoint["learned_steps"],
+                            warmup_steps=training.checkpoint["warmup_steps"],
+                            updates=training.checkpoint["updates"],
+                        )
+                        store.write_json("policy_training.json", training.checkpoint["history"])
                 else:
-                    policy = _policy(spec, root)
+                    policy = _policy(spec, root, env.unwrapped.actions)
                     result = _run_episode(env, policy, spec.seed)
                     store.save_checkpoint(env.snapshot(), "environment.pt")
                     if spec.stage == "evaluate":

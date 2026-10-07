@@ -1,0 +1,4 @@
+PQN reference port derives from mttga/purejaxql (Apache-2.0), commit 47af6d7b35c8.
+Original authors: see the pinned repository attribution and paper.
+Project changes: PyTorch port, serial Gymnasium interaction, explicit truncation handling, main-project checkpoint integration.
+Official MetaCS, TabM, ConformalOpt, OCP and tabular-GIA sources are loaded separately from pinned repositories; their original attribution remains with those sources.

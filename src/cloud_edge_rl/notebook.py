@@ -4,19 +4,22 @@ import json
 from copy import deepcopy
 from pathlib import Path
 
-from .config import make_run_spec
+from .config import make_run_spec, source_identity
 from .pipeline import load_summary, run_experiment
 from .tuning import sample_trials
 
 
-def make_job_specs(config: dict, job_name: str, project_root: Path):
+def make_job_specs(config: dict, job_name: str, project_root: Path, provenance: dict | None = None):
     """展开显式方法/种子配置，生成完全物化的运行快照。 / Materialize variant/seed run snapshots."""
     job = config["workflow"]["jobs"][job_name]
+    provenance = source_identity(project_root) if provenance is None else provenance
     specs = []
     for variant_name in job["variants"]:
         variant = config["variants"][variant_name]
         for seed in config["seeds"][job["seed_group"]]:
             resolved = deepcopy(config)
+            if "components" in variant:
+                resolved["components"].update(variant["components"])
             resolved["experiment"]["variant"] = variant_name
             resolved["risk"]["mode"] = variant["risk_mode"]
             resolved["reward"]["risk_weight"] = variant["risk_weight"]
@@ -33,6 +36,7 @@ def make_job_specs(config: dict, job_name: str, project_root: Path):
                     job["risk_version"],
                     job["inputs"],
                     project_root,
+                    provenance=provenance,
                 )
             )
     return specs
@@ -44,7 +48,10 @@ def make_tuning_specs(config: dict, project_root: Path):
     for base in make_job_specs(config, "tune", project_root):
         for trial in sample_trials(config["tuning"]):
             resolved = deepcopy(base.config)
-            resolved["rl"]["learning_rate"] = trial["learning_rate"]
+            if base.method == "pqn":
+                resolved["comparisons"]["pqn"]["learning_rate"] = trial["learning_rate"]
+            else:
+                resolved["rl"]["learning_rate"] = trial["learning_rate"]
             resolved["reward"]["risk_weight"] = trial["risk_weight"]
             resolved["reward"]["uncertainty_weight"] = trial["uncertainty_weight"]
             resolved["experiment"]["variant"] += f"-trial-{trial['trial']}"
@@ -79,6 +86,8 @@ def _saved_policy_specs(config: dict, job_name: str, project_root: Path):
             resolved["modal"] = deepcopy(config["modal"])
             for section in ("model", "risk", "rl"):
                 resolved[section]["device"] = config["model"]["device"]
+            if saved["method"] == "pqn":
+                resolved["comparisons"]["pqn"]["device"] = config["model"]["device"]
             result.append(
                 make_run_spec(
                     resolved,
