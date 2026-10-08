@@ -124,7 +124,6 @@ def create_app(
             extra_options="--no-dev --extra comparisons" if comparisons else "--no-dev",
             uv_version=uv_version,
         )
-        .add_local_python_source("cloud_edge_rl")
     )
     if modal_config.get("persistent_compiler_cache", False):
         # 只复用编译器自身校验过的内核，不缓存攻击输入或私人记录。
@@ -133,6 +132,7 @@ def create_app(
             "TORCHINDUCTOR_CACHE_DIR": "/workspace/cache/torch_inductor",
             "TRITON_CACHE_DIR": "/workspace/cache/triton",
         })
+    image = image.add_local_python_source("cloud_edge_rl")
     for file in files:
         remote = remote_root / file.relative_to(project_root).as_posix()
         image = image.add_local_file(file, remote.as_posix())
