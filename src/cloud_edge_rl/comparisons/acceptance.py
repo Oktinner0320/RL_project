@@ -1,6 +1,57 @@
 """整体验收的审计覆盖与配对门槛。 / Coverage and paired gates; never turn missing data into a pass."""
 
+from pathlib import PurePosixPath
+
 import numpy as np
+
+
+def training_allocation(prior: list[dict], method: str, seed: int, partition: str,
+                        limit: int, collection_interactions: int,
+                        previous_checkpoint: str | None, risk_version: str) -> dict:
+    """按真实新增交互计费，恢复计数不能重复收费。 / Charge new interactions, not cumulative resume counters."""
+    if (type(limit) is not int or limit <= 0 or type(collection_interactions) is not int
+            or not 0 <= collection_interactions < limit):
+        raise ValueError('Interaction limit and collection charge must be valid integer counts')
+    matching = [row for row in prior if row['spec']['stage'] == 'train_policy'
+                and row['spec']['method'] == method and row['spec']['seed'] == seed
+                and row['spec']['config']['data']['partition'] == partition]
+    known, seen, used = [], set(), 0
+    for row in matching:
+        # 下载失败仍然可能已消耗完整训练预算；未知进度必须先恢复检查点。
+        # A failed download can follow completed compute; unknown progress must be recovered first.
+        if row['state'] not in ('completed', 'remote_completed') or 'result' not in row:
+            raise ValueError('Unknown consumed interactions: recover interrupted training before scheduling')
+        result = row['result']
+        learned, warmup = result['learned_steps'], result['warmup_steps']
+        offset = row.get('interaction_resume_offset', 0)
+        if (any(type(value) is not int or value < 0 for value in (learned, warmup, offset))
+                or offset > learned + warmup):
+            raise ValueError('Invalid recorded interaction counters')
+        if collection_interactions < row['spec']['config']['experiment'].get('charged_collection_interactions', 0):
+            raise ValueError('Collection charge cannot decrease within a method/seed/partition')
+        identity = row.get('call_id')
+        if identity and identity in seen:
+            continue
+        seen.add(identity) if identity else None
+        used += learned + warmup - offset
+        known.append(row)
+    remaining = limit - collection_interactions - used
+    if remaining <= 0:
+        raise ValueError('Method/seed/partition interaction allocation is exhausted; do not restart training')
+    resume_offset = 0
+    if previous_checkpoint:
+        path = PurePosixPath(previous_checkpoint)
+        if len(path.parts) != 3 or path.parts[0] != 'runs' or path.parts[2] != 'training.pt':
+            raise ValueError('Resume needs a recorded runs/<run_id>/training.pt checkpoint')
+        parents = [row for row in known if row['spec']['run_id'] == path.parts[1]]
+        if len(parents) != 1:
+            raise ValueError('Resume checkpoint needs exactly one known matching parent run')
+        parent = parents[0]
+        if parent['spec']['risk_version'] == risk_version:
+            resume_offset = parent['result']['learned_steps'] + parent['result']['warmup_steps']
+    return {'consumed_interactions': used, 'remaining_interactions': remaining,
+            'resume_offset': resume_offset, 'total_steps': remaining + resume_offset,
+            'collection_interactions': collection_interactions}
 
 
 def complete_trajectory_risk(uploads: list[dict], audits: list[dict]) -> dict:
