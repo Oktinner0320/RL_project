@@ -92,10 +92,14 @@ def load_agent(state: dict, config: dict) -> Agent:
 
 
 def _settings(config):
-    return {k: v for k, v in config.items() if k not in ('device', 'total_steps', 'checkpoint_interval')}
+    return {k: v for k, v in config.items()
+            if k not in ('device', 'total_steps', 'checkpoint_interval', 'stage_interaction_limit')}
 
 
 def train_agent(env, config: dict, previous: dict | None, on_checkpoint) -> TrainingResult:
+    stage_limit = config.get('stage_interaction_limit')
+    if stage_limit is not None and (type(stage_limit) is not int or stage_limit <= 0):
+        raise ValueError('Stage interaction limit must be a positive integer')
     positive = ('total_steps', 'batch_size', 'checkpoint_interval', 'max_grad_norm')
     positive += ('buffer_size', 'target_update_interval', 'train_frequency', 'epsilon_decay_steps') if config['algorithm'] == 'dqn' else ('rollout_steps', 'ppo_epochs')
     if any(config[k] <= 0 for k in positive) or not 0 <= config['gamma'] <= 1:
@@ -136,6 +140,9 @@ def train_agent(env, config: dict, previous: dict | None, on_checkpoint) -> Trai
         observation, _ = env.reset(seed=config['seed'])
     if learned_steps + warmup_steps > config['total_steps']:
         raise ValueError('Restored interaction count exceeds stage budget')
+    # 单次调用有界，未完成的 PPO 轨迹不提前更新。 / Bound this call without flushing a pending rollout.
+    stage_end = config['total_steps'] if stage_limit is None else min(
+        config['total_steps'], learned_steps + warmup_steps + stage_limit)
 
     def checkpoint():
         return deepcopy({'format': 'native_training_v1', 'settings': _settings(config),
@@ -148,7 +155,7 @@ def train_agent(env, config: dict, previous: dict | None, on_checkpoint) -> Trai
                          'environment': env.snapshot(), 'torch_rng': torch.get_rng_state(),
                          'cuda_rng': torch.cuda.get_rng_state_all() if agent.device.type == 'cuda' else []})
 
-    while learned_steps + warmup_steps < config['total_steps']:
+    while learned_steps + warmup_steps < stage_end:
         if finished:
             episode += 1
             observation, _ = env.reset(seed=config['seed'] + episode)
