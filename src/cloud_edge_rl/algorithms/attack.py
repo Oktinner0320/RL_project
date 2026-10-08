@@ -5,6 +5,7 @@ import torch
 
 from ..data import decode_features
 from ..types import AttackInput
+from .attack_gradients import relu_parameter_gradients
 from .federated import make_model
 
 
@@ -13,14 +14,14 @@ def categorical_relaxation(inputs: torch.Tensor, metadata: dict, temperature: fl
     blocks, cursor = [], 0
     for layout in sorted(metadata['encoding_layout'].values(), key=lambda item: item['start']):
         start, stop = layout['start'], layout['stop']
-        if start != cursor or not start < stop <= inputs.shape[1]:
+        if start != cursor or not start < stop <= inputs.shape[-1]:
             raise ValueError('Encoding layout must cover inputs exactly without overlaps')
-        block = inputs[:, start:stop]
-        blocks.append(block if layout['kind'] == 'numeric' else torch.softmax(block / temperature, dim=1))
+        block = inputs[..., start:stop]
+        blocks.append(block if layout['kind'] == 'numeric' else torch.softmax(block / temperature, dim=-1))
         cursor = stop
-    if cursor != inputs.shape[1]:
+    if cursor != inputs.shape[-1]:
         raise ValueError('Encoding layout must cover inputs exactly without overlaps')
-    return torch.cat(blocks, dim=1)
+    return torch.cat(blocks, dim=-1)
 
 
 class GradientAttack:
@@ -38,6 +39,8 @@ class GradientAttack:
             raise ValueError('Unknown attack input parameterization')
         if not np.isfinite(config.get('categorical_temperature', 1.)) or config.get('categorical_temperature', 1.) <= 0:
             raise ValueError('Categorical temperature must be finite and positive')
+        if config.get('restart_execution', 'serial') not in ('serial', 'vectorized_analytic'):
+            raise ValueError('Unknown attack restart execution')
 
     def reconstruct(self, observed: AttackInput):
         config = self.config
@@ -58,46 +61,102 @@ class GradientAttack:
             labels = observed.labels.to(device=device, dtype=dtype).reshape(-1, 1)
             if len(labels) != observed.batch_size:
                 raise ValueError('Known labels and batch size differ')
-            best, reconstruction, initial = float('inf'), None, []
-            for restart in range(config['restarts']):
-                torch.manual_seed((config['seed'] + restart) % 2**32)
-                inputs = torch.randn(observed.batch_size, observed.model_config['input_size'],
-                                     device=device, dtype=dtype, requires_grad=True)
-                optimizer = torch.optim.Adam([inputs], lr=config['learning_rate'])
-                # 与参考的表格优化协议一致；保留旧版恒定步长。 / Match reference; retain legacy constant LR.
-                scheduler = None
-                if config.get('learning_rate_schedule', 'constant') == 'linear':
-                    scheduler = torch.optim.lr_scheduler.LinearLR(
-                        optimizer, start_factor=1., end_factor=config['learning_rate_end_factor'],
-                        total_iters=config['iterations'])
-                for iteration in range(config['iterations'] + 1):
-                    # 保持数值特征自由；不接触样本真值。 / Keep numeric features free; no private truth.
-                    candidate = (categorical_relaxation(inputs, observed.feature_metadata,
-                                 config.get('categorical_temperature', 1.))
-                                 if config.get('input_parameterization', 'unconstrained') == 'categorical_softmax'
-                                 else inputs)
-                    loss = model.criterion(model(candidate), labels)
-                    gradient = torch.autograd.grad(loss, [p for _, p in named], create_graph=True)
-                    flat = torch.cat([g.flatten() for g in gradient])
-                    objective = 1 - torch.nn.functional.cosine_similarity(flat, target, dim=0)
-                    value = objective.item()
-                    if not np.isfinite(value):
-                        raise RuntimeError('Nonfinite gradient inversion objective')
-                    if iteration == 0:
-                        initial.append(value)
-                    if value < best:
-                        best, reconstruction = value, candidate.detach().cpu().numpy().copy()
-                    if iteration == config['iterations']:
-                        break
-                    optimizer.zero_grad(set_to_none=True)
-                    inputs.grad = torch.autograd.grad(objective, inputs)[0]
-                    optimizer.step()
-                    if scheduler is not None:
-                        scheduler.step()
+            optimize = (self._parallel_reconstruct
+                        if config.get('restart_execution', 'serial') == 'vectorized_analytic'
+                        else self._serial_reconstruct)
+            best, reconstruction, initial, final_lr = optimize(model, observed, named, target, labels)
         self.last_diagnostics = {'gradient_objective': best, 'initial_objectives': initial,
                                  'iterations': config['iterations'], 'restarts': config['restarts'],
                                   'learning_rate_schedule': config.get('learning_rate_schedule', 'constant'),
                                   'input_parameterization': config.get('input_parameterization', 'unconstrained'),
                                   'categorical_temperature': config.get('categorical_temperature', 1.),
-                                 'final_learning_rate': optimizer.param_groups[0]['lr']}
+                                  'restart_execution': config.get('restart_execution', 'serial'),
+                                 'final_learning_rate': final_lr}
         return decode_features(reconstruction, observed.feature_metadata)
+
+    def _serial_reconstruct(self, model, observed, named, target, labels):
+        """保留历史优化顺序。 / Retain the original independent sequential restarts."""
+        config, device, dtype = self.config, target.device, target.dtype
+        best, reconstruction, initial = float('inf'), None, []
+        for restart in range(config['restarts']):
+            torch.manual_seed((config['seed'] + restart) % 2**32)
+            inputs = torch.randn(observed.batch_size, observed.model_config['input_size'],
+                                 device=device, dtype=dtype, requires_grad=True)
+            optimizer = torch.optim.Adam([inputs], lr=config['learning_rate'])
+            scheduler = None
+            if config.get('learning_rate_schedule', 'constant') == 'linear':
+                scheduler = torch.optim.lr_scheduler.LinearLR(
+                    optimizer, start_factor=1., end_factor=config['learning_rate_end_factor'],
+                    total_iters=config['iterations'])
+            for iteration in range(config['iterations'] + 1):
+                candidate = (categorical_relaxation(inputs, observed.feature_metadata,
+                             config.get('categorical_temperature', 1.))
+                             if config.get('input_parameterization', 'unconstrained') == 'categorical_softmax'
+                             else inputs)
+                loss = model.criterion(model(candidate), labels)
+                gradient = torch.autograd.grad(loss, [p for _, p in named], create_graph=True)
+                flat = torch.cat([g.flatten() for g in gradient])
+                objective = 1 - torch.nn.functional.cosine_similarity(flat, target, dim=0)
+                value = objective.item()
+                if not np.isfinite(value):
+                    raise RuntimeError('Nonfinite gradient inversion objective')
+                if iteration == 0:
+                    initial.append(value)
+                if value < best:
+                    best, reconstruction = value, candidate.detach().cpu().numpy().copy()
+                if iteration == config['iterations']:
+                    break
+                optimizer.zero_grad(set_to_none=True)
+                inputs.grad = torch.autograd.grad(objective, inputs)[0]
+                optimizer.step()
+                if scheduler is not None:
+                    scheduler.step()
+        return best, reconstruction, initial, optimizer.param_groups[0]['lr']
+
+    def _parallel_reconstruct(self, model, observed, named, target, labels):
+        """重启梯度、Adam 矩及最优值互相独立。 / Vectorize without mixing restarts."""
+        config, device, dtype = self.config, target.device, target.dtype
+        starts = []
+        for restart in range(config['restarts']):
+            torch.manual_seed((config['seed'] + restart) % 2**32)
+            starts.append(torch.randn(observed.batch_size, observed.model_config['input_size'],
+                                      device=device, dtype=dtype))
+        inputs = torch.stack(starts).requires_grad_()
+        optimizer = torch.optim.Adam([inputs], lr=config['learning_rate'])
+        scheduler = None
+        if config.get('learning_rate_schedule', 'constant') == 'linear':
+            scheduler = torch.optim.lr_scheduler.LinearLR(
+                optimizer, start_factor=1., end_factor=config['learning_rate_end_factor'],
+                total_iters=config['iterations'])
+        best_values = torch.full((config['restarts'],), float('inf'), device=device, dtype=dtype)
+        best_inputs, initial = inputs.detach().clone(), None
+        finite = torch.ones((), dtype=torch.bool, device=device)
+        for iteration in range(config['iterations'] + 1):
+            candidate = (categorical_relaxation(inputs, observed.feature_metadata,
+                         config.get('categorical_temperature', 1.))
+                         if config.get('input_parameterization', 'unconstrained') == 'categorical_softmax'
+                         else inputs)
+            gradients = relu_parameter_gradients(model, candidate, labels)
+            flat = torch.cat([gradients[name].flatten(1) for name, _ in named], dim=1)
+            objective = 1 - torch.nn.functional.cosine_similarity(flat, target.unsqueeze(0), dim=1)
+            # 累积设备端标志，避免每步同步 GPU；任何非有限值都禁止返回重建。
+            # Keep a device-side flag, avoiding a GPU fence per step; never return after a nonfinite value.
+            finite = finite & torch.isfinite(objective).all()
+            if iteration == 0:
+                initial = objective.detach().cpu().tolist()
+            improved = objective.detach() < best_values
+            best_inputs = torch.where(improved[:, None, None], candidate.detach(), best_inputs)
+            best_values = torch.minimum(best_values, objective.detach())
+            if iteration == config['iterations']:
+                break
+            optimizer.zero_grad(set_to_none=True)
+            # sum 保持每个重启的原梯度尺度。 / A sum preserves each independent gradient scale.
+            inputs.grad = torch.autograd.grad(objective.sum(), inputs)[0]
+            optimizer.step()
+            if scheduler is not None:
+                scheduler.step()
+        if not finite:
+            raise RuntimeError('Nonfinite gradient inversion objective')
+        restart = int(best_values.argmin().item())
+        return (best_values[restart].item(), best_inputs[restart].cpu().numpy().copy(),
+                initial, optimizer.param_groups[0]['lr'])
