@@ -11,7 +11,7 @@ def run_warmup(
     terminated = truncated = False
     total_reward = 0.0
     for action_id in action_ids:
-        base = env.unwrapped
+        base = getattr(env, 'unwrapped', env)
         before = getattr(base, 'warmup', False)
         base.warmup = True
         try:

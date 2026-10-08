@@ -15,6 +15,10 @@ class GradientAttack:
             raise ValueError('Native attack supports known-label gradient_matching only')
         if min(config['iterations'], config['restarts']) <= 0 or config['learning_rate'] <= 0:
             raise ValueError('Attack budgets and learning rate must be positive')
+        if config.get('learning_rate_schedule', 'constant') not in ('constant', 'linear'):
+            raise ValueError('Attack learning rate schedule must be constant or linear')
+        if config.get('learning_rate_schedule', 'constant') == 'linear' and not 0 < config['learning_rate_end_factor'] <= 1:
+            raise ValueError('Linear attack learning rate end factor must be in (0,1]')
 
     def reconstruct(self, observed: AttackInput):
         config = self.config
@@ -41,6 +45,12 @@ class GradientAttack:
                 inputs = torch.randn(observed.batch_size, observed.model_config['input_size'],
                                      device=device, dtype=dtype, requires_grad=True)
                 optimizer = torch.optim.Adam([inputs], lr=config['learning_rate'])
+                # 与参考的表格优化协议一致；保留旧版恒定步长。 / Match reference; retain legacy constant LR.
+                scheduler = None
+                if config.get('learning_rate_schedule', 'constant') == 'linear':
+                    scheduler = torch.optim.lr_scheduler.LinearLR(
+                        optimizer, start_factor=1., end_factor=config['learning_rate_end_factor'],
+                        total_iters=config['iterations'])
                 for iteration in range(config['iterations'] + 1):
                     loss = model.criterion(model(inputs), labels)
                     gradient = torch.autograd.grad(loss, [p for _, p in named], create_graph=True)
@@ -58,6 +68,10 @@ class GradientAttack:
                     optimizer.zero_grad(set_to_none=True)
                     inputs.grad = torch.autograd.grad(objective, inputs)[0]
                     optimizer.step()
+                    if scheduler is not None:
+                        scheduler.step()
         self.last_diagnostics = {'gradient_objective': best, 'initial_objectives': initial,
-                                 'iterations': config['iterations'], 'restarts': config['restarts']}
+                                 'iterations': config['iterations'], 'restarts': config['restarts'],
+                                 'learning_rate_schedule': config.get('learning_rate_schedule', 'constant'),
+                                 'final_learning_rate': optimizer.param_groups[0]['lr']}
         return decode_features(reconstruction, observed.feature_metadata)
