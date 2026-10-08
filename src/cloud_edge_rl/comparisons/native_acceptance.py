@@ -15,6 +15,76 @@ from .attack import TabularGradientAttack
 from .federated import TabularFedSGD
 
 
+def backend_gate(data, config: dict, source_root: Path, store) -> dict:
+    """全动作、配对种子验证 FedSGD；不打开测试集。 / All actions and seeds, without test evaluation."""
+    settings = config['native_acceptance']
+    tolerance = settings['backend_numerical_tolerance']
+    if (not 0 < tolerance < 1 or not settings['seeds'] or
+            len(set(settings['seeds'])) != len(settings['seeds'])):
+        raise ValueError('Backend gate needs unique seeds and numerical tolerance in (0,1)')
+    actions = [Action(i, tuple(clients), batch)
+               for i, (clients, batch) in enumerate(
+                   (c, b) for c in config['environment']['client_sets']
+                   for b in config['environment']['batch_sizes'])]
+    rows = []
+    for seed in settings['seeds']:
+        model_config = {**config['model'], 'seed': seed}
+        if len(set(model_config['hidden_sizes'])) != 1:
+            raise ValueError('The reference MLP requires equal hidden widths')
+        native = FederatedBackend(data, model_config)
+        reference = TabularFedSGD(source_root, data, {
+            **model_config, 'architecture': 'tabular_gia_mlp',
+            'hidden_size': model_config['hidden_sizes'][0],
+            'hidden_layers': len(model_config['hidden_sizes']),
+        })
+        native.reset(seed)
+        reference.reset(seed)
+        with torch.no_grad():
+            parameters = dict(native.model.named_parameters())
+            for name, parameter in reference.model.named_parameters():
+                parameter.copy_(parameters[name])
+        for action in actions:
+            durations, results = [], []
+            for backend in (native, reference):
+                if native.device.type == 'cuda':
+                    torch.cuda.synchronize()
+                started = perf_counter()
+                results.append(backend.step_round(action))
+                if native.device.type == 'cuda':
+                    torch.cuda.synchronize()
+                durations.append(perf_counter() - started)
+            n, r = results
+            samples_equal = len(n.updates) == len(r.updates) and all(
+                np.array_equal(a.sample_ids, b.sample_ids)
+                for a, b in zip(n.updates, r.updates))
+            gradient_difference = max(
+                (a.attack_input.gradients[name] - b.attack_input.gradients[name]).abs().max().item()
+                for a, b in zip(n.updates, r.updates) for name in a.attack_input.gradients)
+            parameters = dict(reference.model.named_parameters())
+            parameter_difference = max((p - parameters[name]).abs().max().item()
+                                       for name, p in native.model.named_parameters())
+            loss_difference = abs(n.summary.validation_loss - r.summary.validation_loss)
+            accuracy_difference = abs(n.summary.validation_accuracy - r.summary.validation_accuracy)
+            passed = samples_equal and all(np.isfinite(value) and value <= tolerance for value in
+                (gradient_difference, parameter_difference, loss_difference, accuracy_difference))
+            rows.append({'seed': seed, 'action': asdict(action),
+                         'partition': config['data']['partition'],
+                         'samples_equal': samples_equal,
+                         'gradient_difference': gradient_difference,
+                         'parameter_difference': parameter_difference,
+                         'validation_loss_difference': loss_difference,
+                         'validation_accuracy_difference': accuracy_difference,
+                         'native': asdict(n.summary), 'reference': asdict(r.summary),
+                         'native_seconds': durations[0], 'reference_seconds': durations[1],
+                         'status': 'pass' if passed else 'fail'})
+            store.write_json('backend_progress.json', {'rows': rows})
+    return {'scope': 'FedSGD paired all-action numerical gate; not overall acceptance',
+            'device': str(native.device), 'partition': config['data']['partition'],
+            'seeds': settings['seeds'], 'cases': len(rows), 'rows': rows,
+            'status': 'pass' if rows and all(row['status'] == 'pass' for row in rows) else 'fail',
+            'final_acceptance': False}
+
+
 def sample_gate(data, config: dict, source_root: Path, store) -> dict:
     """共享参数、采样和梯度，真值仅供评价。 / Share weights/samples/gradients; truth is evaluator-only."""
     settings = config['native_acceptance']

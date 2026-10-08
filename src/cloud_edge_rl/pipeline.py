@@ -239,7 +239,11 @@ def run_experiment(spec: RunSpec, root: Path) -> dict:
         else:
             data = prepare_adult(spec.config["data"], root / "data")
             store.write_json("data_metadata.json", data.metadata)
-            if spec.stage == "native_acceptance_sample":
+            if spec.stage == "native_acceptance_backend":
+                from .comparisons.native_acceptance import backend_gate
+
+                result = backend_gate(data, spec.config, source_root(spec.config, root), store)
+            elif spec.stage == "native_acceptance_sample":
                 from .comparisons.native_acceptance import sample_gate
 
                 result = sample_gate(data, spec.config, source_root(spec.config, root), store)
