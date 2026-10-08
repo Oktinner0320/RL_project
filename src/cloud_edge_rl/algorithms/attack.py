@@ -8,6 +8,21 @@ from ..types import AttackInput
 from .federated import make_model
 
 
+def categorical_relaxation(inputs: torch.Tensor, metadata: dict, temperature: float) -> torch.Tensor:
+    """只用公开布局，将类别块映射至概率单纯形。 / Relax public categorical blocks onto simplices."""
+    blocks, cursor = [], 0
+    for layout in sorted(metadata['encoding_layout'].values(), key=lambda item: item['start']):
+        start, stop = layout['start'], layout['stop']
+        if start != cursor or not start < stop <= inputs.shape[1]:
+            raise ValueError('Encoding layout must cover inputs exactly without overlaps')
+        block = inputs[:, start:stop]
+        blocks.append(block if layout['kind'] == 'numeric' else torch.softmax(block / temperature, dim=1))
+        cursor = stop
+    if cursor != inputs.shape[1]:
+        raise ValueError('Encoding layout must cover inputs exactly without overlaps')
+    return torch.cat(blocks, dim=1)
+
+
 class GradientAttack:
     def __init__(self, config: dict):
         self.config = dict(config)
@@ -19,6 +34,10 @@ class GradientAttack:
             raise ValueError('Attack learning rate schedule must be constant or linear')
         if config.get('learning_rate_schedule', 'constant') == 'linear' and not 0 < config['learning_rate_end_factor'] <= 1:
             raise ValueError('Linear attack learning rate end factor must be in (0,1]')
+        if config.get('input_parameterization', 'unconstrained') not in ('unconstrained', 'categorical_softmax'):
+            raise ValueError('Unknown attack input parameterization')
+        if not np.isfinite(config.get('categorical_temperature', 1.)) or config.get('categorical_temperature', 1.) <= 0:
+            raise ValueError('Categorical temperature must be finite and positive')
 
     def reconstruct(self, observed: AttackInput):
         config = self.config
@@ -52,7 +71,12 @@ class GradientAttack:
                         optimizer, start_factor=1., end_factor=config['learning_rate_end_factor'],
                         total_iters=config['iterations'])
                 for iteration in range(config['iterations'] + 1):
-                    loss = model.criterion(model(inputs), labels)
+                    # 保持数值特征自由；不接触样本真值。 / Keep numeric features free; no private truth.
+                    candidate = (categorical_relaxation(inputs, observed.feature_metadata,
+                                 config.get('categorical_temperature', 1.))
+                                 if config.get('input_parameterization', 'unconstrained') == 'categorical_softmax'
+                                 else inputs)
+                    loss = model.criterion(model(candidate), labels)
                     gradient = torch.autograd.grad(loss, [p for _, p in named], create_graph=True)
                     flat = torch.cat([g.flatten() for g in gradient])
                     objective = 1 - torch.nn.functional.cosine_similarity(flat, target, dim=0)
@@ -62,7 +86,7 @@ class GradientAttack:
                     if iteration == 0:
                         initial.append(value)
                     if value < best:
-                        best, reconstruction = value, inputs.detach().cpu().numpy().copy()
+                        best, reconstruction = value, candidate.detach().cpu().numpy().copy()
                     if iteration == config['iterations']:
                         break
                     optimizer.zero_grad(set_to_none=True)
@@ -72,6 +96,8 @@ class GradientAttack:
                         scheduler.step()
         self.last_diagnostics = {'gradient_objective': best, 'initial_objectives': initial,
                                  'iterations': config['iterations'], 'restarts': config['restarts'],
-                                 'learning_rate_schedule': config.get('learning_rate_schedule', 'constant'),
+                                  'learning_rate_schedule': config.get('learning_rate_schedule', 'constant'),
+                                  'input_parameterization': config.get('input_parameterization', 'unconstrained'),
+                                  'categorical_temperature': config.get('categorical_temperature', 1.),
                                  'final_learning_rate': optimizer.param_groups[0]['lr']}
         return decode_features(reconstruction, observed.feature_metadata)
