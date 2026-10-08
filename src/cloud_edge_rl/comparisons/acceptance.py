@@ -17,6 +17,18 @@ def training_allocation(prior: list[dict], method: str, seed: int, partition: st
                 and row['spec']['config']['data']['partition'] == partition]
     known, seen, used = [], set(), 0
     for row in matching:
+        # 恢复日志证明该请求尚未调用训练器；失败与计算费用仍保留在账本。
+        # Recovered artifacts can prove a request failed before the trainer; never erase its monetary cost.
+        proof = row.get('verified_pretraining_failure', {})
+        if (row['state'] == 'failed' and
+                row.get('error') == {'type': 'KeyError', 'message': "'previous_training_checkpoint'"} and
+                'previous_training_checkpoint' not in row['spec']['inputs'] and
+                proof.get('call_id') == row.get('call_id') and proof.get('call_id') and
+                proof.get('run_id') == row['spec']['run_id'] and
+                type(proof.get('transition_rows')) is int and proof['transition_rows'] == 0 and
+                proof.get('checkpoint_created') is False and
+                isinstance(proof.get('error_sha256'), str) and len(proof['error_sha256']) == 64):
+            continue
         # 下载失败仍然可能已消耗完整训练预算；未知进度必须先恢复检查点。
         # A failed download can follow completed compute; unknown progress must be recovered first.
         if row['state'] not in ('completed', 'remote_completed') or 'result' not in row:

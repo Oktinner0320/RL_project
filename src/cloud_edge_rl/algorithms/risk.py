@@ -26,6 +26,9 @@ class RiskEstimator:
         self.device = torch.device(config['device'])
         if not isinstance(config.get('mean_calibration', False), bool):
             raise ValueError('Mean calibration must be boolean')
+        index = config.get('calibration_feature_index')
+        if index is not None and (type(index) is not int or index < 0 or not config.get('mean_calibration', False)):
+            raise ValueError('Feature calibration requires mean calibration and a nonnegative integer index')
 
     def _build(self):
         return nn.ModuleList([mlp(self.feature_count, self.config['hidden_sizes'], 1)
@@ -40,6 +43,9 @@ class RiskEstimator:
             raise ValueError('Risk training shapes must be [N,F], [N], [N]')
         if not np.isfinite(features).all() or not np.isfinite(targets).all() or not ((targets >= 0) & (targets <= 1)).all():
             raise ValueError('Risk training data must be finite and labels in [0,1]')
+        index = self.config.get('calibration_feature_index')
+        if index is not None and index >= features.shape[1]:
+            raise ValueError('Calibration feature index is outside the feature contract')
         config = self.config
         if min(config['ensemble_size'], config['epochs'], config['batch_size']) <= 0:
             raise ValueError('Risk training budgets must be positive')
@@ -87,11 +93,18 @@ class RiskEstimator:
         self.model.load_state_dict(weights)
         self.model.eval().requires_grad_(False)
         self.calibration_offset = 0.
+        self.calibration_values, self.calibration_offsets = np.empty(0), np.empty(0)
         if config.get('mean_calibration', False):
             # 只在已有内部验证组拟合截距；不使用独立面板或测试标签。
             # Fit an intercept on the existing internal group, never on held-out panel/test labels.
             with torch.inference_mode():
-                self.calibration_offset = (y[valid_ids] - self._members(x[valid_ids]).mean(1)).mean().item()
+                residual = y[valid_ids] - self._members(x[valid_ids]).mean(1)
+                self.calibration_offset = residual.mean().item()
+            if index is not None:
+                keys = features[validation, index]
+                self.calibration_values = np.unique(keys)
+                errors = residual.cpu().numpy()
+                self.calibration_offsets = np.asarray([errors[keys == key].mean() for key in self.calibration_values])
         self.fit_metadata = {'train_groups': np.unique(groups[~validation]).tolist(),
                              'validation_groups': validation_groups.tolist(), 'best_epoch': best_epoch,
                              'validation_mse': best, 'history': history,
@@ -100,6 +113,11 @@ class RiskEstimator:
             self.fit_metadata['mean_calibration'] = {
                 'method': 'internal_validation_mean_residual', 'offset': self.calibration_offset,
                 'groups': validation_groups.tolist(), 'confidence_guarantee': False}
+            if index is not None:
+                self.fit_metadata['mean_calibration'].update(
+                    method='internal_validation_feature_residual', feature_index=index,
+                    values=self.calibration_values.tolist(), offsets=self.calibration_offsets.tolist(),
+                    unseen_value_fallback='global_mean_residual')
 
     def predict(self, features: np.ndarray) -> RiskPrediction:
         features = np.asarray(features)
@@ -114,20 +132,30 @@ class RiskEstimator:
                 batches.append(self._members(torch.tensor(x, dtype=torch.float32, device=self.device)).cpu().numpy())
         members = np.concatenate(batches)
         # 偏差修正仅作用于点估计；成员分歧仍未经置信校准。 / Correct the mean; dispersion remains uncalibrated.
-        return RiskPrediction(np.clip(members.mean(1) + self.calibration_offset, 0., 1.), members.std(1))
+        correction = self.calibration_offset
+        index = self.config.get('calibration_feature_index')
+        if index is not None:
+            # 只使用内部验证组的公开特征分层；未知值退回已有全局截距。
+            # Public-feature strata use internal groups only; unseen values keep the global intercept.
+            correction = np.full(len(features), self.calibration_offset)
+            for value, offset in zip(self.calibration_values, self.calibration_offsets):
+                correction[features[:, index] == value] = offset
+        return RiskPrediction(np.clip(members.mean(1) + correction, 0., 1.), members.std(1))
 
     def checkpoint(self) -> dict:
         return deepcopy({'format': 'native_risk_v1', 'version': self.version, 'config': self.config,
                          'feature_count': self.feature_count, 'mean': self.mean, 'scale': self.scale,
                           'model': {k: v.cpu().clone() for k, v in self.model.state_dict().items()},
-                          'fit_metadata': self.fit_metadata, 'calibration_offset': self.calibration_offset})
+                          'fit_metadata': self.fit_metadata, 'calibration_offset': self.calibration_offset,
+                          'calibration_values': self.calibration_values, 'calibration_offsets': self.calibration_offsets})
 
     def load_checkpoint(self, state: dict) -> None:
         if state['format'] != 'native_risk_v1' or state['version'] != self.version:
             raise ValueError('Risk checkpoint version mismatch')
         def settings(config):
             return {**{k: v for k, v in config.items() if k not in ('device', 'mode', 'seed')},
-                    'mean_calibration': config.get('mean_calibration', False)}
+                    'mean_calibration': config.get('mean_calibration', False),
+                    'calibration_feature_index': config.get('calibration_feature_index')}
         if settings(state['config']) != settings(self.config):
             raise ValueError('Risk checkpoint configuration mismatch')
         if self.config.get('mean_calibration', False) and 'calibration_offset' not in state:
@@ -138,6 +166,17 @@ class RiskEstimator:
             raise ValueError('Invalid risk mean calibration offset')
         self.calibration_offset = float(offset)
         self.feature_count = state['feature_count']
+        index = self.config.get('calibration_feature_index')
+        values = np.asarray(state.get('calibration_values', []), dtype=float)
+        offsets = np.asarray(state.get('calibration_offsets', []), dtype=float)
+        if index is not None:
+            if (index >= self.feature_count or values.ndim != 1 or not len(values) or offsets.shape != values.shape
+                    or not np.isfinite(values).all() or not np.isfinite(offsets).all()
+                    or len(np.unique(values)) != len(values) or (np.abs(offsets) > 1).any()):
+                raise ValueError('Invalid feature calibration checkpoint')
+        elif values.size or offsets.size:
+            raise ValueError('Unexpected feature calibration checkpoint')
+        self.calibration_values, self.calibration_offsets = values.copy(), offsets.copy()
         self.mean, self.scale = state['mean'].copy(), state['scale'].copy()
         with torch.random.fork_rng(devices=[]):
             self.model = self._build()
