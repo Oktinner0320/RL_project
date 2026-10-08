@@ -125,8 +125,9 @@ class RiskEstimator:
     def load_checkpoint(self, state: dict) -> None:
         if state['format'] != 'native_risk_v1' or state['version'] != self.version:
             raise ValueError('Risk checkpoint version mismatch')
-        settings = lambda c: {**{k: v for k, v in c.items() if k not in ('device', 'mode', 'seed')},
-                              'mean_calibration': c.get('mean_calibration', False)}
+        def settings(config):
+            return {**{k: v for k, v in config.items() if k not in ('device', 'mode', 'seed')},
+                    'mean_calibration': config.get('mean_calibration', False)}
         if settings(state['config']) != settings(self.config):
             raise ValueError('Risk checkpoint configuration mismatch')
         if self.config.get('mean_calibration', False) and 'calibration_offset' not in state:
