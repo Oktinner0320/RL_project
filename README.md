@@ -8,7 +8,7 @@
 
 本项目研究：动态调度改变训练轨迹后，经验隐私风险代理是否出现系统性低估，以及不确定性和有限梯度反演审计能否提高决策可靠性。客户端选择与批量大小的联合调度是应用场景，模型效用、时间和能量是共同评价维度。
 
-研究者的 PyTorch 模型、FedSGD、DQN/PPO、风险估计器与梯度反演接口保留在 `core.py`，尚未实现的接口仍明确停止。经您授权，另在 `comparisons/` 接入可运行的第三方基线：官方小型 MLP 的 FedSGD 对照与 IG 反演、MLP/TabM 风险回归、MetaCS 目标适配、PyTorch PQN 移植和 ConformalOpt/OCP 审计序列对照。选择第三方基线不会修改或自动代替您的核心。接入计划与验收见 [BASELINE_INTEGRATION.md](docs/BASELINE_INTEGRATION.md)。
+研究者原生第一版已实现，`core.py` 保留公开入口，具体实现位于 `src/cloud_edge_rl/algorithms/`：`federated.py`（同步 FedSGD）、`attack.py`（已知标签梯度反演）、`risk.py`（MLP 风险集成）、`dqn.py`、`ppo.py` 和 `policy.py`（训练与恢复）。第三方基线仍独立位于 `comparisons/`，不会自动替换原生核心。参考性能达到 95% 的目标尚待真实对照实验验证。
 
 ## 安装与入口
 

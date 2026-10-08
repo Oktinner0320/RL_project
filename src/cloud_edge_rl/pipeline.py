@@ -50,6 +50,10 @@ class RecordingEnv(gym.Wrapper):
         super().__init__(env)
         self.store, self.root, self.data, self.run_spec = store, root, data, spec
         self.episode = -1
+        self.decision_diagnostics = None
+
+    def set_decision_diagnostics(self, diagnostics: dict):
+        self.decision_diagnostics = deepcopy(diagnostics)
 
     def reset(self, *, seed=None, options=None):
         """新回合只清理环境，不混合日志。 / Reset the environment while retaining the run journal."""
@@ -62,13 +66,17 @@ class RecordingEnv(gym.Wrapper):
         values = self.observation["candidates"]
         weights = self.unwrapped.config["reward"]
         scores = (
-            values[:, 0]
+            weights.get('accuracy_weight', 1.) * values[:, 0]
             - weights["time_weight"] * values[:, 1] / weights["time_scale"]
             - weights["energy_weight"] * values[:, 2] / weights["energy_scale"]
             - weights["risk_weight"] * values[:, 3]
         )
         ordered = np.sort(scores)
         margin = float(np.ptp(ordered[-2:]))
+        decision_kind = 'heuristic_scores'
+        if self.decision_diagnostics is not None:
+            margin = self.decision_diagnostics['margin']
+            decision_kind = self.decision_diagnostics['kind']
         observation, reward, terminated, truncated, info = self.env.step(action)
         self.store.append_metrics(
             {
@@ -77,6 +85,8 @@ class RecordingEnv(gym.Wrapper):
                 "reward": reward,
                 "terminated": terminated,
                 "truncated": truncated,
+                'decision_kind': decision_kind,
+                'decision_margin': margin,
             }
         )
         updates = self.unwrapped.pop_updates()
@@ -96,7 +106,15 @@ class RecordingEnv(gym.Wrapper):
                     self.run_spec.config["execution"]["split"],
                     self.data,
                     info["risk_version"],
+                    info['is_warmup'],
+                    info['reward_protocol'],
+                    decision_kind,
                 )
+        if self.decision_diagnostics is not None:
+            with (self.store.path / 'policy_decisions.jsonl').open('a', encoding='utf-8') as stream:
+                stream.write(json.dumps({'episode': self.episode, 'round': info['round'],
+                                         **self.decision_diagnostics}) + '\n')
+        self.decision_diagnostics = None
         self.observation = observation
         return observation, reward, terminated, truncated, info
 
@@ -193,9 +211,13 @@ def _run_episode(env: RecordingEnv, policy, seed: int) -> dict:
     )
     if warmup_info:
         info = warmup_info
+    if getattr(env.unwrapped, 'protocol', 'legacy_v1') == 'exposure_v1':
+        total_reward = 0.
     finished = terminated or truncated
     while not finished:
         action = policy.act(observation, explore=False)
+        if hasattr(policy, 'last_diagnostics'):
+            env.set_decision_diagnostics(policy.last_diagnostics)
         observation, reward, terminated, truncated, info = env.step(action)
         total_reward += reward
         finished = terminated or truncated
@@ -217,7 +239,11 @@ def run_experiment(spec: RunSpec, root: Path) -> dict:
         else:
             data = prepare_adult(spec.config["data"], root / "data")
             store.write_json("data_metadata.json", data.metadata)
-            if spec.stage == "prepare_data":
+            if spec.stage == "native_acceptance_sample":
+                from .comparisons.native_acceptance import sample_gate
+
+                result = sample_gate(data, spec.config, source_root(spec.config, root), store)
+            elif spec.stage == "prepare_data":
                 result = {
                     "train_rows": len(data.train_y),
                     "validation_rows": len(data.validation_y),
@@ -275,7 +301,7 @@ def run_experiment(spec: RunSpec, root: Path) -> dict:
                     "training_uploads": len(frame),
                     "training_runs": int(frame["run_id"].nunique()),
                 }
-                if spec.config["components"]["risk"] != "researcher":
+                if hasattr(risk, 'fit_metadata'):
                     result["fit_metadata"] = risk.fit_metadata
             elif spec.stage == "evaluate_risk":
                 frame = read_audits(root, spec.inputs["audit_run_ids"])
@@ -305,6 +331,7 @@ def run_experiment(spec: RunSpec, root: Path) -> dict:
                     underestimation=np.maximum(residual, 0),
                 )
                 frame.to_csv(store.path / "risk_predictions.csv", index=False)
+                exposure_weights = frame['batch_size'].to_numpy() if 'batch_size' in frame else np.ones(len(frame))
                 result = {
                     "uploads": len(frame),
                     "mae": float(np.abs(residual).mean()),
@@ -312,6 +339,8 @@ def run_experiment(spec: RunSpec, root: Path) -> dict:
                     "worst_underestimation": float(np.maximum(residual, 0).max()),
                     "risk_version": risk.version,
                     "implementation": spec.config["components"]["risk"],
+                    'exposure_weighted_mae': float(np.average(np.abs(residual), weights=exposure_weights)),
+                    'exposure_weighted_underestimation': float(np.average(np.maximum(residual, 0), weights=exposure_weights)),
                 }
             elif spec.stage == "compare_calibration":
                 from .comparisons.calibration import compare_calibration
@@ -365,7 +394,7 @@ def run_experiment(spec: RunSpec, root: Path) -> dict:
                         "agent.pt",
                     )
                     result = {"trained": True, "risk_version": spec.risk_version}
-                    if spec.method == "pqn":
+                    if 'learned_steps' in training.checkpoint:
                         result.update(
                             learned_steps=training.checkpoint["learned_steps"],
                             warmup_steps=training.checkpoint["warmup_steps"],

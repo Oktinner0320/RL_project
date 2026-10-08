@@ -17,6 +17,10 @@ from .sources import load_module
 
 def make_model(root: Path, config: dict):
     """按源模型契约构建，不能根据梯度形状猜测。 / Build from the recorded model contract, not gradient guesses."""
+    if config['architecture'] == 'native_binary_mlp_v1':
+        from ..algorithms.federated import make_model as make_native_model
+
+        return make_native_model(config)
     if (
         config["architecture"] != "tabular_gia_mlp"
         or config["loss"] != "binary_cross_entropy_with_logits"

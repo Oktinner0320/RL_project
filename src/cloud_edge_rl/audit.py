@@ -30,6 +30,9 @@ def save_upload(
     split: str,
     data,
     risk_version: str,
+    is_warmup: bool = False,
+    reward_protocol: str = 'legacy_v1',
+    decision_kind: str = 'heuristic_scores',
 ) -> AuditCandidate:
     """分开存攻击者输入和真值；二者仅通过上传 ID 对齐。 / Separate attacker inputs from references."""
     upload_id = f"e{episode}-r{round_index}-c{update.client_id}"
@@ -76,6 +79,9 @@ def save_upload(
         split,
         packet.relative_to(root).as_posix(),
         reference.relative_to(root).as_posix(),
+        is_warmup,
+        reward_protocol,
+        decision_kind,
     )
     with (store.path / "uploads.jsonl").open("a", encoding="utf-8") as stream:
         stream.write(json.dumps(asdict(candidate), ensure_ascii=False, allow_nan=False) + "\n")
@@ -161,6 +167,8 @@ def run_audits(
 ) -> dict:
     """执行双预算审计，超时整次计入并停止。 / Enforce call/time budgets; account for a full overrun."""
     ordered = order_candidates(candidates, policy, config, seed)
+    if config.get('exclude_warmup', False) and policy != 'benchmark':
+        ordered = [item for item in ordered if not item.is_warmup]
     elapsed, completed, rows = 0.0, 0, []
     for candidate in ordered:
         estimate = (
@@ -197,6 +205,7 @@ def run_audits(
             "gpu_seconds": seconds if config["device"].startswith("cuda") else 0.0,
             "audit_policy": policy,
             "attack_seed": target_seed,
+            'attack_diagnostics': getattr(target_attack, 'last_diagnostics', {}),
         }
         for name, baseline in (
             (

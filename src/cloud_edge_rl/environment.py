@@ -38,6 +38,10 @@ class CloudEdgeEnv(gym.Env):
     def __init__(self, config: dict, backend: FederatedBackend, risk: RiskEstimator | None):
         """由 Notebook 配置建立动作表和公开观察空间。 / Build actions and public observation spaces from Notebook settings."""
         self.config = config
+        self.protocol = config['reward'].get('protocol', 'legacy_v1')
+        if self.protocol not in ('legacy_v1', 'exposure_v1'):
+            raise ValueError('Unknown reward protocol')
+        self.warmup = False
         self.backend = backend
         self.risk = risk
         if risk is None and config["reward"]["risk_weight"] != 0:
@@ -70,6 +74,8 @@ class CloudEdgeEnv(gym.Env):
                 "risk_available": spaces.MultiBinary(1),
             }
         )
+        if self.protocol == 'exposure_v1':
+            self.observation_space['risk_ledger'] = spaces.Box(0, np.inf, (2,), dtype=np.float32)
 
     @property
     def risk_version(self) -> str:
@@ -88,6 +94,9 @@ class CloudEdgeEnv(gym.Env):
         self.upload_bytes = 0
         self.download_bytes = 0
         self.processed_samples = 0
+        self.risk_exposures = 0
+        self.risk_numerator = 0.0
+        self.finished = False
         self.history = np.zeros((len(self.client_sizes), 3), dtype=np.float32)
         self.participation_window = np.zeros(
             (self.config["environment"]["history_window"] - 1, len(self.client_sizes)),
@@ -151,6 +160,10 @@ class CloudEdgeEnv(gym.Env):
             cost = self.resources.estimate(
                 action.client_ids, action.batch_size, self.summary.model_bytes, self.elapsed_seconds
             )
+            if self.protocol == 'exposure_v1':
+                exposure = action.batch_size * len(action.client_ids)
+                previous_risk = self.risk_numerator / self.risk_exposures if self.risk_exposures else 0.
+                risk = (self.risk_numerator + exposure * risk) / (self.risk_exposures + exposure) - previous_risk
             candidates.append(
                 [
                     self.utility[action.action_id],
@@ -167,7 +180,7 @@ class CloudEdgeEnv(gym.Env):
             offset = end
         environment = self.config["environment"]
         self.candidates = np.asarray(candidates, dtype=np.float32)
-        return {
+        observation = {
             "resources": resources,
             "progress": np.asarray(
                 [
@@ -185,13 +198,24 @@ class CloudEdgeEnv(gym.Env):
             "candidates": self.candidates.copy(),
             "risk_available": np.asarray([self.risk is not None], dtype=np.int8),
         }
+        if self.protocol == 'exposure_v1':
+            observation['risk_ledger'] = np.asarray([self.risk_exposures, self.risk_numerator], dtype=np.float32)
+        return observation
 
     def step(self, action_id: int):
         """执行整轮并结算真实资源开销，攻击输入仅交审计侧通道。 / Account for a whole round; route attack inputs only to audit."""
+        if self.protocol == 'exposure_v1' and self.finished:
+            raise RuntimeError('Cannot step a finished finite-horizon task')
+        if not self.action_space.contains(action_id):
+            raise ValueError('Invalid environment action')
         action = self.actions[action_id]
         audits = self.candidate_audits[action_id]
         old_summary = self.summary
-        risk = float(self.candidates[action_id, 3])
+        risk_delta = float(self.candidates[action_id, 3])
+        risk = risk_delta
+        if self.protocol == 'exposure_v1' and self.risk is not None:
+            risk = float(np.mean([np.clip(mean + self.config['reward']['uncertainty_weight'] * std, 0, 1)
+                                  for _, mean, std in audits.values()]))
         worst_risk = (
             None
             if self.risk is None
@@ -240,13 +264,30 @@ class CloudEdgeEnv(gym.Env):
             - weights["energy_weight"] * cost.energy_joules / weights["energy_scale"]
             - weights["risk_weight"] * risk
         )
+        if self.protocol == 'exposure_v1':
+            gain = self.summary.validation_accuracy - old_summary.validation_accuracy
+            self.utility[action_id] = decay * self.utility[action_id] + (1 - decay) * gain
+            previous_risk = self.risk_numerator / self.risk_exposures if self.risk_exposures else 0.
+            if not self.warmup and self.risk is not None:
+                for client_id, count in counts.items():
+                    _, mean, std = audits[client_id]
+                    self.risk_numerator += count * float(np.clip(mean + weights['uncertainty_weight'] * std, 0, 1))
+                    self.risk_exposures += count
+            current_risk = self.risk_numerator / self.risk_exposures if self.risk_exposures else 0.
+            reward = (weights['accuracy_weight'] * gain
+                      - weights['time_weight'] * cost.time_seconds / weights['time_scale']
+                      - weights['energy_weight'] * cost.energy_joules / weights['energy_scale']
+                      - weights['risk_weight'] * (current_risk - previous_risk))
         environment = self.config["environment"]
         terminated = bool(
             self.summary.validation_loss <= environment["target_validation_loss"]
             or self.elapsed_seconds >= environment["time_budget_seconds"]
             or self.processed_samples >= environment["sample_budget"]
         )
+        if self.protocol == 'exposure_v1':
+            terminated = terminated or self.round_index >= environment['max_rounds']
         truncated = bool(self.round_index >= environment["max_rounds"] and not terminated)
+        self.finished = terminated or truncated
         info = self._info()
         info.update(
             action_id=int(action_id),
@@ -274,6 +315,10 @@ class CloudEdgeEnv(gym.Env):
             "validation_accuracy": self.summary.validation_accuracy,
             "risk_version": self.risk_version,
             "risk_available": self.risk is not None,
+            'reward_protocol': self.protocol,
+            'is_warmup': self.warmup,
+            'risk_exposures': self.risk_exposures,
+            'predicted_exposure_risk': None if self.risk is None or not self.risk_exposures else self.risk_numerator / self.risk_exposures,
         }
         for client_id, (participations, samples, unique) in enumerate(self.history):
             info.update(
@@ -296,6 +341,11 @@ class CloudEdgeEnv(gym.Env):
         return deepcopy(
             {
                 "backend": self.backend.checkpoint(),
+                'format': 'environment_v2',
+                'config': self.config,
+                'risk_exposures': self.risk_exposures,
+                'risk_numerator': self.risk_numerator,
+                'finished': self.finished,
                 "risk_version": self.risk_version,
                 "summary": asdict(self.summary),
                 "resource_seed": self.resource_seed,
@@ -316,6 +366,8 @@ class CloudEdgeEnv(gym.Env):
 
     def load_snapshot(self, state: dict) -> dict[str, np.ndarray]:
         """恢复同一风险版本下的训练轨迹。 / Restore a trajectory using the identical risk model version."""
+        if state.get('format') != 'environment_v2' or state['config'] != self.config:
+            raise ValueError('Environment protocol/configuration mismatch')
         if state["risk_version"] != self.risk_version:
             raise ValueError("风险模型版本不匹配 / Risk model version mismatch")
         state = deepcopy(state)
@@ -326,6 +378,9 @@ class CloudEdgeEnv(gym.Env):
         self.np_random.bit_generator.state = state["rng"]
         for name in (
             "round_index",
+            'risk_exposures',
+            'risk_numerator',
+            'finished',
             "elapsed_seconds",
             "energy_joules",
             "upload_bytes",

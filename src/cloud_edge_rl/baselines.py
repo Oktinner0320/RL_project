@@ -11,7 +11,13 @@ def run_warmup(
     terminated = truncated = False
     total_reward = 0.0
     for action_id in action_ids:
-        observation, reward, terminated, truncated, info = env.step(action_id)
+        base = env.unwrapped
+        before = getattr(base, 'warmup', False)
+        base.warmup = True
+        try:
+            observation, reward, terminated, truncated, info = env.step(action_id)
+        finally:
+            base.warmup = before
         total_reward += float(reward)
         if terminated or truncated:
             break
@@ -65,7 +71,7 @@ class RiskGreedyPolicy:
         utility, seconds, energy, risk, _ = observation["candidates"].T
         config = self.reward_config
         scores = (
-            utility
+            config.get('accuracy_weight', 1.) * utility
             - config["time_weight"] * seconds / config["time_scale"]
             - config["energy_weight"] * energy / config["energy_scale"]
             - config["risk_weight"] * risk
