@@ -254,7 +254,9 @@ class CloudEdgeEnv(gym.Env):
         self.upload_bytes += round_bytes
         self.download_bytes += round_bytes
         self.processed_samples += sum(counts.values())
-        utility = old_summary.validation_loss - self.summary.validation_loss
+        loss_gain = old_summary.validation_loss - self.summary.validation_loss
+        utility = (self.summary.validation_accuracy - old_summary.validation_accuracy
+                   if self.protocol == 'exposure_v1' else loss_gain)
         decay = self.config["environment"]["utility_ema_decay"]
         self.utility[action_id] = decay * self.utility[action_id] + (1 - decay) * utility
         weights = self.config["reward"]
@@ -265,8 +267,8 @@ class CloudEdgeEnv(gym.Env):
             - weights["risk_weight"] * risk
         )
         if self.protocol == 'exposure_v1':
-            gain = self.summary.validation_accuracy - old_summary.validation_accuracy
-            self.utility[action_id] = decay * self.utility[action_id] + (1 - decay) * gain
+            # 只按准确率增量更新一次效用。 / One accuracy EMA, never mixed with loss gain.
+            gain = utility
             previous_risk = self.risk_numerator / self.risk_exposures if self.risk_exposures else 0.
             if not self.warmup and self.risk is not None:
                 for client_id, count in counts.items():
@@ -291,7 +293,7 @@ class CloudEdgeEnv(gym.Env):
         info = self._info()
         info.update(
             action_id=int(action_id),
-            loss_gain=utility,
+            loss_gain=loss_gain,
             round_time_seconds=cost.time_seconds,
             round_energy_joules=cost.energy_joules,
             predicted_risk=None if self.risk is None else risk,
@@ -341,7 +343,7 @@ class CloudEdgeEnv(gym.Env):
         return deepcopy(
             {
                 "backend": self.backend.checkpoint(),
-                'format': 'environment_v2',
+                'format': 'environment_v3' if self.protocol == 'exposure_v1' else 'environment_v2',
                 'config': self.config,
                 'risk_exposures': self.risk_exposures,
                 'risk_numerator': self.risk_numerator,
@@ -366,7 +368,8 @@ class CloudEdgeEnv(gym.Env):
 
     def load_snapshot(self, state: dict) -> dict[str, np.ndarray]:
         """恢复同一风险版本下的训练轨迹。 / Restore a trajectory using the identical risk model version."""
-        if state.get('format') != 'environment_v2' or state['config'] != self.config:
+        expected_format = 'environment_v3' if self.protocol == 'exposure_v1' else 'environment_v2'
+        if state.get('format') != expected_format or state['config'] != self.config:
             raise ValueError('Environment protocol/configuration mismatch')
         if state["risk_version"] != self.risk_version:
             raise ValueError("风险模型版本不匹配 / Risk model version mismatch")
