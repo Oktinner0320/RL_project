@@ -30,6 +30,12 @@ FEATURE_NAMES = (
 )
 
 
+def _trajectory_settings(config: dict) -> dict:
+    """运行元数据不影响环境轨迹，算法配置由训练器另行核验。 / Check dynamics, not job metadata."""
+    sections = ('environment', 'resources', 'reward', 'model', 'data', 'risk', 'components')
+    return {name: config[name] for name in sections if name in config}
+
+
 class CloudEdgeEnv(gym.Env):
     """每步完成一个联邦轮，动作联合选择客户端集合和 batch。 / Each action selects a client set and batch for one full round."""
 
@@ -369,7 +375,8 @@ class CloudEdgeEnv(gym.Env):
     def load_snapshot(self, state: dict) -> dict[str, np.ndarray]:
         """恢复同一风险版本下的训练轨迹。 / Restore a trajectory using the identical risk model version."""
         expected_format = 'environment_v3' if self.protocol == 'exposure_v1' else 'environment_v2'
-        if state.get('format') != expected_format or state['config'] != self.config:
+        if (state.get('format') != expected_format
+                or _trajectory_settings(state['config']) != _trajectory_settings(self.config)):
             raise ValueError('Environment protocol/configuration mismatch')
         if state["risk_version"] != self.risk_version:
             raise ValueError("风险模型版本不匹配 / Risk model version mismatch")
