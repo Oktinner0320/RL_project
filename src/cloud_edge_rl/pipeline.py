@@ -253,6 +253,15 @@ def run_experiment(spec: RunSpec, root: Path) -> dict:
                 }
             elif spec.stage in ("audit", "evaluate_audits", "benchmark_attack"):
                 candidates = read_candidates(root, spec.inputs["source_run_ids"])
+                if "target_ids" in spec.inputs:
+                    # 显式分片，不改变单目标攻击随机性。 / Explicit shards keep per-target randomness unchanged.
+                    targets = [tuple(pair) for pair in spec.inputs["target_ids"]]
+                    if not targets or any(len(pair) != 2 for pair in targets) or len(set(targets)) != len(targets):
+                        raise ValueError("Audit target IDs must be nonempty unique (run_id, upload_id) pairs")
+                    available = {(item.run_id, item.upload_id): item for item in candidates}
+                    if any(pair not in available for pair in targets):
+                        raise ValueError("Audit shard contains unknown target IDs")
+                    candidates = [available[pair] for pair in targets]
                 expected = spec.config["execution"]["split"]
                 if any(candidate.split != expected for candidate in candidates):
                     raise ValueError("审计来源的 split 不匹配 / Audit source split mismatch")
