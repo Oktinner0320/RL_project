@@ -36,11 +36,11 @@ def parallel_gradient_objective(model, inputs, labels, target, metadata, paramet
     return objective, candidate
 
 
-@lru_cache(maxsize=1)
-def compiled_parallel_objective():
+@lru_cache(maxsize=2)
+def compiled_parallel_objective(mode):
     # 不允许静默图断裂回退，也不编译含二阶 autograd 的历史路径。
     # No silent graph-break fallback; the historic nested-autograd path stays untouched.
-    return torch.compile(parallel_gradient_objective, fullgraph=True, dynamic=False)
+    return torch.compile(parallel_gradient_objective, fullgraph=True, dynamic=False, mode=mode)
 
 
 class GradientAttack:
@@ -63,6 +63,8 @@ class GradientAttack:
         compiled = config.get('compile_gradient_objective', False)
         if not isinstance(compiled, bool) or (compiled and config.get('restart_execution') != 'vectorized_analytic'):
             raise ValueError('Compiled objective requires vectorized_analytic execution and a boolean flag')
+        if config.get('compile_mode', 'default') not in ('default', 'reduce-overhead'):
+            raise ValueError('Unknown objective compilation mode')
 
     def reconstruct(self, observed: AttackInput):
         config = self.config
@@ -96,6 +98,7 @@ class GradientAttack:
                                   'categorical_temperature': config.get('categorical_temperature', 1.),
                                   'restart_execution': config.get('restart_execution', 'serial'),
                                   'objective_compilation': 'inductor' if config.get('compile_gradient_objective', False) else 'eager',
+                                  'compile_mode': config.get('compile_mode', 'default'),
                                  'final_learning_rate': final_lr}
         return decode_features(reconstruction, observed.feature_metadata)
 
@@ -156,9 +159,15 @@ class GradientAttack:
         best_values = torch.full((config['restarts'],), float('inf'), device=device, dtype=dtype)
         best_inputs, initial = inputs.detach().clone(), None
         finite = torch.ones((), dtype=torch.bool, device=device)
-        objective_fn = (compiled_parallel_objective() if config.get('compile_gradient_objective', False)
+        compiled = config.get('compile_gradient_objective', False)
+        objective_fn = (compiled_parallel_objective(config.get('compile_mode', 'default')) if compiled
                         else parallel_gradient_objective)
         for iteration in range(config['iterations'] + 1):
+            optimizer.zero_grad(set_to_none=True)
+            if compiled and config.get('compile_mode', 'default') == 'reduce-overhead':
+                # 上一步的输出只保留拷贝；反传结束后才开启下一张 CUDA 图。
+                # Best outputs are copied; mark a new capture step only after the prior backward finishes.
+                torch.compiler.cudagraph_mark_step_begin()
             objective, candidate = objective_fn(model, inputs, labels, target, observed.feature_metadata,
                                                 config.get('input_parameterization', 'unconstrained'),
                                                 config.get('categorical_temperature', 1.))
@@ -172,7 +181,6 @@ class GradientAttack:
             best_values = torch.minimum(best_values, objective.detach())
             if iteration == config['iterations']:
                 break
-            optimizer.zero_grad(set_to_none=True)
             # sum 保持每个重启的原梯度尺度。 / A sum preserves each independent gradient scale.
             inputs.grad = torch.autograd.grad(objective.sum(), inputs)[0]
             optimizer.step()
