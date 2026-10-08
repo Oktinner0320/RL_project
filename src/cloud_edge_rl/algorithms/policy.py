@@ -2,6 +2,7 @@
 
 from collections import deque
 from copy import deepcopy
+from gymnasium.spaces import Dict
 
 import numpy as np
 import torch
@@ -19,6 +20,19 @@ class Agent:
             raise ValueError('Native policy algorithm must be dqn or ppo')
         self.observation_space, self.action_count = observation_space, action_count
         self.config = deepcopy(config)
+        # 只用公开预算缩放，不拟合未来轨迹。 / Fixed public scales, never future-data statistics.
+        self.observation_divisors = deepcopy(config.get('observation_divisors', {}))
+        if not isinstance(self.observation_divisors, dict):
+            raise ValueError('Observation divisors must be a component mapping')
+        if self.observation_divisors and not isinstance(observation_space, Dict):
+            raise ValueError('Observation divisors require a Dict observation space')
+        for name, divisor in self.observation_divisors.items():
+            if name not in observation_space.spaces:
+                raise ValueError('Unknown observation component divisor')
+            scale = np.asarray(divisor, dtype=np.float32)
+            np.broadcast_to(scale, observation_space.spaces[name].shape)
+            if not np.isfinite(scale).all() or (scale <= 0).any():
+                raise ValueError('Observation divisors must be finite and positive')
         self.device = torch.device(config['device'])
         self.rng = np.random.default_rng(config['seed'])
         with torch.random.fork_rng(devices=[]):
@@ -28,6 +42,11 @@ class Agent:
         self.epsilon = config['epsilon_start']
 
     def encode(self, observation: dict) -> np.ndarray:
+        if self.observation_divisors:
+            observation = {name: np.asarray(value, dtype=np.float32) / np.asarray(
+                self.observation_divisors[name], dtype=np.float32)
+                if name in self.observation_divisors else value
+                for name, value in observation.items()}
         return np.asarray(flatten(self.observation_space, observation), dtype=np.float32)
 
     def output(self, observation: dict) -> np.ndarray:
@@ -55,11 +74,14 @@ class Agent:
         return deepcopy({'format': 'native_agent_v1', 'algorithm': self.config['algorithm'],
                          'hidden_sizes': self.config['hidden_sizes'],
                          'observation_space': self.observation_space, 'action_count': self.action_count,
+                         'observation_divisors': self.observation_divisors,
                          'model': {k: v.detach().cpu().clone() for k, v in self.network.state_dict().items()},
                          'rng': self.rng.bit_generator.state, 'epsilon': self.epsilon})
 
 
 def load_agent(state: dict, config: dict) -> Agent:
+    if state.get('observation_divisors', {}) != config.get('observation_divisors', {}):
+        raise ValueError('Native policy checkpoint observation scaling mismatch')
     if state['format'] != 'native_agent_v1' or state['algorithm'] != config['algorithm'] or state['hidden_sizes'] != config['hidden_sizes']:
         raise ValueError('Native policy checkpoint architecture mismatch')
     agent = Agent(state['observation_space'], state['action_count'], config)
