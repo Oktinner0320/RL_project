@@ -1,5 +1,7 @@
 """已知标签下的原生余弦梯度反演。 / Native known-label cosine gradient matching."""
 
+from functools import lru_cache
+
 import numpy as np
 import torch
 
@@ -24,6 +26,23 @@ def categorical_relaxation(inputs: torch.Tensor, metadata: dict, temperature: fl
     return torch.cat(blocks, dim=-1)
 
 
+def parallel_gradient_objective(model, inputs, labels, target, metadata, parameterization, temperature):
+    """同一可微目标；显式梯度允许编译一阶反传。 / Compile the exact differentiable objective."""
+    candidate = (categorical_relaxation(inputs, metadata, temperature)
+                 if parameterization == 'categorical_softmax' else inputs)
+    gradients = relu_parameter_gradients(model, candidate, labels)
+    flat = torch.cat([gradients[name].flatten(1) for name, _ in model.named_parameters()], dim=1)
+    objective = 1 - torch.nn.functional.cosine_similarity(flat, target.unsqueeze(0), dim=1)
+    return objective, candidate
+
+
+@lru_cache(maxsize=1)
+def compiled_parallel_objective():
+    # 不允许静默图断裂回退，也不编译含二阶 autograd 的历史路径。
+    # No silent graph-break fallback; the historic nested-autograd path stays untouched.
+    return torch.compile(parallel_gradient_objective, fullgraph=True, dynamic=False)
+
+
 class GradientAttack:
     def __init__(self, config: dict):
         self.config = dict(config)
@@ -41,10 +60,15 @@ class GradientAttack:
             raise ValueError('Categorical temperature must be finite and positive')
         if config.get('restart_execution', 'serial') not in ('serial', 'vectorized_analytic'):
             raise ValueError('Unknown attack restart execution')
+        compiled = config.get('compile_gradient_objective', False)
+        if not isinstance(compiled, bool) or (compiled and config.get('restart_execution') != 'vectorized_analytic'):
+            raise ValueError('Compiled objective requires vectorized_analytic execution and a boolean flag')
 
     def reconstruct(self, observed: AttackInput):
         config = self.config
         device = torch.device(config['device'])
+        if config.get('compile_gradient_objective', False) and device.type != 'cuda':
+            raise ValueError('Compiled inversion requires CUDA; use eager vectorized execution on CPU')
         devices = [device.index or 0] if device.type == 'cuda' else []
         with torch.random.fork_rng(devices=devices):
             model = make_model({**observed.model_config, 'device': str(device)})
@@ -71,6 +95,7 @@ class GradientAttack:
                                   'input_parameterization': config.get('input_parameterization', 'unconstrained'),
                                   'categorical_temperature': config.get('categorical_temperature', 1.),
                                   'restart_execution': config.get('restart_execution', 'serial'),
+                                  'objective_compilation': 'inductor' if config.get('compile_gradient_objective', False) else 'eager',
                                  'final_learning_rate': final_lr}
         return decode_features(reconstruction, observed.feature_metadata)
 
@@ -131,14 +156,12 @@ class GradientAttack:
         best_values = torch.full((config['restarts'],), float('inf'), device=device, dtype=dtype)
         best_inputs, initial = inputs.detach().clone(), None
         finite = torch.ones((), dtype=torch.bool, device=device)
+        objective_fn = (compiled_parallel_objective() if config.get('compile_gradient_objective', False)
+                        else parallel_gradient_objective)
         for iteration in range(config['iterations'] + 1):
-            candidate = (categorical_relaxation(inputs, observed.feature_metadata,
-                         config.get('categorical_temperature', 1.))
-                         if config.get('input_parameterization', 'unconstrained') == 'categorical_softmax'
-                         else inputs)
-            gradients = relu_parameter_gradients(model, candidate, labels)
-            flat = torch.cat([gradients[name].flatten(1) for name, _ in named], dim=1)
-            objective = 1 - torch.nn.functional.cosine_similarity(flat, target.unsqueeze(0), dim=1)
+            objective, candidate = objective_fn(model, inputs, labels, target, observed.feature_metadata,
+                                                config.get('input_parameterization', 'unconstrained'),
+                                                config.get('categorical_temperature', 1.))
             # 累积设备端标志，避免每步同步 GPU；任何非有限值都禁止返回重建。
             # Keep a device-side flag, avoiding a GPU fence per step; never return after a nonfinite value.
             finite = finite & torch.isfinite(objective).all()
