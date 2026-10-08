@@ -21,6 +21,13 @@ class ResourceModel:
         """保留资源参数和整条轨迹的种子。 / Keep resource settings and the seed for the full trace."""
         self.config = config
         self.seed = seed
+        for shock in config.get('shocks', []):
+            if not 0 <= shock['start_seconds'] < shock['end_seconds']:
+                raise ValueError('Resource shock requires 0 <= start < end')
+            if not 0 < shock['bandwidth_factor'] <= 1 or not 0 <= shock['load_increment'] < 1:
+                raise ValueError('Resource shock factors are outside their valid ranges')
+            if any(client < 0 or client >= len(config['bandwidth_mbps']) for client in shock['client_ids']):
+                raise ValueError('Resource shock client is outside the configured client set')
 
     def observe(self, elapsed_seconds: float) -> np.ndarray:
         """只返回当前时槽的上下行带宽和忙碌比例。 / Return current upload/download bandwidth and busy fraction."""
@@ -31,6 +38,12 @@ class ResourceModel:
         bandwidth = np.column_stack((self.config["bandwidth_mbps"], self.config["download_mbps"]))
         bandwidth = bandwidth * rng.uniform(1 - jitter, 1 + jitter, (count, 2))
         load = rng.uniform(*self.config["load_range"], size=count)
+        # 突变按绝对时间施加，不随策略轮号移动。 / Apply shocks at shared absolute time, not round index.
+        for shock in self.config.get('shocks', []):
+            if shock['start_seconds'] <= elapsed_seconds < shock['end_seconds']:
+                clients = np.asarray(shock['client_ids'], dtype=int)
+                bandwidth[clients] *= shock['bandwidth_factor']
+                load[clients] = np.minimum(load[clients] + shock['load_increment'], .95)
         return np.column_stack((bandwidth, load)).astype(np.float32)
 
     def estimate(

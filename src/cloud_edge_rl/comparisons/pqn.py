@@ -193,8 +193,9 @@ def train_agent(
         <= 0
     ):
         raise ValueError("PQN 迭代预算必须为正 / PQN iteration budgets must be positive")
+    actual_budget = config.get('budget_includes_warmup', False)
     if config["rollout_steps"] % config["num_minibatches"] or (
-        config["total_steps"] % config["rollout_steps"]
+        not actual_budget and config["total_steps"] % config["rollout_steps"]
     ):
         raise ValueError("PQN 步数不能整除分批数 / PQN rollout and stage sizes must divide exactly")
     if not 0 <= config["gamma"] <= 1 or not 0 <= config["lambda"] <= 1:
@@ -217,7 +218,7 @@ def train_agent(
         eps=config["adam_epsilon"],
         weight_decay=config["weight_decay"],
     )
-    learned_steps = updates = gradient_steps = episode = warmup_steps = 0
+    learned_steps = updates = gradient_steps = episode = warmup_steps = warmup_position = 0
     history, episode_returns = [], []
     finished = False
     same_stage = previous is not None and previous["risk_version"] == config["risk_version"]
@@ -234,20 +235,25 @@ def train_agent(
         gradient_steps = state["gradient_steps"]
         episode = state["episode"]
         warmup_steps = state["warmup_steps"]
+        warmup_position = state.get('warmup_position', len(config['warmup_actions']))
         episode_return = state["episode_return"]
         finished = state["finished"]
         history = deepcopy(state["history"])
         episode_returns = deepcopy(state["episode_returns"])
-        if learned_steps > config["total_steps"]:
+        if learned_steps + (warmup_steps if actual_budget else 0) > config["total_steps"]:
             raise ValueError("恢复点超过训练预算 / Restored PQN steps exceed the stage budget")
     else:
         # Stage changes preserve only weights; no old actions or targets enter the new estimator.
         # 阶段切换只保留策略权重，旧行为与目标不能混入新风险版本。
         agent.rng = np.random.default_rng(config["seed"])
         agent.epsilon = config["epsilon_start"]
-        observation, episode_return, warmup_steps = _fresh_episode(
-            env, config["seed"], config["warmup_actions"]
-        )
+        if actual_budget:
+            observation, _ = env.reset(seed=config['seed'])
+            episode_return = 0.
+        else:
+            observation, episode_return, warmup_steps = _fresh_episode(
+                env, config["seed"], config["warmup_actions"]
+            )
 
     def checkpoint() -> dict:
         """保存优化器、所有 RNG 与真实环境断点。 / Persist optimizer, all RNGs and the actual environment."""
@@ -265,6 +271,8 @@ def train_agent(
                 "gradient_steps": gradient_steps,
                 "episode": episode,
                 "warmup_steps": warmup_steps,
+                'warmup_position': warmup_position,
+                'environment_steps': learned_steps + warmup_steps,
                 "episode_return": episode_return,
                 "finished": finished,
                 "history": history,
@@ -274,7 +282,10 @@ def train_agent(
             }
         )
 
-    while learned_steps < config["total_steps"]:
+    def consumed():
+        return learned_steps + (warmup_steps if actual_budget else 0)
+
+    while consumed() < config["total_steps"]:
         fraction = min(learned_steps / config["epsilon_decay_steps"], 1.0)
         agent.epsilon = config["epsilon_start"] + fraction * (
             config["epsilon_finish"] - config["epsilon_start"]
@@ -288,12 +299,29 @@ def train_agent(
             [],
         )
         for _ in range(config["rollout_steps"]):
+            if actual_budget and consumed() >= config['total_steps']:
+                break
             if finished:
                 episode += 1
-                observation, episode_return, count = _fresh_episode(
-                    env, config["seed"] + episode, config["warmup_actions"]
-                )
-                warmup_steps += count
+                if actual_budget:
+                    observation, _ = env.reset(seed=config['seed'] + episode)
+                    warmup_position, episode_return, finished = 0, 0., False
+                else:
+                    observation, episode_return, count = _fresh_episode(
+                        env, config["seed"] + episode, config["warmup_actions"]
+                    )
+                    warmup_steps += count
+            if actual_budget:
+                # 每次真实交互均计费；预算可在预热中间结束。 / Count every interaction, even mid-warmup.
+                while warmup_position < len(config['warmup_actions']) and consumed() < config['total_steps']:
+                    observation, _, terminated, truncated, _ = run_warmup(
+                        env, observation, [config['warmup_actions'][warmup_position]])
+                    warmup_position += 1
+                    warmup_steps += 1
+                    if terminated or truncated:
+                        raise ValueError('Warmup exhausts the episode before policy training')
+                if consumed() >= config['total_steps']:
+                    break
             encoded = agent.encode(observation)
             action = agent.act(observation, explore=True)
             observation, reward, terminated, truncated, _ = env.step(action)
@@ -312,6 +340,8 @@ def train_agent(
             finished = terminated or truncated
             if finished:
                 episode_returns.append(episode_return)
+        if not observations:
+            break
         observations = torch.as_tensor(np.stack(observations), device=agent.device)
         actions = torch.tensor(actions, dtype=torch.long, device=agent.device)
         targets = lambda_targets(
@@ -324,8 +354,8 @@ def train_agent(
         )
         losses, q_means = [], []
         for _ in range(config["epochs"]):
-            order = agent.rng.permutation(config["rollout_steps"])
-            for indices in np.split(order, config["num_minibatches"]):
+            order = agent.rng.permutation(len(observations))
+            for indices in np.array_split(order, min(len(order), config["num_minibatches"])):
                 indices = torch.as_tensor(indices, device=agent.device)
                 if config["linear_lr_decay"]:
                     fraction = min(gradient_steps / config["lr_decay_steps"], 1.0)
