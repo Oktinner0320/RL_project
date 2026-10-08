@@ -2,10 +2,10 @@
 
 from collections import deque
 from copy import deepcopy
-from gymnasium.spaces import Dict
 
 import numpy as np
 import torch
+from gymnasium.spaces import Dict
 from gymnasium.spaces.utils import flatdim, flatten
 
 from ..baselines import run_warmup
