@@ -32,7 +32,8 @@ def training_allocation(prior: list[dict], method: str, seed: int, partition: st
         identity = row.get('call_id')
         if identity and identity in seen:
             continue
-        seen.add(identity) if identity else None
+        if identity:
+            seen.add(identity)
         used += learned + warmup - offset
         known.append(row)
     remaining = limit - collection_interactions - used
