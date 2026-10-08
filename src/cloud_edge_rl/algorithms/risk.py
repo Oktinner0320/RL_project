@@ -24,6 +24,8 @@ class RiskEstimator:
     def __init__(self, config: dict, version: str):
         self.config, self.version = deepcopy(config), version
         self.device = torch.device(config['device'])
+        if not isinstance(config.get('mean_calibration', False), bool):
+            raise ValueError('Mean calibration must be boolean')
 
     def _build(self):
         return nn.ModuleList([mlp(self.feature_count, self.config['hidden_sizes'], 1)
@@ -84,10 +86,20 @@ class RiskEstimator:
                     weights = deepcopy(self.model.state_dict())
         self.model.load_state_dict(weights)
         self.model.eval().requires_grad_(False)
+        self.calibration_offset = 0.
+        if config.get('mean_calibration', False):
+            # 只在已有内部验证组拟合截距；不使用独立面板或测试标签。
+            # Fit an intercept on the existing internal group, never on held-out panel/test labels.
+            with torch.inference_mode():
+                self.calibration_offset = (y[valid_ids] - self._members(x[valid_ids]).mean(1)).mean().item()
         self.fit_metadata = {'train_groups': np.unique(groups[~validation]).tolist(),
                              'validation_groups': validation_groups.tolist(), 'best_epoch': best_epoch,
                              'validation_mse': best, 'history': history,
                              'uncertainty': 'Empirical member standard deviation; not a confidence bound'}
+        if config.get('mean_calibration', False):
+            self.fit_metadata['mean_calibration'] = {
+                'method': 'internal_validation_mean_residual', 'offset': self.calibration_offset,
+                'groups': validation_groups.tolist(), 'confidence_guarantee': False}
 
     def predict(self, features: np.ndarray) -> RiskPrediction:
         features = np.asarray(features)
@@ -101,20 +113,29 @@ class RiskEstimator:
                 x = (features[start:start + self.config['batch_size']] - self.mean) / self.scale
                 batches.append(self._members(torch.tensor(x, dtype=torch.float32, device=self.device)).cpu().numpy())
         members = np.concatenate(batches)
-        return RiskPrediction(members.mean(1), members.std(1))
+        # 偏差修正仅作用于点估计；成员分歧仍未经置信校准。 / Correct the mean; dispersion remains uncalibrated.
+        return RiskPrediction(np.clip(members.mean(1) + self.calibration_offset, 0., 1.), members.std(1))
 
     def checkpoint(self) -> dict:
         return deepcopy({'format': 'native_risk_v1', 'version': self.version, 'config': self.config,
                          'feature_count': self.feature_count, 'mean': self.mean, 'scale': self.scale,
-                         'model': {k: v.cpu().clone() for k, v in self.model.state_dict().items()},
-                         'fit_metadata': self.fit_metadata})
+                          'model': {k: v.cpu().clone() for k, v in self.model.state_dict().items()},
+                          'fit_metadata': self.fit_metadata, 'calibration_offset': self.calibration_offset})
 
     def load_checkpoint(self, state: dict) -> None:
         if state['format'] != 'native_risk_v1' or state['version'] != self.version:
             raise ValueError('Risk checkpoint version mismatch')
-        settings = lambda c: {k: v for k, v in c.items() if k not in ('device', 'mode', 'seed')}
+        settings = lambda c: {**{k: v for k, v in c.items() if k not in ('device', 'mode', 'seed')},
+                              'mean_calibration': c.get('mean_calibration', False)}
         if settings(state['config']) != settings(self.config):
             raise ValueError('Risk checkpoint configuration mismatch')
+        if self.config.get('mean_calibration', False) and 'calibration_offset' not in state:
+            raise ValueError('Calibrated risk checkpoint is missing its offset')
+        offset = state.get('calibration_offset', 0.)
+        if (not np.isfinite(offset) or not -1 <= offset <= 1
+                or (not self.config.get('mean_calibration', False) and offset != 0)):
+            raise ValueError('Invalid risk mean calibration offset')
+        self.calibration_offset = float(offset)
         self.feature_count = state['feature_count']
         self.mean, self.scale = state['mean'].copy(), state['scale'].copy()
         with torch.random.fork_rng(devices=[]):

@@ -26,6 +26,22 @@ def categorical_relaxation(inputs: torch.Tensor, metadata: dict, temperature: fl
     return torch.cat(blocks, dim=-1)
 
 
+def gradient_guided_initialization(inputs: torch.Tensor, observed: AttackInput) -> torch.Tensor:
+    """只用公开第一层梯度作为软初始化，不断言类别不存在。 / A public-gradient soft prior, not a support mask."""
+    name = 'hidden.0.weight' if observed.model_config['hidden_sizes'] else 'out.weight'
+    gradient = observed.gradients[name].to(device=inputs.device, dtype=inputs.dtype)
+    guided = inputs.clone()
+    for layout in observed.feature_metadata['encoding_layout'].values():
+        if layout['kind'] != 'categorical':
+            continue
+        start, stop = layout['start'], layout['stop']
+        masses = gradient[:, start:stop].norm(dim=0)
+        if masses.sum() > 0:
+            prior = (masses / masses.sum()).clamp_min(1e-6).log()
+            guided[..., start:stop] += prior
+    return guided
+
+
 def parallel_gradient_objective(model, inputs, labels, target, metadata, parameterization, temperature):
     """同一可微目标；显式梯度允许编译一阶反传。 / Compile the exact differentiable objective."""
     candidate = (categorical_relaxation(inputs, metadata, temperature)
@@ -65,6 +81,11 @@ class GradientAttack:
             raise ValueError('Compiled objective requires vectorized_analytic execution and a boolean flag')
         if config.get('compile_mode', 'default') not in ('default', 'reduce-overhead'):
             raise ValueError('Unknown objective compilation mode')
+        if config.get('initialization', 'gaussian') not in ('gaussian', 'public_gradient_prior'):
+            raise ValueError('Unknown attack initialization')
+        if (config.get('initialization') == 'public_gradient_prior'
+                and config.get('input_parameterization') != 'categorical_softmax'):
+            raise ValueError('Public gradient prior requires categorical_softmax logits')
 
     def reconstruct(self, observed: AttackInput):
         config = self.config
@@ -99,6 +120,7 @@ class GradientAttack:
                                   'restart_execution': config.get('restart_execution', 'serial'),
                                   'objective_compilation': 'inductor' if config.get('compile_gradient_objective', False) else 'eager',
                                   'compile_mode': config.get('compile_mode', 'default'),
+                                  'initialization': config.get('initialization', 'gaussian'),
                                  'final_learning_rate': final_lr}
         return decode_features(reconstruction, observed.feature_metadata)
 
@@ -109,7 +131,10 @@ class GradientAttack:
         for restart in range(config['restarts']):
             torch.manual_seed((config['seed'] + restart) % 2**32)
             inputs = torch.randn(observed.batch_size, observed.model_config['input_size'],
-                                 device=device, dtype=dtype, requires_grad=True)
+                                 device=device, dtype=dtype)
+            if config.get('initialization') == 'public_gradient_prior':
+                inputs = gradient_guided_initialization(inputs, observed)
+            inputs.requires_grad_()
             optimizer = torch.optim.Adam([inputs], lr=config['learning_rate'])
             scheduler = None
             if config.get('learning_rate_schedule', 'constant') == 'linear':
@@ -147,8 +172,11 @@ class GradientAttack:
         starts = []
         for restart in range(config['restarts']):
             torch.manual_seed((config['seed'] + restart) % 2**32)
-            starts.append(torch.randn(observed.batch_size, observed.model_config['input_size'],
-                                      device=device, dtype=dtype))
+            start = torch.randn(observed.batch_size, observed.model_config['input_size'],
+                                device=device, dtype=dtype)
+            if config.get('initialization') == 'public_gradient_prior':
+                start = gradient_guided_initialization(start, observed)
+            starts.append(start)
         inputs = torch.stack(starts).requires_grad_()
         optimizer = torch.optim.Adam([inputs], lr=config['learning_rate'])
         scheduler = None
