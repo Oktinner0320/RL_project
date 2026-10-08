@@ -94,3 +94,6 @@ class AuditCandidate:
     split: str
     packet_path: str
     reference_path: str
+    is_warmup: bool = False
+    reward_protocol: str = 'legacy_v1'
+    decision_kind: str = 'heuristic_scores'
