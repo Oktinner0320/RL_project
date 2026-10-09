@@ -116,6 +116,8 @@ def train_agent(env, config: dict, previous: dict | None, on_checkpoint) -> Trai
             raise ValueError('Resource feedback requires finite-horizon exposure PPO')
         if previous is not None and previous['risk_version'] != config['risk_version']:
             raise ValueError('Resource feedback cannot reset a risk stage or its interaction counters')
+        if type(config['total_steps']) is not int or not 1 <= config['total_steps'] <= 3000:
+            raise ValueError('Resource feedback total interaction budget must be an integer in [1,3000]')
         feedback = ResourceFeedback(config['resource_feedback'], base.config['reward'])
     state = None if previous is None else previous['state']
     agent = Agent(env.observation_space, env.action_space.n, config) if state is None else load_agent(state['agent'], config)
@@ -140,6 +142,8 @@ def train_agent(env, config: dict, previous: dict | None, on_checkpoint) -> Trai
             ('learned_steps', 'warmup_steps', 'updates', 'episode', 'warmup_position'))
         finished = state['finished']
         if feedback is not None:
+            if state['resource_feedback_total_steps'] != config['total_steps']:
+                raise ValueError('Registered resource feedback total budget cannot change on resume')
             feedback.load_snapshot(state['resource_feedback'])
             if feedback.completed_episodes != episode + int(finished):
                 raise ValueError('Resource feedback and training episode counters mismatch')
@@ -170,6 +174,7 @@ def train_agent(env, config: dict, previous: dict | None, on_checkpoint) -> Trai
                          'cuda_rng': torch.cuda.get_rng_state_all() if agent.device.type == 'cuda' else []}
         if feedback is not None:
             saved['resource_feedback'] = feedback.snapshot()
+            saved['resource_feedback_total_steps'] = config['total_steps']
         return deepcopy(saved)
 
     while learned_steps + warmup_steps < stage_end:
@@ -198,6 +203,8 @@ def train_agent(env, config: dict, previous: dict | None, on_checkpoint) -> Trai
             stage_boundary = False
             resource_diagnostics = {}
             if feedback is not None:
+                if truncated and not terminated:
+                    raise ValueError('Resource feedback requires completed tasks, not truncated trajectories')
                 reward = feedback.adjust_reward(reward, info['round_time_seconds'], info['round_energy_joules'])
                 if finished:
                     feedback.record_episode(info['elapsed_seconds'], info['energy_joules'])

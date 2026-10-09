@@ -115,12 +115,38 @@ def make_evaluation_specs(config: dict, project_root: Path):
     return _saved_policy_specs(config, "evaluate", project_root)
 
 
+def _execute_registered_training(config: dict, project_root: Path) -> list[dict]:
+    """Use approved immutable specs, never generate a fresh UUID on notebook resume."""
+    from .config import RunSpec
+    from .training_pipeline import run_training_pipeline
+    from .transport import TransportLimits, read_json
+
+    plan = config["workflow"]["training_pipeline"]
+    paths = plan["registered_spec_paths"]
+    if (type(paths) is not list or not 1 <= len(paths) <= 32
+            or any(type(path) is not str or not path for path in paths)):
+        raise ValueError("Register 1..32 approved training spec snapshots in the sole CONFIG first")
+    root = Path(project_root).resolve()
+    directory = (root / plan["output_directory"]).resolve()
+    if not directory.is_relative_to(root):
+        raise ValueError("Training controller output must remain inside the project")
+    specs = [RunSpec(**read_json(root / path)) for path in paths]
+    if any(item.config["execution"]["backend"] != "modal" for item in specs):
+        raise ValueError("Registered cloud training specs must explicitly use Modal")
+    run_training_pipeline(specs, root, directory, artifact_destination=root,
+                          transport_limits=TransportLimits(**config["modal"]["transport"]))
+    return [read_json(directory / "jobs" / item.run_id / "compute-result.json")["result"]
+            for item in specs]
+
+
 def execute_job(config: dict, job_name: str, project_root: Path) -> list[dict]:
     """只执行配置区启用的阶段，云任务ID先持久化。 / Run enabled jobs; persist cloud call IDs first."""
     job = config["workflow"]["jobs"][job_name]
     if not job["enabled"]:
         print(f"未启用 / Disabled: {job_name}")
         return []
+    if job_name == "train" and job["backend"] == "modal":
+        return _execute_registered_training(config, project_root)
     if job_name == "tune":
         specs = make_tuning_specs(config, project_root)
     elif job_name == "validate":
@@ -153,7 +179,8 @@ def execute_job(config: dict, job_name: str, project_root: Path) -> list[dict]:
             (folder / f"{spec.run_id}.json").write_text(
                 json.dumps({"run_id": spec.run_id, "call_id": call_id}, indent=2), encoding="utf-8"
             )
-        results.extend(wait_runs(call_ids))
+        results.extend(wait_runs(call_ids, timeout=config["modal"]["timeout_seconds"]
+                                 + config["modal"]["startup_timeout_seconds"]))
         for spec in pending:
             download_run(config["modal"]["volume_name"], spec.run_id, project_root)
     elif job["backend"] != "modal":

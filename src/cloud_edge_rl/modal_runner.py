@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 import subprocess
 import sys
@@ -184,41 +185,28 @@ def submit_runs(
         if not modal_config["detach"]:
             # 非分离模式在退出 App 前等待，防止取消尚未完成的输入。 / Wait before closing an attached app.
             for call in calls:
-                call.get()
+                try:
+                    call.get(timeout=modal_config["timeout_seconds"]
+                             + modal_config["startup_timeout_seconds"])
+                except TimeoutError:
+                    call.cancel(terminate_containers=True)
+                    raise
     return call_ids
 
 
-def get_run(call_id: str, timeout: float | None = None) -> dict[str, Any]:
+def get_run(call_id: str, timeout: float) -> dict[str, Any]:
     """恢复调用句柄并读取结果；timeout=0 用于查询。 / Retrieve a run, or poll with timeout=0."""
+    if type(timeout) not in (int, float) or not math.isfinite(timeout) or timeout < 0:
+        raise ValueError("Explicit finite call wait timeout required")
     return modal.FunctionCall.from_id(call_id).get(timeout=timeout)
 
 
-def wait_runs(call_ids: list[str]) -> list[dict[str, Any]]:
+def wait_runs(call_ids: list[str], *, timeout: float) -> list[dict[str, Any]]:
     """按提交顺序收集结果。 / Collect results in submission order."""
-    return [get_run(call_id) for call_id in call_ids]
+    return [get_run(call_id, timeout=timeout) for call_id in call_ids]
 
 
 def download_run(volume_name: str, run_id: str, destination: Path) -> Path:
-    """官方 CLI 并发下载目录；失败原样抛出。 / Download concurrently with the supported CLI and propagate failures."""
-    remote_root = PurePosixPath("runs") / run_id
-    local_parent = Path(destination) / "runs"
-    local_parent.mkdir(parents=True, exist_ok=True)
-    # CLI 保留远端目录名；UTF-8 支持 Windows 状态符号。 / Keep the remote basename and encode Windows status symbols in UTF-8.
-    subprocess.run(
-        [
-            sys.executable,
-            "-X",
-            "utf8",
-            "-m",
-            "modal",
-            "volume",
-            "get",
-            volume_name,
-            remote_root.as_posix(),
-            str(local_parent),
-            "--force",
-        ],
-        check=True,
-        stdout=subprocess.DEVNULL,
-    )
-    return local_parent / run_id
+    """Bound and resume top-level artifacts; never overwrite or retrieve private packets."""
+    from cloud_edge_rl.transport import download_artifacts
+    return download_artifacts(volume_name, run_id, destination)

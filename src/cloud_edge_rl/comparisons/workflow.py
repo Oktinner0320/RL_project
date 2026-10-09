@@ -186,7 +186,7 @@ def _remote_phase(
     errors, results = [], []
     for spec, call, record in zip(specs, calls, entry["calls"]):
         try:
-            result = call.get()
+            result = call.get(timeout=config["timeout_seconds"] + config["startup_timeout_seconds"])
             record.update(state="completed", result=result)
             results.append(result)
         except Exception as error:

@@ -89,7 +89,7 @@ class ResourceFeedback:
                   'multipliers_after': after}
         self.history.append(record)
         self.pending = []
-        self.multipliers = after
+        self.multipliers = after.copy()
         return deepcopy(record)
 
     def snapshot(self) -> dict:
