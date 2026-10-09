@@ -680,6 +680,6 @@ def first_acceptance_report(config: dict, evidence: dict) -> dict:
         report['status_zh'] = '通过' if report['status'] == 'passed' else '未通过'
         report['reasons'] = [key for key, value in report['checks'].items() if not value['passed']]
     except (FirstAcceptanceContractError, KeyError, TypeError, ValueError, OSError,
-            OverflowError, AttributeError, IndexError) as error:
+            OverflowError, AttributeError, IndexError, RecursionError) as error:
         report['reasons'].append(str(error))
     return report
