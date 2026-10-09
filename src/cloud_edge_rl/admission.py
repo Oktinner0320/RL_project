@@ -119,13 +119,14 @@ def _validate_no_spawn(spec, root, proof_descriptor, reservation):
     error = _first_artifact(proof['stage_error'])
     message = "_Function.with_options() got an unexpected keyword argument 'startup_timeout'"
     exact_error = ((error.get('error_type') == 'TypeError' and error.get('message') == message)
+                   or (error.get('exception_type') == 'TypeError' and error.get('exception') == message)
                    or error.get('error') == 'TypeError: ' + message)
     if (not exact_error
             or 'app_id' not in error or error['app_id'] is not None
             or 'call_id' not in error or error['call_id'] is not None):
         raise ValueError('Proof requires the exact pre-app startup_timeout TypeError')
     controller = _first_artifact(proof['controller_source'])
-    source = controller.get('source')
+    source = controller.get('source', controller.get('source_text'))
     if type(source) is not str:
         raise ValueError('Preserved controller source required')
     options, startup, app, spawn = (source.find(text) for text in
