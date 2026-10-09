@@ -337,8 +337,12 @@ def first_acceptance_report(config: dict, evidence: dict) -> dict:
       evidence. evidence contains phase='confirmation', freeze_sha256,
       started_at, budget descriptor, hard_requirements (category -> descriptor),
       pairs, panel, calibration. Hard-requirement JSON witnesses contain numeric
-      'observed' mappings for all category checks and a nonempty 'artifacts' list
-      of content-verified JSON descriptors. No self-reported passing booleans.
+      a nonempty 'artifacts' list of content-verified JSON descriptors. Each
+      artifact is a producer report {category, freeze_sha256, run_ids, observed};
+      observed maps check names to actual numeric measurements, never booleans.
+      Their disjoint check inventories must cover all required category checks;
+      run_ids collectively cover all six own evaluation runs. Frozen hard_rules
+      interpret those measurements. No self-reported passing booleans.
     * config.budget_reconciliation identifies a pre-run JSON ledger (explicit []
       allowed). evidence.budget identifies its append-only final ledger. Each row
       has call_id, run_id, method, seed, partition, configuration_id, state,
@@ -420,7 +424,7 @@ def first_acceptance_report(config: dict, evidence: dict) -> dict:
         pairs = evidence['pairs']
         _first_require(_first_ids([p['training_seed'] for p in pairs], 'paired training seeds', 3) == seeds,
                        'Missing independent paired training seeds')
-        native, reference, own_groups, own_runs, training_calls = [], [], [], [], []
+        native, reference, own_groups, own_runs, training_calls, audit_calls = [], [], [], [], [], []
         for pair in pairs:
             seed = str(pair['training_seed'])
             _first_require(pair['evaluation_seed'] == evaluation[seed], 'Evaluation seed mismatch')
@@ -442,6 +446,7 @@ def first_acceptance_report(config: dict, evidence: dict) -> dict:
                 own_groups.append(side['group_id'])
                 own_runs.append(side['run_id'])
                 training_calls.append(side['training_call_id'])
+                audit_calls.extend(a['call_id'] for a in side['audits'])
                 risk = _first_uploads(side['uploads'], side['audits'], side['run_id'], freeze['attack_id'])
                 _first_require(risk['exposure_risk'] > 0 if side is r else True,
                                'Zero reference risk requires a pre-registered absolute rule')
@@ -454,6 +459,7 @@ def first_acceptance_report(config: dict, evidence: dict) -> dict:
         groups = _first_ids(own_groups, 'independent confirmation groups', 6)
         _first_ids(own_runs, 'independent confirmation runs', 6)
         _first_ids(training_calls, 'independent training calls', 6)
+        _first_ids(audit_calls, 'independent audit calls')
         _first_require(not groups & (fit_groups | cal_groups | dev_groups), 'Confirmation reused development/fitting groups')
         n, r = np.asarray(native), np.asarray(reference)
         nm, rm = n.mean(axis=0), r.mean(axis=0)
@@ -526,18 +532,36 @@ def first_acceptance_report(config: dict, evidence: dict) -> dict:
             witness = _first_artifact(evidence['hard_requirements'][category])
             _first_require(isinstance(witness['artifacts'], list) and witness['artifacts'],
                            f'{category}: actual witness artifacts required')
+            observations, witnessed_runs = {}, set()
             for artifact in witness['artifacts']:
-                _first_artifact(artifact)
+                producer = _first_artifact(artifact)
+                _first_require(producer['category'] == category and
+                               producer['freeze_sha256'] == evidence['freeze_sha256'],
+                               f'{category}: producer evidence identity mismatch')
+                witnessed_runs |= _first_ids(producer['run_ids'], f'{category}: producer run identities')
+                _first_require(isinstance(producer['observed'], dict) and
+                               not observations.keys() & producer['observed'].keys(),
+                               f'{category}: duplicate producer observations')
+                observations.update(producer['observed'])
+            _first_require(witnessed_runs == set(own_runs) and set(observations) == set(names),
+                           f'{category}: producer coverage mismatch')
             checks = {}
             for name in names:
                 rule = freeze['hard_rules'][category][name]
-                actual = _first_number(witness['observed'][name], f'{category}.{name}')
+                actual = _first_number(observations[name], f'{category}.{name}')
                 target = _first_number(rule['target'], f'{category}.{name}.target')
                 _first_require(rule['op'] in ('eq', 'le', 'ge'), 'Unknown pre-registered hard rule')
                 checks[name] = {'eq': actual == target, 'le': actual <= target, 'ge': actual >= target}[rule['op']]
             if category == 'attack':
                 _first_require(checks['leakage_detection'] and checks['prior_comparison'],
                                'Attack ineffectiveness makes privacy benefits unidentifiable')
+            if category == 'exposure_alignment':
+                _first_require(observations['gamma'] == 1 and
+                               freeze['hard_rules'][category]['gamma'] == {'op': 'eq', 'target': 1},
+                               'Exposure alignment requires gamma=1')
+            if category == 'execution':
+                _first_require(observations['timeout'] > 0 and observations['concurrency'] <= 1 and
+                               observations['spending'] <= 100, 'Execution limits exceed the first-acceptance contract')
             report['checks'][category] = {'passed': all(checks.values()), 'constraints': checks}
         report['status'] = 'passed' if all(c['passed'] for c in report['checks'].values()) else 'failed'
         report['status_zh'] = '通过' if report['status'] == 'passed' else '未通过'
