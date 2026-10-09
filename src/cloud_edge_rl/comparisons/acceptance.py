@@ -3,7 +3,6 @@
 from pathlib import PurePosixPath
 from pathlib import Path
 from datetime import datetime
-import hashlib
 import json
 import math
 
@@ -224,18 +223,56 @@ def _first_ids(values: list, name: str, count: int | None = None) -> set:
     return canonical
 
 
+def _first_json(value):
+    """Validate full finite JSON without coercing keys, scalars or containers."""
+    if type(value) is dict:
+        _first_require(all(type(key) is str for key in value), 'JSON object keys must be strings')
+        for item in value.values():
+            _first_json(item)
+    elif type(value) is list:
+        for item in value:
+            _first_json(item)
+    else:
+        _first_require(value is None or type(value) in (str, bool, int) or
+                       (type(value) is float and math.isfinite(value)), 'Strict finite JSON required')
+
+
+def _first_json_equal(actual, snapshot) -> bool:
+    """Compare JSON structurally, keeping bool/int/float/string types distinct."""
+    _first_json(actual)
+    _first_json(snapshot)
+    if type(actual) is not type(snapshot):
+        return False
+    if type(actual) is dict:
+        return actual.keys() == snapshot.keys() and all(
+            _first_json_equal(actual[key], snapshot[key]) for key in actual)
+    if type(actual) is list:
+        return len(actual) == len(snapshot) and all(
+            _first_json_equal(a, s) for a, s in zip(actual, snapshot))
+    return actual == snapshot
+
+
+def _first_json_object(pairs):
+    """Reject duplicate members rather than silently discarding JSON content."""
+    result = {}
+    for key, value in pairs:
+        _first_require(key not in result, f'Duplicate JSON member: {key}')
+        result[key] = value
+    return result
+
+
 def _first_artifact(identity: dict):
-    """Read a local JSON witness, verifying its byte identity before interpretation."""
-    _first_require(isinstance(identity, dict) and set(identity) == {'path', 'sha256'},
-                   'Artifact requires path and sha256')
-    _first_require(isinstance(identity['path'], str) and bool(identity['path']) and
-                   isinstance(identity['sha256'], str) and len(identity['sha256']) == 64,
-                   'Invalid artifact identity')
-    raw = Path(identity['path']).read_bytes()
-    _first_require(hashlib.sha256(raw).hexdigest() == identity['sha256'],
-                   f"Artifact digest mismatch: {identity['path']}")
-    return json.loads(raw, parse_constant=lambda value: (_ for _ in ()).throw(
-        FirstAcceptanceContractError(f'Nonfinite JSON constant: {value}')))
+    """Read a local JSON witness and compare its full frozen snapshot; no hashes."""
+    _first_require(isinstance(identity, dict) and set(identity) == {'path', 'snapshot'},
+                   'Artifact requires path and snapshot; legacy hash descriptors are rejected')
+    _first_require(type(identity['path']) is str and Path(identity['path']).is_absolute(),
+                   'Artifact requires an absolute local path')
+    actual = json.loads(Path(identity['path']).read_bytes(), object_pairs_hook=_first_json_object,
+                        parse_constant=lambda value: (_ for _ in ()).throw(
+                            FirstAcceptanceContractError(f'Nonfinite JSON constant: {value}')))
+    _first_require(_first_json_equal(actual, identity['snapshot']),
+                   f"Artifact snapshot mismatch: {identity['path']}")
+    return actual
 
 
 def _first_time(value: str) -> datetime:
@@ -348,10 +385,13 @@ def first_acceptance_report(config: dict, evidence: dict) -> dict:
 
     Minimal JSON schema (no cloud calls; all paths are local):
     * config is CONFIG['native_acceptance'], with the exact v1 thresholds, enabled
-      True, require_complete_audit True and confirmation settings. Every artifact
-      descriptor is {'path': nonempty str, 'sha256': hex digest of file bytes}.
+      True, require_complete_audit True, artifact_verification='json_snapshot_no_hash'
+      and confirmation settings. Every artifact descriptor is
+      {'path': absolute local str, 'snapshot': full strict finite JSON content}.
+      Parsed content must match the snapshot with scalar types preserved; no hashes
+      or legacy hash descriptors are accepted. Formatting/object order may differ.
       confirmation.freeze_manifest identifies a JSON object containing ALL its
-      other fields (including frozen True), plus registered_at (aware ISO time),
+      other fields (including frozen True and a nonempty explicit freeze_id), plus registered_at (aware ISO time),
       attack_id, method_settings_id, reference_settings_id, risk_version,
       fit_group_ids, calibration_group_ids, development_group_ids, hard_rules.
       IDs identify full frozen settings/protocols, not display names. risk_reference
@@ -368,18 +408,20 @@ def first_acceptance_report(config: dict, evidence: dict) -> dict:
        must be eq/le a positive upper bound no greater than that deadline, and
        the observation itself must be positive and no greater than that deadline.
     * confirmation.evidence_manifest identifies a JSON object exactly equal to
-      evidence. evidence contains phase='confirmation', freeze_sha256,
+      evidence. evidence contains phase='confirmation', freeze_id,
       started_at, budget descriptor, hard_requirements (category -> descriptor),
       pairs, panel, calibration. Hard-requirement JSON witnesses contain numeric
       a nonempty 'artifacts' list of content-verified JSON descriptors. Each
-      artifact is a producer report {category, freeze_sha256, run_ids, observed};
+      artifact is a producer report {category, freeze_id, run_ids, observed};
+      freeze_id is a non-content-derived registration ID matching confirmation,
+      freeze, evidence and every producer; it is not a content digest.
       observed maps check names to actual numeric measurements, never booleans.
       Their disjoint check inventories must cover all required category checks;
       run_ids collectively cover all six own evaluation runs. Frozen hard_rules
       interpret those measurements. No self-reported passing booleans.
     * config.budget_reconciliation.ledger_manifest identifies a pre-run JSON ledger
        (explicit [] allowed); outer status/cost fields cannot replace that witness.
-       Legacy pure {path, sha256} descriptors are also accepted. evidence.budget
+       Direct {path, snapshot} descriptors are also accepted. evidence.budget
        identifies its append-only final ledger. Each row
       has call_id, run_id, method, seed, partition, configuration_id, state,
       learned_steps, warmup_steps, collection_interactions, resume_offset.
@@ -428,9 +470,13 @@ def first_acceptance_report(config: dict, evidence: dict) -> dict:
     try:
         _first_require(config['version'] == report['version'] and config['enabled'] is True and
                        config['require_complete_audit'] is True, 'First-acceptance configuration not active')
+        _first_require(config['artifact_verification'] == 'json_snapshot_no_hash',
+                       'First-acceptance requires json_snapshot_no_hash verification')
         _first_require(all(type(config[k]) in (int, float) and config[k] == v
                            for k, v in _FIRST_THRESHOLDS.items()), 'First-acceptance thresholds differ')
         confirmation = config['confirmation']
+        freeze_id = confirmation['freeze_id']
+        _first_require(type(freeze_id) is str and bool(freeze_id.strip()), 'Nonempty freeze_id required')
         freeze = _first_artifact(confirmation['freeze_manifest'])
         controller_deadline = _first_number(config['controller_timeout_seconds'],
                                             'controller_timeout_seconds')
@@ -440,7 +486,7 @@ def first_acceptance_report(config: dict, evidence: dict) -> dict:
                        'Controller watchdog deadline must be positive and match frozen configuration')
         for key, value in confirmation.items():
             if key not in ('freeze_manifest', 'evidence_manifest'):
-                _first_require(freeze[key] == value, f'Frozen confirmation mismatch: {key}')
+                _first_require(_first_json_equal(freeze[key], value), f'Frozen confirmation mismatch: {key}')
         _first_require(confirmation['frozen'] is True and confirmation['main_method'] in ('DQN', 'PPO') and
                        confirmation['scheduler_reference'] in ('fixed', 'time-greedy', 'risk-greedy', 'MetaCS', 'PQN') and
                        confirmation['risk_reference'] in ('MLP', 'TabM'), 'Unique method/references not frozen')
@@ -456,10 +502,10 @@ def first_acceptance_report(config: dict, evidence: dict) -> dict:
         _first_require(len(seeds | fit_seeds | panel_seeds | evaluation_seeds) ==
                        len(seeds) + len(fit_seeds) + len(panel_seeds) + len(evaluation_seeds),
                        'Registered random-seed namespaces overlap')
-        _first_require(_first_artifact(confirmation['evidence_manifest']) == evidence,
+        _first_require(_first_json_equal(_first_artifact(confirmation['evidence_manifest']), evidence),
                        'Evidence does not match its registered artifact')
         _first_require(evidence['phase'] == 'confirmation' and
-                       evidence['freeze_sha256'] == confirmation['freeze_manifest']['sha256'] and
+                       type(evidence['freeze_id']) is str and evidence['freeze_id'] == freeze_id and
                        _first_time(freeze['registered_at']) < _first_time(evidence['started_at']),
                        'Development diagnostics or unfrozen/post-hoc evidence')
         for key in ('attack_id', 'method_settings_id', 'reference_settings_id', 'risk_version'):
@@ -588,7 +634,7 @@ def first_acceptance_report(config: dict, evidence: dict) -> dict:
             for artifact in witness['artifacts']:
                 producer = _first_artifact(artifact)
                 _first_require(producer['category'] == category and
-                               producer['freeze_sha256'] == evidence['freeze_sha256'],
+                               type(producer['freeze_id']) is str and producer['freeze_id'] == freeze_id,
                                f'{category}: producer evidence identity mismatch')
                 witnessed_runs |= _first_ids(producer['run_ids'], f'{category}: producer run identities')
                 _first_require(isinstance(producer['observed'], dict) and
