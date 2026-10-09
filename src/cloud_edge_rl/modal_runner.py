@@ -149,6 +149,8 @@ def create_app(
         volumes={"/workspace": volume},
         min_containers=0,
         buffer_containers=0,
+        startup_timeout=modal_config.get("startup_timeout_seconds"),
+        retries=0,
     )(_run_remote)
     function = base_function.with_options(
         gpu=modal_config["gpu"],
