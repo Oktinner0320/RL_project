@@ -176,7 +176,8 @@ def summarize_pairs(rows: list[dict[str, Any]], registered_seeds: list[int]) -> 
                 ('pass' if all(gates.values()) else 'fail'), 'final_test_opened': False}
 
 
-def read_development_sources(paths: list[Path], expected_split: str) -> pd.DataFrame:
+def read_development_sources(paths: list[Path], expected_split: str,
+                             collection_configs: dict[str, Path]) -> pd.DataFrame:
     """读既有原生审计或同列 CSV；核对采集种子。 / Read existing audits, not new experiments."""
     if expected_split not in ('train', 'validation') or not paths:
         raise ValueError('Only nonempty development sources are allowed')
@@ -196,10 +197,12 @@ def read_development_sources(paths: list[Path], expected_split: str) -> pd.DataF
         allowed_seeds = {11, 12, 13, 14} if expected_split == 'train' else {21, 22}
         for run_id in frame.run_id.unique():
             # The packet belongs to a collection run; its config identifies the real seed.
-            collection = source.parent.parent / run_id / 'config.json'
+            collection = Path(collection_configs[run_id])
             spec = json.loads(collection.read_text(encoding='utf-8'))
             spec = spec.get('spec', spec)
-            if spec['seed'] not in allowed_seeds or spec['stage'] != 'collect':
+            if (spec['run_id'] != run_id or spec['seed'] not in allowed_seeds
+                    or spec['stage'] != 'collect'
+                    or spec['config']['execution']['split'] != expected_split):
                 raise ValueError('Only known development collections s11-14 and panels 21/22 allowed')
         frame['source_path'] = str(source)
         frames.append(frame)
@@ -210,6 +213,7 @@ def read_development_sources(paths: list[Path], expected_split: str) -> pd.DataF
 
 def run_development_seed(config: dict[str, Any], *, fit_seed: int, risk_version: str,
                          training_sources: list[Path], panel_sources: list[Path],
+                         collection_configs: dict[str, Path],
                          output: Path, repository: Path) -> dict[str, Any]:
     """一个有界阶段只 fit 一次。 / One fit per externally watchdog-bounded stage.
 
@@ -225,8 +229,8 @@ def run_development_seed(config: dict[str, Any], *, fit_seed: int, risk_version:
     risk_config = deepcopy(config['risk'])
     if not risk_config.get('mean_calibration') or risk_config.get('calibration_feature_index') != 1:
         raise ValueError('Notebook CONFIG must already enable batch mean calibration at feature index 1')
-    training = read_development_sources(training_sources, 'train')
-    panel = read_development_sources(panel_sources, 'validation')
+    training = read_development_sources(training_sources, 'train', collection_configs)
+    panel = read_development_sources(panel_sources, 'validation', collection_configs)
     check_group_isolation(training, panel)
     # Complete provenance before fitting; missing lock/source identity is a preflight failure.
     repository = Path(repository).resolve()
@@ -234,7 +238,7 @@ def run_development_seed(config: dict[str, Any], *, fit_seed: int, risk_version:
     identities = {str(path.relative_to(repository)): sha256(path.read_bytes()).hexdigest()
                   for path in identity_paths if 'test' not in path.relative_to(repository).parts}
     sources = {str(Path(path).resolve()): sha256(Path(path).read_bytes()).hexdigest()
-               for path in training_sources + panel_sources}
+               for path in training_sources + panel_sources + list(collection_configs.values())}
     output = Path(output)
     output.mkdir(parents=True, exist_ok=False)
     (output / 'status.json').write_text(json.dumps({'state': 'running', 'fit_seed': fit_seed}), encoding='utf-8')
