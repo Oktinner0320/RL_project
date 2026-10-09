@@ -48,7 +48,7 @@ def source_records(root: Path, names: list[str]) -> dict:
             (Path(root) / "reference_algorithms/provenance" / f"{name}.json").read_text(encoding='utf-8')
         )
         files = {
-            path.relative_to(repository).as_posix(): path.read_text(encoding='utf-8')
+            path.relative_to(repository).as_posix(): path.read_bytes().decode('utf-8')
             for path in sorted(repository.rglob("*.py"))
         }
         result[name] = {"pin": record, "identity_kind": "source_text_snapshot_no_hash",
