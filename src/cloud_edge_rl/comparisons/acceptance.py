@@ -361,6 +361,12 @@ def first_acceptance_report(config: dict, evidence: dict) -> dict:
        observations). numerical_equivalence and telescope are nonnegative errors
        with pre-registered {'op':'le', 'target': tolerance} or exact eq 0.
        execution timeout/concurrency/spending are measured limits, not success flags.
+       config.controller_timeout_seconds and freeze.controller_timeout_seconds must
+       be the same explicit positive finite deadline in seconds. observed.timeout
+       is the maximum controller deadline actually enforced by the process-tree
+       watchdog, NOT elapsed algorithm runtime or a success flag. Its frozen rule
+       must be eq/le a positive upper bound no greater than that deadline, and
+       the observation itself must be positive and no greater than that deadline.
     * confirmation.evidence_manifest identifies a JSON object exactly equal to
       evidence. evidence contains phase='confirmation', freeze_sha256,
       started_at, budget descriptor, hard_requirements (category -> descriptor),
@@ -426,6 +432,12 @@ def first_acceptance_report(config: dict, evidence: dict) -> dict:
                            for k, v in _FIRST_THRESHOLDS.items()), 'First-acceptance thresholds differ')
         confirmation = config['confirmation']
         freeze = _first_artifact(confirmation['freeze_manifest'])
+        controller_deadline = _first_number(config['controller_timeout_seconds'],
+                                            'controller_timeout_seconds')
+        frozen_deadline = _first_number(freeze['controller_timeout_seconds'],
+                                        'freeze.controller_timeout_seconds')
+        _first_require(controller_deadline > 0 and frozen_deadline == controller_deadline,
+                       'Controller watchdog deadline must be positive and match frozen configuration')
         for key, value in confirmation.items():
             if key not in ('freeze_manifest', 'evidence_manifest'):
                 _first_require(freeze[key] == value, f'Frozen confirmation mismatch: {key}')
@@ -598,6 +610,10 @@ def first_acceptance_report(config: dict, evidence: dict) -> dict:
                 elif category == 'execution' and name in ('timeout', 'spending'):
                     _first_require(rule['op'] in ('eq', 'le'),
                                    f'{category}.{name}: upper limit required')
+                    if name == 'timeout':
+                        _first_require(0 < target <= controller_deadline and
+                                       0 < actual <= controller_deadline,
+                                       'execution.timeout: enforced watchdog deadline in seconds must be bounded by frozen controller_timeout_seconds')
                 else:
                     _first_require(type(observations[name]) is int and actual in (0, 1) and
                                    type(rule['target']) is int and target == 1 and rule['op'] == 'eq',
