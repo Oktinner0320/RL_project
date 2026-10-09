@@ -295,23 +295,47 @@ def _first_panel(panel: list[dict], prediction_key: str) -> dict:
 
 def _first_budget(config: dict, evidence: dict, seeds: set, method: str) -> dict:
     """No reset: an explicit pre-run ledger must be a subset of the final ledger."""
-    prior = _first_artifact(config['budget_reconciliation'])
+    reconciliation = config['budget_reconciliation']
+    _first_require(isinstance(reconciliation, dict), 'Budget reconciliation descriptor required')
+    prior = _first_artifact(reconciliation['ledger_manifest']
+                            if 'ledger_manifest' in reconciliation else reconciliation)
     final = _first_artifact(evidence['budget'])
     _first_require(isinstance(prior, list) and isinstance(final, list), 'Budget ledgers must be lists')
     _first_require(all(row in final for row in prior), 'Budget history was removed or rewritten')
     calls = _first_ids([row['call_id'] for row in final], 'budget call identities')
     totals, configurations = {}, {}
     for row in final:
-        _first_require(row['state'] == 'completed', 'Unreconciled failed/interrupted budget record')
+        _first_require(row['state'] in ('completed', 'failed', 'cancelled', 'canceled', 'interrupted'),
+                       'Unknown/nonterminal budget state')
+        _first_require(row['state'] == 'completed' or row.get('consumption_verified') is True,
+                       'Unreconciled failed/interrupted budget record')
         key = (row['method'], str(row['seed']), row['partition'])
-        counts = [row[name] for name in ('learned_steps', 'warmup_steps', 'collection_interactions', 'resume_offset')]
-        _first_require(all(type(v) is int and v >= 0 for v in counts) and counts[3] <= sum(counts[:2]),
-                       'Invalid budget counters')
-        totals[key] = totals.get(key, 0) + sum(counts[:3]) - counts[3]
+        counter_names = ('learned_steps', 'warmup_steps', 'collection_interactions',
+                         'charged_collection_interactions', 'resume_offset')
+        interactions = None
+        if any(name in row for name in counter_names):
+            collection = (row['collection_interactions'] if 'collection_interactions' in row
+                          else row['charged_collection_interactions'])
+            counts = [row['learned_steps'], row['warmup_steps'], collection, row['resume_offset']]
+            _first_require(all(type(v) is int and v >= 0 for v in counts) and counts[3] <= sum(counts[:2]),
+                           'Invalid budget counters')
+            if 'collection_interactions' in row and 'charged_collection_interactions' in row:
+                _first_require(type(row['charged_collection_interactions']) is int and
+                               row['charged_collection_interactions'] == collection,
+                               'Conflicting collection counters')
+            interactions = sum(counts[:3]) - counts[3]
+        if 'actual_interactions' in row:
+            actual = row['actual_interactions']
+            _first_require(type(actual) is int and actual >= 0 and
+                           (interactions is None or actual == interactions),
+                           'Invalid/conflicting actual interactions')
+            interactions = actual
+        _first_require(interactions is not None, 'Unknown actual interaction consumption')
+        totals[key] = totals.get(key, 0) + interactions
         configuration_key = (row['method'], row['partition'])
         configurations.setdefault(configuration_key, set()).add(row['configuration_id'])
     _first_require(all((method, seed, 'iid') in totals for seed in seeds), 'Missing training budget history')
-    return {'passed': all(v <= 3000 for v in totals.values()) and
+    return {'passed': all(v <= config['interaction_limit'] for v in totals.values()) and
             all(len(v) <= 8 for v in configurations.values()),
             'totals': [{'method': k[0], 'seed': k[1], 'partition': k[2], 'interactions': v}
                        for k, v in totals.items()], 'call_ids': sorted(calls),
@@ -333,7 +357,10 @@ def first_acceptance_report(config: dict, evidence: dict) -> dict:
       IDs identify full frozen settings/protocols, not display names. risk_reference
       must be MLP or TabM; scheduler_reference is fixed/time-greedy/risk-greedy/
       MetaCS/PQN. hard_rules maps each _FIRST_HARD_CHECKS category/check to
-      {'op': 'eq'|'le'|'ge', 'target': finite nonnegative numeric value}.
+       {'op': 'eq', 'target': 1} for binary correctness checks (integer 0/1
+       observations). numerical_equivalence and telescope are nonnegative errors
+       with pre-registered {'op':'le', 'target': tolerance} or exact eq 0.
+       execution timeout/concurrency/spending are measured limits, not success flags.
     * confirmation.evidence_manifest identifies a JSON object exactly equal to
       evidence. evidence contains phase='confirmation', freeze_sha256,
       started_at, budget descriptor, hard_requirements (category -> descriptor),
@@ -344,11 +371,21 @@ def first_acceptance_report(config: dict, evidence: dict) -> dict:
       Their disjoint check inventories must cover all required category checks;
       run_ids collectively cover all six own evaluation runs. Frozen hard_rules
       interpret those measurements. No self-reported passing booleans.
-    * config.budget_reconciliation identifies a pre-run JSON ledger (explicit []
-      allowed). evidence.budget identifies its append-only final ledger. Each row
+    * config.budget_reconciliation.ledger_manifest identifies a pre-run JSON ledger
+       (explicit [] allowed); outer status/cost fields cannot replace that witness.
+       Legacy pure {path, sha256} descriptors are also accepted. evidence.budget
+       identifies its append-only final ledger. Each row
       has call_id, run_id, method, seed, partition, configuration_id, state,
       learned_steps, warmup_steps, collection_interactions, resume_offset.
-      Counts are actual charged interactions (including allocated collection);
+       Alternatively actual_interactions is a nonnegative integer giving this
+       call's incremental charged total INCLUDING warmup and allocated collection.
+       If both forms appear they must agree; partial counter groups are invalid.
+       charged_collection_interactions is an alias for collection_interactions.
+       Failed/cancelled/canceled/interrupted historical calls retain their state
+       and require consumption_verified is True plus explicit counters/total;
+       unknown/nonterminal states or missing consumption are insufficient, not zero.
+       Confirmation training calls must still be completed.
+       Counts are actual charged interactions (including allocated collection);
       resume_offset removes already charged warmup/learned counters, not collection.
       Include ALL historical calls/settings, including reconciled failed calls.
     * pairs: exactly 3 rows {training_seed, evaluation_seed, native, reference}.
@@ -441,7 +478,8 @@ def first_acceptance_report(config: dict, evidence: dict) -> dict:
                                side['resource_clock'] == 'absolute_simulated_time' and
                                side['metric_split'] == 'official_test', 'Unfrozen/unpaired evaluation settings')
                 call = ledger[side['training_call_id']]
-                _first_require(call['method'] == method and str(call['seed']) == seed and
+                _first_require(call['state'] == 'completed' and
+                               call['method'] == method and str(call['seed']) == seed and
                                call['partition'] == 'iid' and call['run_id'] == side['run_id'] and
                                call['configuration_id'] == settings,
                                'Training ledger identity mismatch')
@@ -553,6 +591,17 @@ def first_acceptance_report(config: dict, evidence: dict) -> dict:
                 actual = _first_number(observations[name], f'{category}.{name}')
                 target = _first_number(rule['target'], f'{category}.{name}.target')
                 _first_require(rule['op'] in ('eq', 'le', 'ge'), 'Unknown pre-registered hard rule')
+                if (category, name) in (('fedsgd', 'numerical_equivalence'),
+                                        ('exposure_alignment', 'telescope')):
+                    _first_require(rule['op'] == 'le' or (rule['op'] == 'eq' and target == 0),
+                                   f'{category}.{name}: pre-registered upper error tolerance required')
+                elif category == 'execution' and name in ('timeout', 'spending'):
+                    _first_require(rule['op'] in ('eq', 'le'),
+                                   f'{category}.{name}: upper limit required')
+                else:
+                    _first_require(type(observations[name]) is int and actual in (0, 1) and
+                                   type(rule['target']) is int and target == 1 and rule['op'] == 'eq',
+                                   f'{category}.{name}: integer success rule must be eq 1')
                 checks[name] = {'eq': actual == target, 'le': actual <= target, 'ge': actual >= target}[rule['op']]
             if category == 'attack':
                 _first_require(checks['leakage_detection'] and checks['prior_comparison'],
