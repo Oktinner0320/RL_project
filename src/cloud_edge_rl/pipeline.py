@@ -3,6 +3,7 @@
 import importlib.metadata
 import json
 import platform
+from datetime import datetime, timezone
 from copy import deepcopy
 from pathlib import Path
 
@@ -224,9 +225,42 @@ def _run_episode(env: RecordingEnv, policy, seed: int) -> dict:
     return {**info, "total_reward": total_reward}
 
 
+def _include_official_test(spec: RunSpec) -> bool:
+    """Development never touches official test; test access needs a verified formal freeze."""
+    if spec.stage == 'runtime_check':
+        return False
+    split = spec.config['execution']['split']
+    if split not in ('train', 'validation', 'test'):
+        raise ValueError('Explicit train/validation/test split required')
+    if spec.stage == 'train_policy' and split != 'train':
+        raise ValueError('Policy training requires the training split')
+    if spec.stage == 'validate' and split != 'validation':
+        raise ValueError('Tuning evaluation requires validation runs')
+    if spec.stage == 'evaluate' and split != 'test':
+        raise ValueError('Final evaluation requires test runs')
+    if split != 'test':
+        return False
+    from .comparisons.acceptance import _first_artifact, _first_json_equal, _first_time
+
+    confirmation = spec.config['native_acceptance']['confirmation']
+    if (confirmation.get('frozen') is not True
+            or type(confirmation.get('freeze_id')) is not str
+            or not confirmation['freeze_id'].strip()):
+        raise ValueError('Official test requires frozen formal confirmation')
+    freeze = _first_artifact(confirmation['freeze_manifest'])
+    for key, value in confirmation.items():
+        if key not in ('freeze_manifest', 'evidence_manifest'):
+            if key not in freeze or not _first_json_equal(freeze[key], value):
+                raise ValueError(f'Frozen confirmation mismatch: {key}')
+    if _first_time(freeze['registered_at']) > datetime.now(timezone.utc):
+        raise ValueError('Formal confirmation registration is in the future')
+    return True
+
+
 def run_experiment(spec: RunSpec, root: Path) -> dict:
     """统一的本地/Modal入口；所有输入来自 Notebook 快照。 / One local/Modal entry point."""
     root = Path(root)
+    include_official_test = _include_official_test(spec)
     with RunStore(root, spec) as store:
         store.write_json("runtime.json", runtime_info())
         sources = required_sources(spec.config, spec.method, spec.stage)
@@ -237,7 +271,8 @@ def run_experiment(spec: RunSpec, root: Path) -> dict:
         if spec.stage == "runtime_check":
             result = {"run_id": spec.run_id, "stage": spec.stage, **runtime_info()}
         else:
-            data = prepare_adult(spec.config["data"], root / "data")
+            data = prepare_adult(spec.config["data"], root / "data",
+                                 include_official_test=include_official_test)
             store.write_json("data_metadata.json", data.metadata)
             if spec.stage == "native_acceptance_backend":
                 from .comparisons.native_acceptance import backend_gate

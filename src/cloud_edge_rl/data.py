@@ -1,9 +1,9 @@
 """Adult 数据下载与可复现编码 / Download and reproducibly encode Adult data."""
 
 import json
+from base64 import urlsafe_b64encode
 from copy import deepcopy
 from dataclasses import dataclass
-from hashlib import sha256
 from io import BytesIO
 from pathlib import Path
 from tempfile import NamedTemporaryFile
@@ -203,12 +203,20 @@ def decode_features(encoded: np.ndarray, metadata: dict) -> pd.DataFrame:
     return pd.DataFrame(columns, columns=metadata["feature_columns"])
 
 
-def prepare_adult(config: dict, cache_dir: Path) -> DataBundle:
-    """缓存官方 ZIP 并划分数据 / Cache the official ZIP, preserve its test split, and prepare clients."""
+def prepare_adult(config: dict, cache_dir: Path, *, include_official_test: bool = False) -> DataBundle:
+    """Prepare development splits; extract official test only when explicitly requested.
+
+    The pipeline verifies formal confirmation before requesting official test data.
+    Existing hash-named caches/manifests are left untouched and never compared.
+    """
+    if type(include_official_test) is not bool:
+        raise ValueError('include_official_test must be an explicit boolean')
     cache_dir = Path(cache_dir)
     cache_dir.mkdir(parents=True, exist_ok=True)
-    source_id = sha256(config["url"].encode()).hexdigest()[:12]
-    archive_path = cache_dir / f"adult-{source_id}.zip"
+    source_id = urlsafe_b64encode(config["url"].encode('utf-8')).decode('ascii').rstrip('=')
+    if len(source_id) > 180:
+        raise ValueError('Adult URL is too long for the content-free cache identity')
+    archive_path = cache_dir / f"adult-url-{source_id}.zip"
     if not archive_path.exists():
         with urlopen(config["url"]) as response:
             content = response.read()
@@ -218,25 +226,29 @@ def prepare_adult(config: dict, cache_dir: Path) -> DataBundle:
             temporary.write(content)
             temporary_path = Path(temporary.name)
         temporary_path.replace(archive_path)
-    archive_bytes = archive_path.read_bytes()
-    with ZipFile(BytesIO(archive_bytes)) as archive:
+    with ZipFile(archive_path) as archive:
         train_bytes = archive.read("adult.data")
-        test_bytes = archive.read("adult.test")
+        test_bytes = archive.read("adult.test") if include_official_test else None
+        selected = ['adult.data', *(['adult.test'] if include_official_test else [])]
+        members = {name: {'uncompressed_bytes': archive.getinfo(name).file_size,
+                          'compressed_bytes': archive.getinfo(name).compress_size}
+                   for name in selected}
     manifest = {
         "url": config["url"],
         "archive": archive_path.name,
-        "sha256": sha256(archive_bytes).hexdigest(),
-        "file_sha256": {
-            "adult.data": sha256(train_bytes).hexdigest(),
-            "adult.test": sha256(test_bytes).hexdigest(),
-        },
+        "identity_kind": "content_structure_metadata_no_hash",
+        "archive_bytes": archive_path.stat().st_size,
+        "selected_members": members,
+        "official_test_included": include_official_test,
     }
-    (cache_dir / f"adult-{source_id}.manifest.json").write_text(
+    split_name = 'official-test' if include_official_test else 'development'
+    (cache_dir / f"adult-url-{source_id}.{split_name}.manifest.json").write_text(
         json.dumps(manifest, indent=2),
         encoding="utf-8",
     )
     official_train, official_labels = _read_adult(train_bytes)
-    test_records, test_y = _read_adult(test_bytes)
+    test_records, test_y = (_read_adult(test_bytes) if include_official_test
+                            else (None, np.empty(0, dtype=np.int64)))
     train_rows, validation_rows = _split_validation(
         official_labels,
         config["validation_fraction"],
@@ -248,6 +260,8 @@ def prepare_adult(config: dict, cache_dir: Path) -> DataBundle:
     clients = _partition_clients(train_y, config)
     metadata = _fit_encoding(train_records)
     metadata.update(manifest)
+    metadata['rows'] = {'official_train': len(official_labels), 'train': len(train_y),
+                        'validation': len(validation_y), 'official_test': len(test_y)}
     metadata["split"] = {
         "config": dict(config),
         "train_source_indices": train_rows.tolist(),
@@ -259,7 +273,8 @@ def prepare_adult(config: dict, cache_dir: Path) -> DataBundle:
         train_y=train_y,
         validation_x=encode_features(validation_records, metadata),
         validation_y=validation_y,
-        test_x=encode_features(test_records, metadata),
+        test_x=(encode_features(test_records, metadata) if include_official_test
+                else np.empty((0, len(metadata['encoded_columns'])), dtype=np.float32)),
         test_y=test_y,
         train_records=train_records,
         client_indices=clients,

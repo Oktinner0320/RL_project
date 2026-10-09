@@ -3,7 +3,6 @@
 import importlib
 import json
 import sys
-from hashlib import sha256
 from pathlib import Path
 
 
@@ -41,16 +40,17 @@ def source_root(config: dict, project_root: Path) -> Path:
 
 
 def source_records(root: Path, names: list[str]) -> dict:
-    """记录实际源码摘要，避免把修改后的源码当原版。 / Record actual files alongside upstream pins."""
+    """Record exact source text alongside upstream pins, without file hashes."""
     result = {}
     for name in names:
         repository = require_source(root, name)
         record = json.loads(
-            (Path(root) / "reference_algorithms/provenance" / f"{name}.json").read_text()
+            (Path(root) / "reference_algorithms/provenance" / f"{name}.json").read_text(encoding='utf-8')
         )
         files = {
-            path.relative_to(repository).as_posix(): sha256(path.read_bytes()).hexdigest()
+            path.relative_to(repository).as_posix(): path.read_text(encoding='utf-8')
             for path in sorted(repository.rglob("*.py"))
         }
-        result[name] = {"pin": record, "files_sha256": files}
+        result[name] = {"pin": record, "identity_kind": "source_text_snapshot_no_hash",
+                        "files_source_text": files}
     return result
