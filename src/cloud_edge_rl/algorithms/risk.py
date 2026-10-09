@@ -1,7 +1,8 @@
 """独立 MLP 集成，运行分组验证，阶段内冻结。 / Run-grouped frozen MLP ensemble."""
 
 from copy import deepcopy
-from math import ceil
+from math import ceil, isfinite
+from numbers import Real
 
 import numpy as np
 import torch
@@ -18,6 +19,16 @@ def mlp(input_size: int, widths: list[int], output_size: int) -> nn.Sequential:
     return nn.Sequential(*layers, nn.Linear(input_size, output_size))
 
 
+def _calibration_strength(config: dict) -> float:
+    strength = config.get('calibration_strength', 1.)
+    if (isinstance(strength, (bool, np.bool_)) or not isinstance(strength, Real)
+            or not 0 <= strength <= 1 or not isfinite(strength)):
+        raise ValueError('Calibration strength must be a finite real scalar in [0, 1]')
+    if strength != 1 and not config.get('mean_calibration', False):
+        raise ValueError('Non-unit calibration strength requires mean calibration')
+    return float(strength)
+
+
 class RiskEstimator:
     """成员标准差是分歧，不是概率置信界。 / Member dispersion is not a confidence bound."""
 
@@ -26,6 +37,7 @@ class RiskEstimator:
         self.device = torch.device(config['device'])
         if not isinstance(config.get('mean_calibration', False), bool):
             raise ValueError('Mean calibration must be boolean')
+        _calibration_strength(config)
         if not isinstance(config.get('calibration_nonnegative', False), bool):
             raise ValueError('Nonnegative calibration must be boolean')
         if config.get('calibration_nonnegative', False) and not config.get('mean_calibration', False):
@@ -135,6 +147,7 @@ class RiskEstimator:
                 x = (features[start:start + self.config['batch_size']] - self.mean) / self.scale
                 batches.append(self._members(torch.tensor(x, dtype=torch.float32, device=self.device)).cpu().numpy())
         members = np.concatenate(batches)
+        raw = members.mean(1)
         # 偏差修正仅作用于点估计；成员分歧仍未经置信校准。 / Correct the mean; dispersion remains uncalibrated.
         correction = self.calibration_offset
         index = self.config.get('calibration_feature_index')
@@ -147,7 +160,11 @@ class RiskEstimator:
         if self.config.get('calibration_nonnegative', False):
             # c⁺ = max(0, c)，仅修正预测均值。 / Project the correction, not fitted offsets.
             correction = np.maximum(correction, 0.)
-        return RiskPrediction(np.clip(members.mean(1) + correction, 0., 1.), members.std(1))
+        calibrated = np.clip(raw + correction, 0., 1.)
+        strength = float(self.config.get('calibration_strength', 1.))
+        # 裁剪后插值，保留凸组合端点。 / Interpolate after clipping, not the offset.
+        mean = calibrated if strength == 1. else raw + strength * (calibrated - raw)
+        return RiskPrediction(mean, members.std(1))
 
     def checkpoint(self) -> dict:
         return deepcopy({'format': 'native_risk_v1', 'version': self.version, 'config': self.config,
@@ -162,6 +179,7 @@ class RiskEstimator:
         def settings(config):
             return {**{k: v for k, v in config.items() if k not in ('device', 'mode', 'seed')},
                     'mean_calibration': config.get('mean_calibration', False),
+                    'calibration_strength': _calibration_strength(config),
                     'calibration_nonnegative': config.get('calibration_nonnegative', False),
                     'calibration_feature_index': config.get('calibration_feature_index')}
         if settings(state['config']) != settings(self.config):
