@@ -136,6 +136,97 @@ def paired_predictions(checkpoint: dict[str, Any], features: np.ndarray
     }
 
 
+def _content_equal(left: Any, right: Any) -> bool:
+    """Compare actual state contents, without serialization or digests."""
+    import torch
+
+    if type(left) is not type(right):
+        return False
+    if isinstance(left, torch.Tensor):
+        return (left.dtype == right.dtype and left.device == right.device
+                and left.shape == right.shape and torch.equal(left, right))
+    if isinstance(left, np.ndarray):
+        return (left.dtype == right.dtype and left.shape == right.shape
+                and np.array_equal(left, right))
+    if isinstance(left, dict):
+        return (left.keys() == right.keys()
+                and all(_content_equal(left[key], right[key]) for key in left))
+    if isinstance(left, (list, tuple)):
+        return len(left) == len(right) and all(
+            _content_equal(a, b) for a, b in zip(left, right))
+    if isinstance(left, (str, int, float, bool, type(None), np.generic)):
+        return bool(left == right)
+    raise TypeError(f'Unsupported checkpoint content type: {type(left).__name__}')
+
+
+def three_arm_predictions(checkpoint: dict[str, Any], features: np.ndarray
+                          ) -> tuple[dict[str, RiskPrediction], dict[str, bool]]:
+    """Clone one signed batch fit into raw/signed/positive-part arms; never refit."""
+    original = deepcopy(checkpoint)
+    config = checkpoint['config']
+    if (config.get('mean_calibration') is not True
+            or type(config.get('calibration_feature_index')) is not int
+            or config['calibration_feature_index'] != 1
+            or config.get('calibration_nonnegative', False) is not False):
+        raise ValueError('A fitted signed batch checkpoint at feature index 1 is required')
+    inputs = np.asarray(features)
+    input_state = inputs.copy()
+    signed = RiskEstimator(deepcopy(config), checkpoint['version'])
+    signed.load_checkpoint(deepcopy(checkpoint))
+    raw, positive_part = deepcopy(signed), deepcopy(signed)
+    raw.config['mean_calibration'] = False
+    raw.config['calibration_feature_index'] = None
+    raw.config['calibration_nonnegative'] = False
+    raw.calibration_offset = 0.0
+    raw.calibration_values = np.empty(0)
+    raw.calibration_offsets = np.empty(0)
+    positive_part.config['calibration_nonnegative'] = True
+    arms = {'raw': raw, 'signed': signed, 'positive_part': positive_part}
+    states = {name: arm.checkpoint() for name, arm in arms.items()}
+    fit_keys = ('model', 'mean', 'scale', 'feature_count', 'fit_metadata')
+    fit_state = {key: original[key] for key in fit_keys}
+    if any(not _content_equal({key: state[key] for key in fit_keys}, fit_state)
+           for state in states.values()):
+        raise RuntimeError('An arm changed the shared fit state')
+    model_flags = {name: (tuple(module.training for module in arm.model.modules()),
+                          tuple(p.requires_grad for p in arm.model.parameters()))
+                   for name, arm in arms.items()}
+
+    def unchanged() -> None:
+        if (not _content_equal(checkpoint, original)
+                or not _content_equal(inputs, input_state)
+                or any(not _content_equal(arm.checkpoint(), states[name])
+                       or model_flags[name] != (
+                           tuple(module.training for module in arm.model.modules()),
+                           tuple(p.requires_grad for p in arm.model.parameters()))
+                       for name, arm in arms.items())):
+            raise RuntimeError('Prediction mutated checkpoint or input state')
+
+    unchanged()
+    predictions = {}
+    for name, arm in arms.items():
+        arm_input = input_state.copy()
+        prediction = arm.predict(arm_input)
+        unchanged()
+        if not _content_equal(arm_input, input_state):
+            raise RuntimeError('Prediction mutated checkpoint or input state')
+        for value in (prediction.mean, prediction.uncertainty):
+            if (not isinstance(value, np.ndarray) or value.shape != (len(inputs),)
+                    or value.dtype.kind not in 'fiu' or not np.isfinite(value).all()
+                    or ((value < 0) | (value > 1)).any()):
+                raise ValueError('Finite [0,1] predictions and uncertainties must match inputs')
+        predictions[name] = deepcopy(prediction)
+    if any(not np.array_equal(predictions['raw'].uncertainty, prediction.uncertainty)
+           for prediction in predictions.values()):
+        raise RuntimeError('Calibration changed member dispersion')
+    if (not (predictions['positive_part'].mean >= predictions['raw'].mean).all()
+            or not (predictions['positive_part'].mean >= predictions['signed'].mean).all()):
+        raise RuntimeError('Positive-part calibration violated the underestimation contract')
+    return predictions, {'shared_fit_state': True, 'checkpoint_unchanged': True,
+                         'uncertainty_equal': True,
+                         'nonnegative_underestimation_contract': True}
+
+
 def validate_frame(frame: pd.DataFrame) -> np.ndarray:
     """严格验证真值与曝光契约。 / Reject invalid labels, exposure and duplicate uploads."""
     required = {'run_id', 'upload_id', 'features', 'feature_recovery', 'batch_size', 'split'}

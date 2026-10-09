@@ -26,6 +26,10 @@ class RiskEstimator:
         self.device = torch.device(config['device'])
         if not isinstance(config.get('mean_calibration', False), bool):
             raise ValueError('Mean calibration must be boolean')
+        if not isinstance(config.get('calibration_nonnegative', False), bool):
+            raise ValueError('Nonnegative calibration must be boolean')
+        if config.get('calibration_nonnegative', False) and not config.get('mean_calibration', False):
+            raise ValueError('Nonnegative calibration requires mean calibration')
         index = config.get('calibration_feature_index')
         if index is not None and (type(index) is not int or index < 0 or not config.get('mean_calibration', False)):
             raise ValueError('Feature calibration requires mean calibration and a nonnegative integer index')
@@ -140,6 +144,9 @@ class RiskEstimator:
             correction = np.full(len(features), self.calibration_offset)
             for value, offset in zip(self.calibration_values, self.calibration_offsets):
                 correction[features[:, index] == value] = offset
+        if self.config.get('calibration_nonnegative', False):
+            # c⁺ = max(0, c)，仅修正预测均值。 / Project the correction, not fitted offsets.
+            correction = np.maximum(correction, 0.)
         return RiskPrediction(np.clip(members.mean(1) + correction, 0., 1.), members.std(1))
 
     def checkpoint(self) -> dict:
@@ -155,6 +162,7 @@ class RiskEstimator:
         def settings(config):
             return {**{k: v for k, v in config.items() if k not in ('device', 'mode', 'seed')},
                     'mean_calibration': config.get('mean_calibration', False),
+                    'calibration_nonnegative': config.get('calibration_nonnegative', False),
                     'calibration_feature_index': config.get('calibration_feature_index')}
         if settings(state['config']) != settings(self.config):
             raise ValueError('Risk checkpoint configuration mismatch')
