@@ -11,6 +11,7 @@ from gymnasium.spaces.utils import flatdim, flatten
 from ..baselines import run_warmup
 from ..types import TrainingResult
 from . import dqn, ppo
+from .resource_feedback import ResourceFeedback
 from .risk import mlp
 
 
@@ -109,6 +110,13 @@ def train_agent(env, config: dict, previous: dict | None, on_checkpoint) -> Trai
     base = env.unwrapped
     if base.config['reward'].get('protocol', 'legacy_v1') == 'exposure_v1' and config['gamma'] != 1:
         raise ValueError('Exposure finite-horizon protocol requires gamma=1')
+    feedback = None
+    if config.get('resource_feedback') is not None:
+        if config['algorithm'] != 'ppo' or base.config['reward'].get('protocol') != 'exposure_v1':
+            raise ValueError('Resource feedback requires finite-horizon exposure PPO')
+        if previous is not None and previous['risk_version'] != config['risk_version']:
+            raise ValueError('Resource feedback cannot reset a risk stage or its interaction counters')
+        feedback = ResourceFeedback(config['resource_feedback'], base.config['reward'])
     state = None if previous is None else previous['state']
     agent = Agent(env.observation_space, env.action_space.n, config) if state is None else load_agent(state['agent'], config)
     if agent.observation_space != env.observation_space or agent.action_count != env.action_space.n:
@@ -131,6 +139,12 @@ def train_agent(env, config: dict, previous: dict | None, on_checkpoint) -> Trai
         learned_steps, warmup_steps, updates, episode, warmup_position = (state[k] for k in
             ('learned_steps', 'warmup_steps', 'updates', 'episode', 'warmup_position'))
         finished = state['finished']
+        if feedback is not None:
+            feedback.load_snapshot(state['resource_feedback'])
+            if feedback.completed_episodes != episode + int(finished):
+                raise ValueError('Resource feedback and training episode counters mismatch')
+        elif state.get('resource_feedback') is not None:
+            raise ValueError('Cannot silently disable restored resource feedback')
         torch.set_rng_state(state['torch_rng'].cpu())
         if agent.device.type == 'cuda' and state['cuda_rng']:
             torch.cuda.set_rng_state_all(state['cuda_rng'])
@@ -145,7 +159,7 @@ def train_agent(env, config: dict, previous: dict | None, on_checkpoint) -> Trai
         config['total_steps'], learned_steps + warmup_steps + stage_limit)
 
     def checkpoint():
-        return deepcopy({'format': 'native_training_v1', 'settings': _settings(config),
+        saved = {'format': 'native_training_v1', 'settings': _settings(config),
                          'risk_version': config['risk_version'], 'agent': agent.checkpoint(),
                          'optimizer': optimizer.state_dict(), 'target': target.state_dict(),
                          'replay': list(replay), 'rollout': rollout, 'history': history,
@@ -153,7 +167,10 @@ def train_agent(env, config: dict, previous: dict | None, on_checkpoint) -> Trai
                          'environment_steps': learned_steps + warmup_steps, 'updates': updates,
                          'episode': episode, 'warmup_position': warmup_position, 'finished': finished,
                          'environment': env.snapshot(), 'torch_rng': torch.get_rng_state(),
-                         'cuda_rng': torch.cuda.get_rng_state_all() if agent.device.type == 'cuda' else []})
+                         'cuda_rng': torch.cuda.get_rng_state_all() if agent.device.type == 'cuda' else []}
+        if feedback is not None:
+            saved['resource_feedback'] = feedback.snapshot()
+        return deepcopy(saved)
 
     while learned_steps + warmup_steps < stage_end:
         if finished:
@@ -175,9 +192,18 @@ def train_agent(env, config: dict, previous: dict | None, on_checkpoint) -> Trai
             if hasattr(env, 'set_decision_diagnostics'):
                 env.set_decision_diagnostics(agent.last_diagnostics)
             before = agent.output(observation)
-            observation, reward, terminated, truncated, _ = env.step(action)
+            observation, reward, terminated, truncated, info = env.step(action)
             learned_steps += 1
             finished = terminated or truncated
+            stage_boundary = False
+            resource_diagnostics = {}
+            if feedback is not None:
+                reward = feedback.adjust_reward(reward, info['round_time_seconds'], info['round_energy_joules'])
+                if finished:
+                    feedback.record_episode(info['elapsed_seconds'], info['energy_joules'])
+                stage_boundary = feedback.ready
+                resource_diagnostics = {'resource_stage': len(feedback.history),
+                                        'resource_multipliers': feedback.multipliers.copy()}
             diagnostics = None
             if config['algorithm'] == 'dqn':
                 replay.append((encoded, action, reward, agent.encode(observation), terminated))
@@ -191,14 +217,21 @@ def train_agent(env, config: dict, previous: dict | None, on_checkpoint) -> Trai
                 log_prob = torch.log_softmax(logits, dim=0)[action].item()
                 rollout.append((encoded, action, reward, float(before[-1]),
                                 float(agent.output(observation)[-1]), log_prob, terminated, truncated))
-                if len(rollout) >= config['rollout_steps'] or learned_steps + warmup_steps == config['total_steps']:
+                # 两臂阶段末共同 flush；乘子绝不跨旧 rollout 更新。 / Both arms share the stage flush.
+                if (len(rollout) >= config['rollout_steps']
+                        or learned_steps + warmup_steps == config['total_steps'] or stage_boundary):
                     diagnostics = ppo.update(agent, optimizer, rollout, config)
                     rollout.clear()
                     updates += 1
+            if stage_boundary:
+                if not finished or rollout:
+                    raise ValueError('Resource stage requires a finished task and consumed rollout')
+                resource_diagnostics['resource_stage_completed'] = feedback.advance_stage()
             if diagnostics is not None:
                 history.append({'learned_steps': learned_steps, 'warmup_steps': warmup_steps,
                                 'environment_steps': learned_steps + warmup_steps,
-                                'updates': updates, 'risk_version': config['risk_version'], **diagnostics})
+                                'updates': updates, 'risk_version': config['risk_version'],
+                                **resource_diagnostics, **diagnostics})
         if (learned_steps + warmup_steps) % config['checkpoint_interval'] == 0:
             on_checkpoint(checkpoint())
     return TrainingResult(agent, checkpoint())
