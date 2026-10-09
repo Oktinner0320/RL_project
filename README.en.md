@@ -8,7 +8,18 @@ Recent external algorithm screening and actual benchmark results are recorded in
 
 This project studies whether an empirical privacy-risk surrogate systematically underestimates risk when dynamic scheduling changes the training trajectory, and whether uncertainty estimates and a limited budget of gradient-inversion audits improve decision reliability. The application jointly schedules client participation and batch size, evaluating model utility, time, and energy together.
 
-Your PyTorch model, FedSGD, DQN/PPO, risk estimator and gradient inversion interfaces remain in `core.py`; unfinished interfaces still stop explicitly. With your authorization, runnable third-party baselines reside separately in `comparisons/`: FedSGD with an upstream small MLP and IG inversion, MLP/TabM risk regression, a MetaCS objective adaptation, a PyTorch PQN port, and ConformalOpt/OCP audit-sequence comparisons. Selecting a baseline does not alter or automatically replace your core. See the [integration plan and acceptance criteria](docs/BASELINE_INTEGRATION.md).
+The native first implementation is available in `src/cloud_edge_rl/algorithms/`, with `core.py` retaining the public interfaces for FedSGD, gradient inversion, the risk ensemble, DQN/PPO and training recovery. Runnable third-party baselines reside separately in `comparisons/`: an upstream MLP/FedSGD and IG inversion, MLP/TabM regression, a MetaCS objective adaptation, a PyTorch PQN port, and ConformalOpt/OCP comparisons. Selecting a baseline does not automatically replace the native core. Implementation completion is not performance acceptance.
+
+## First-Version Delivery and Acceptance
+
+The first goal is a reproducible exposure-consistent, risk-calibrated joint scheduler, governed by [the first-version standard](docs/一版验收标准.md) (`first-acceptance-v1`, Chinese):
+
+- Adult IID, normal resources, **three independent paired training seeds**; validation selects and freezes one primary DQN or PPO and one strong scheduling reference `b`.
+- All paired means must meet: accuracy loss at most **1 percentage point**, modeled time and energy increases at most **15%** each, and at least **5% lower actually audited exposure-weighted risk**. At least **2/3** seeds must be task-feasible and have lower actual risk.
+- Independent common-panel exposure-weighted MAE must be at most **1.10 times** one frozen estimator reference. A paired conditional-calibration ablation against the **uncalibrated** surrogate must reduce mean underestimation by at least **5%**, with weighted error increasing by at most **10%**.
+- Retain the 30-round horizon including 12 warm-up rounds, at most 3,000 actual interactions per method/seed/partition, truth isolation, complete own-trajectory audits and independent confirmation. Spent allocations are not reset.
+
+The five-seed, two-partition, two-resource-regime matrix and stricter 95%-of-reference goals are later research extensions, not all mandatory first-version gates. **First-version acceptance remains incomplete. This update changes documents only: notebook CONFIG and automatic gate migration are pending.** Register executable settings only in the notebook's single CONFIG cell; do not relabel old tuning results as final confirmation.
 
 ## Installation and Entry Point
 
@@ -30,7 +41,7 @@ uv run --extra comparisons pytest
 uv run --extra comparisons ruff check .
 ```
 
-Test doubles exist only in `tests/` for interfaces, accounting and isolation. The reference adapters also have focused tests that run official algorithms. Passing tests does not establish that your core is complete or that the research hypotheses hold.
+Test doubles check interfaces, accounting and isolation. The native core and reference adapters also have focused tests running real algorithms. Passing tests does not establish first-version performance acceptance or the research hypotheses.
 
 ## Integrated Third-Party Baselines
 
@@ -40,9 +51,9 @@ PQN ports the official JAX implementation to PyTorch and samples the real Gymnas
 
 The final notebook section uses `CONFIG.comparisons.workflow.enabled` to run the dependency-ordered comparison workflow; it is disabled by default. Actual artifacts connect collection, attack timing, audits, MLP/TabM risk fitting, PQN training, held-out validation/test audits, risk and six-scheduler comparisons, independent audits of each scheduler's trajectory, and calibration. The six schedulers receive equal attack budgets, and final audit labels are excluded from fitting, training and calibration. Current periodic sampling compares audited subsets: a fixed two-client policy may cover only one of those clients, so these results cannot establish all-client or worst-client risk. Run IDs are passed automatically, and each run preserves its configuration and source identity. Training defaults to Modal; local CPU execution supports engineering tests and explicit debugging.
 
-The current 64 PQN steps and two OCP arms are a feasibility configuration. Formal comparisons require additional training, attack budgets and paired seeds configured in the same CONFIG cell. OCP requires enough genuinely audited uploads; data are never duplicated to satisfy its horizon conditions. Coverage refers only to the audited sequence, and score-revelation counts do not imply fewer actual attacks.
+The 64 PQN steps and two OCP arms in the 2026-10-05 baseline pilot were a historical feasibility configuration. New comparisons must register paired seeds and training/attack budgets for the first-version standard in the same CONFIG cell. OCP requires enough genuinely audited uploads; data are never duplicated to satisfy its horizon conditions. Coverage refers only to the audited sequence, and score-revelation counts do not imply fewer actual attacks.
 
-The current 24 risk-fitting labels comprise 12 audits from each of two runs, all during warm-up. They do not cover the full training trajectory. Held-out fixed-policy audits include later uploads. Lower risk MAE does not establish less underestimation or safer scheduling; inspect underestimation and actual reconstruction labels together. The upstream OCP loss constant is fixed at 40, so its supplied `C` argument is not an effective tuning parameter. The adapter preserves the native rules.
+That historical pilot's 24 risk-fitting labels comprise 12 audits from each of two runs, all during warm-up. They do not cover the full training trajectory. Held-out fixed-policy audits include later uploads. Lower risk MAE does not establish less underestimation or safer scheduling; inspect underestimation and actual reconstruction labels together. The upstream OCP loss constant is fixed at 40, so its supplied `C` argument is not an effective tuning parameter. The adapter preserves the native rules.
 
 Pinned sources stay in `reference_algorithms/repos/` rather than being copied into the main package. Restore missing sources using the [reference directory instructions](reference_algorithms/README.md). License records and PQN port attribution are in [THIRD_PARTY.md](docs/THIRD_PARTY.md).
 
@@ -51,7 +62,7 @@ Pinned sources stay in `reference_algorithms/repos/` rather than being copied in
 | Entry | Purpose |
 |---|---|
 | `experiment.ipynb` | Sole entry point for configuration, submission, status queries, downloads, and result analysis |
-| `src/cloud_edge_rl/core.py` | All learning and inversion cores that you implement |
+| `src/cloud_edge_rl/core.py`, `algorithms/` | Native public interfaces and actual FedSGD, inversion, risk and DQN/PPO implementations |
 | `data.py`, `metrics.py` | Official data processing, reconstruction evaluation on original fields, and risk-error metrics |
 | `environment.py`, `resources.py` | Gymnasium interaction, joint actions, resource accounting, budgets, and public state |
 | `baselines.py` | Fixed, round-robin, time-greedy, and risk-greedy scheduling, plus shared warm-up |
@@ -61,9 +72,9 @@ Pinned sources stay in `reference_algorithms/repos/` rather than being copied in
 | `modal_runner.py`, `artifacts.py` | Cloud jobs, Volumes, run status, and artifact storage |
 | `tests/` | Framework behavior and boundary tests |
 
-The Python modules listed above reside in `src/cloud_edge_rl/`. See [RESEARCH_PROTOCOL.md](docs/RESEARCH_PROTOCOL.md) for the full research protocol, [TASKS.md](docs/TASKS.md) for implementation tasks and course-requirement mapping, and [REFERENCES.md](docs/REFERENCES.md) for third-party sources. These supporting documents are currently in Chinese.
+The Python modules listed above reside in `src/cloud_edge_rl/`. See [the first-version standard](docs/一版验收标准.md), [RESEARCH_PROTOCOL.md](docs/RESEARCH_PROTOCOL.md), [TASKS.md](docs/TASKS.md) and [REFERENCES.md](docs/REFERENCES.md) for gates, protocol, tasks and sources. These supporting documents are currently in Chinese. Because `docs/` is Git-ignored, this tracked README also preserves the goal summary; ignore rules are unchanged.
 
-## Core Interfaces You Implement
+## Native Core Interfaces and Verification Responsibilities
 
 | Interface | Your responsibility |
 |---|---|
@@ -108,6 +119,6 @@ The initial cloud budget is an experiment-planning target, not a hard Modal bill
 
 See [VERIFICATION.md](docs/VERIFICATION.md) for actual runtime, notebook, test, and Modal verification records. After tuning, both `validate` and `evaluate` inherit the relevant training snapshot through `inputs.training_run_ids`. Explicit scheduling baselines use `evaluate_baselines`, so current default parameters do not overwrite a selected trial's configuration.
 
-Code and functions include concise Chinese and English explanations. Necessary interface checks raise errors directly rather than silently fabricating inputs or switching to substitute algorithms. On 2026-10-05, the Modal L4 workflow completed 13 phases, 26 real runs and a 26-cell executed notebook; 145 tests passed. The initial audit-coverage failure and subsequent artifact-I/O controller timeout remain recorded. Explicit recovery reattached 19 existing calls and submitted only seven new tasks. See the [integration results and raw CSVs](docs/BASELINE_INTEGRATION_RESULTS.md). Your core remains yours to implement.
+Code and functions include concise Chinese and English explanations. Necessary interface checks raise errors directly rather than silently fabricating inputs or switching to substitute algorithms. The historical 2026-10-05 Modal L4 baseline workflow completed 13 phases, 26 real runs and a 26-cell executed notebook; 145 tests passed at that time. The initial audit-coverage failure and subsequent artifact-I/O controller timeout remain recorded. Explicit recovery reattached 19 existing calls and submitted only seven new tasks. See the [integration results and raw CSVs](docs/BASELINE_INTEGRATION_RESULTS.md). Later native implementation and development checks are recorded in [overall acceptance](docs/NATIVE_OVERALL_ACCEPTANCE.md); first-version independent confirmation remains incomplete.
 
-This is a small feasibility run. Attacks with 200 iterations and one restart performed below the marginal prior, with zero EMR for all six scheduler audits. Four greedy/MetaCS comparisons chose identical post-warm-up actions, so their risk differences cannot establish a scheduling improvement. TabM reduced MAE but increased mean underestimation. SQT/LQT achieved full audited coverage with risk bounds near 1; OCP missed the 0.9 target. Calibration was a post-hoc comparison and did not change scheduler rewards. Formal research requires larger budgets, broader coverage and paired seeds.
+That historical run was a small feasibility check. Attacks with 200 iterations and one restart performed below the marginal prior, with zero EMR for all six scheduler audits. Four greedy/MetaCS comparisons chose identical post-warm-up actions, so their risk differences cannot establish a scheduling improvement. TabM reduced MAE but increased mean underestimation. SQT/LQT achieved full audited coverage with risk bounds near 1; OCP missed the 0.9 target. Calibration was post-hoc and did not change scheduler rewards. The first version still needs frozen-protocol independent panels, the calibration ablation, three-seed confirmation and complete actual audits.
