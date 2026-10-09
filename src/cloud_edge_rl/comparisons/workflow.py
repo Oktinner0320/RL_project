@@ -12,6 +12,7 @@ from pathlib import Path
 import modal
 
 from ..config import RunSpec, make_run_spec, source_identity, spec_to_dict
+from ..admission import check_admission, reserve, bind_call
 from ..modal_runner import create_app, download_run
 from ..notebook import make_job_specs
 from ..pipeline import run_experiment
@@ -158,16 +159,25 @@ def _remote_phase(
     specs, function: modal.Function, config: dict, root: Path, entry: dict, journal: _Journal
 ):
     """先持久化全部调用，再等待并回收成功或失败日志。 / Save calls first, then wait and retrieve success or failure logs."""
+    check_admission(specs, root)
     calls = []
     if "calls" in entry:
         # 已付费调用仅重新连接，不重复提交。 / Reattach paid calls without submitting them again.
         records = {record["run_id"]: record for record in entry["calls"]}
         entry["calls"] = [records[spec.run_id] for spec in specs]
-        calls = [modal.FunctionCall.from_id(record["call_id"]) for record in entry["calls"]]
+        for spec, record in zip(specs, entry['calls']):
+            if reserve(spec, root) != record['call_id']:
+                raise ValueError('Resume call does not match durable reservation')
+            calls.append(modal.FunctionCall.from_id(record['call_id']))
     else:
         entry["calls"] = []
         for spec in specs:
-            call = function.spawn(spec_to_dict(spec), config["volume_name"])
+            old_call = reserve(spec, root)
+            if old_call is not None:
+                call = modal.FunctionCall.from_id(old_call)
+            else:
+                call = function.spawn(spec_to_dict(spec), config["volume_name"])
+                bind_call(spec, root, call.object_id)
             calls.append(call)
             entry["calls"].append(
                 {"run_id": spec.run_id, "call_id": call.object_id, "state": "submitted"}
@@ -290,7 +300,9 @@ def _run_controller(resolved: dict, root: Path, templates: dict, prior=None, pri
             run_phases()
         elif settings["backend"] == "modal":
             union = [spec for values in templates.values() for spec in values]
+            check_admission(union, root)
             app, function, _ = create_app(root, resolved["modal"], union)
+            check_admission(union, root)
             with app.run(detach=resolved["modal"]["detach"]):
                 journal.data["app_id"] = app.app_id
                 journal.save()

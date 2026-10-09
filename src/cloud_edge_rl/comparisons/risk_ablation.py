@@ -337,6 +337,11 @@ def read_development_sources(paths: list[Path], expected_split: str,
     """读既有原生审计或同列 CSV；核对采集种子。 / Read existing audits, not new experiments."""
     if expected_split not in ('train', 'validation') or not paths:
         raise ValueError('Only nonempty development sources are allowed')
+    if registered_panel_seeds is not None and (
+            not isinstance(registered_panel_seeds, list) or not registered_panel_seeds
+            or any(type(seed) is not int or seed < 0 for seed in registered_panel_seeds)
+            or len(set(registered_panel_seeds)) != len(registered_panel_seeds)):
+        raise ValueError('Registered development panel seeds must be distinct nonnegative integers')
     frames = []
     for source in paths:
         source = Path(source).resolve()
@@ -352,8 +357,6 @@ def read_development_sources(paths: list[Path], expected_split: str,
             raise ValueError('Source split mismatch; official test feedback forbidden')
         allowed_seeds = {11, 12, 13, 14} if expected_split == 'train' else set(
             [21, 22] if registered_panel_seeds is None else registered_panel_seeds)
-        if expected_split == 'validation' and not allowed_seeds <= {21, 22}:
-            raise ValueError('Only known development panels 21/22 may be read by this runner')
         for run_id in frame.run_id.unique():
             # The packet belongs to a collection run; its config identifies the real seed.
             collection = Path(collection_configs[run_id])
@@ -362,7 +365,7 @@ def read_development_sources(paths: list[Path], expected_split: str,
             if (spec['run_id'] != run_id or spec['seed'] not in allowed_seeds
                     or spec['stage'] != 'collect'
                     or spec['config']['execution']['split'] != expected_split):
-                raise ValueError('Only known development collections s11-14 and panels 21/22 allowed')
+                raise ValueError('Only known training collections or explicitly registered development panels allowed')
         frame['source_path'] = str(source)
         frames.append(frame)
     combined = pd.concat(frames, ignore_index=True)

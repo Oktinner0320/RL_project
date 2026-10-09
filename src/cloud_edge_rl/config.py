@@ -1,8 +1,8 @@
 """Notebook 配置快照与源码身份。 / Notebook snapshots and source identity."""
 
-import hashlib
 import json
 import subprocess
+import uuid
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -23,26 +23,28 @@ class RunSpec:
 
 def json_copy(value):
     """断开 Notebook 可变对象引用并检查可序列化性。 / Detach values via strict JSON encoding."""
+    from .comparisons.acceptance import _first_json
+
+    _first_json(value)
     return json.loads(json.dumps(value, ensure_ascii=False, allow_nan=False))
 
 
 def source_identity(project_root: Path) -> dict:
-    """内容摘要覆盖工作区修改，Git 信息仅用于溯源。 / Hash working sources, including dirty edits."""
+    """Freeze source contents without computing file hashes."""
     names = ["pyproject.toml", "uv.lock", ".python-version", "experiment.ipynb"]
     paths = [project_root / name for name in names]
     paths += sorted((project_root / "src").rglob("*.py"))
     paths += sorted((project_root / "reference_algorithms/provenance").glob("*.json"))
     paths += sorted((project_root / "reference_algorithms/repos").rglob("*.py"))
-    digest = hashlib.sha256()
+    contents = {}
     for path in paths:
-        digest.update(path.relative_to(project_root).as_posix().encode())
         # Notebook outputs/execution counts are results, not executable source.
         # Notebook 输出与执行次数是产物，不应改变源码身份。
-        content = path.read_bytes()
+        content = path.read_text(encoding="utf-8")
         if path.suffix == ".ipynb":
             cells = json.loads(content)["cells"]
-            content = json.dumps([(c["cell_type"], c["source"]) for c in cells]).encode()
-        digest.update(content)
+            content = [[c["cell_type"], c["source"]] for c in cells]
+        contents[path.relative_to(project_root).as_posix()] = content
     commit = subprocess.run(
         ["git", "rev-parse", "HEAD"], cwd=project_root, capture_output=True, text=True
     )
@@ -54,8 +56,8 @@ def source_identity(project_root: Path) -> dict:
         check=True,
     )
     return {
-        "source_sha256": digest.hexdigest(),
-        "lock_sha256": hashlib.sha256((project_root / "uv.lock").read_bytes()).hexdigest(),
+        "identity_kind": "source_contents_no_hash",
+        "source_contents": contents,
         "git_commit": commit.stdout.strip() if commit.returncode == 0 else None,
         "git_status": status.stdout.splitlines(),
     }
@@ -71,7 +73,11 @@ def make_run_spec(
     project_root: Path,
     provenance: dict | None = None,
 ) -> RunSpec:
-    """从唯一配置入口生成稳定运行标识。 / Build a stable ID from notebook config and sources."""
+    """Freeze strict JSON inputs with a non-content-derived run identity."""
+    if (type(seed) is not int or any(type(value) is not str or not value
+                                    for value in (stage, method, risk_version))
+            or type(config) is not dict or type(inputs) is not dict):
+        raise ValueError('RunSpec fields require explicit exact types')
     provenance = source_identity(project_root) if provenance is None else json_copy(provenance)
     payload = json_copy(
         {
@@ -81,10 +87,9 @@ def make_run_spec(
             "risk_version": risk_version,
             "config": config,
             "inputs": inputs,
-            "source_sha256": provenance["source_sha256"],
         }
     )
-    suffix = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()[:12]
+    suffix = uuid.uuid4().hex
     run_id = f"{stage}-{method}-s{seed}-{suffix}"
     return RunSpec(
         run_id, stage, method, seed, risk_version, payload["config"], payload["inputs"], provenance

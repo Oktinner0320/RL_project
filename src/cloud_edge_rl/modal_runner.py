@@ -14,6 +14,7 @@ from typing import Any
 import modal
 
 from cloud_edge_rl.config import RunSpec
+from cloud_edge_rl.admission import check_admission, reserve, bind_call
 
 
 def _reference_sources(specs: list[RunSpec]) -> tuple[bool, set[str], PurePosixPath | None]:
@@ -111,6 +112,10 @@ def create_app(
     specs 可传整个工作流，提前构建同一源码并集镜像。 / Pass a complete workflow to build one union image.
     """
     project_root = Path(project_root).resolve()
+    check_admission(specs, project_root)
+    from cloud_edge_rl.comparisons.acceptance import _first_json_equal
+    if any(not _first_json_equal(modal_config, spec.config['modal']) for spec in specs):
+        raise ValueError('Modal execution settings do not match approved specs')
     comparisons, names, remote_root = _reference_sources([] if specs is None else specs)
     files = _reference_files(project_root, names)
     python_version = (project_root / ".python-version").read_text(encoding="utf-8").strip()
@@ -160,9 +165,19 @@ def submit_runs(
     specs: list[RunSpec], project_root: Path, modal_config: dict[str, Any]
 ) -> list[str]:
     """提交快照并返回调用 ID；预算值不是硬额度。 / Submit snapshots; the budget is not a hard cap."""
+    check_admission(specs, project_root)
     app, function, _ = create_app(project_root, modal_config, specs)
+    check_admission(specs, project_root)
     with modal.enable_output(), app.run(detach=modal_config["detach"]):
-        calls = [function.spawn(asdict(spec), modal_config["volume_name"]) for spec in specs]
+        calls = []
+        for spec in specs:
+            old_call = reserve(spec, project_root)
+            if old_call is not None:
+                call = modal.FunctionCall.from_id(old_call)
+            else:
+                call = function.spawn(asdict(spec), modal_config["volume_name"])
+                bind_call(spec, project_root, call.object_id)
+            calls.append(call)
         call_ids = [call.object_id for call in calls]
         if not modal_config["detach"]:
             # 非分离模式在退出 App 前等待，防止取消尚未完成的输入。 / Wait before closing an attached app.
