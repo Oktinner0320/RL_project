@@ -258,11 +258,12 @@ def _first_uploads(uploads: list[dict], audits: list[dict], run_id: str,
                        len(row['record_ids']) == row['batch_size'] and
                        all(isinstance(v, str) and v for v in row['record_ids']),
                        'Evaluation-only record identities must account for actual exposures')
-    _first_require(len({row['upload_id'] for row in uploads}) == len(uploads), 'Duplicate upload')
+    _first_ids([row['upload_id'] for row in uploads], 'trajectory upload identities')
     for row in audits:
         _first_require(row['run_id'] == run_id and row['attack_id'] == attack_id and
                        row['state'] == 'completed' and isinstance(row['call_id'], str) and row['call_id'],
                        'Audit identity/protocol/completion mismatch')
+        _first_number(row['feature_recovery'], 'audit feature recovery', 1)
     _first_require(len({row['call_id'] for row in audits}) == len(audits), 'Duplicate audit call')
     result = complete_trajectory_risk(uploads, audits)
     _first_require(result['status'] == 'complete', 'Incomplete post-warmup own-trajectory audit')
@@ -561,12 +562,13 @@ def first_acceptance_report(config: dict, evidence: dict) -> dict:
                                freeze['hard_rules'][category]['gamma'] == {'op': 'eq', 'target': 1},
                                'Exposure alignment requires gamma=1')
             if category == 'execution':
-                _first_require(observations['timeout'] > 0 and observations['concurrency'] <= 1 and
-                               observations['spending'] <= 100, 'Execution limits exceed the first-acceptance contract')
+                checks['first_acceptance_limits'] = (observations['timeout'] > 0 and
+                    observations['concurrency'] <= 1 and observations['spending'] <= 100)
             report['checks'][category] = {'passed': all(checks.values()), 'constraints': checks}
         report['status'] = 'passed' if all(c['passed'] for c in report['checks'].values()) else 'failed'
         report['status_zh'] = '通过' if report['status'] == 'passed' else '未通过'
         report['reasons'] = [key for key, value in report['checks'].items() if not value['passed']]
-    except (FirstAcceptanceContractError, KeyError, TypeError, ValueError, OSError, OverflowError) as error:
+    except (FirstAcceptanceContractError, KeyError, TypeError, ValueError, OSError,
+            OverflowError, AttributeError, IndexError) as error:
         report['reasons'].append(str(error))
     return report

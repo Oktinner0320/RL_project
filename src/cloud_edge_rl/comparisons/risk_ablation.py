@@ -19,6 +19,39 @@ from ..algorithms.risk import RiskEstimator
 from ..types import RiskPrediction
 
 
+def development_registration(config: dict[str, Any]
+                             ) -> tuple[list[int], list[int], dict[str, float]]:
+    """读取唯一 CONFIG 并保护确认种子。 / Read sole CONFIG and protect confirmation seeds."""
+    acceptance = config['native_acceptance']
+    development = acceptance['development']
+    if (acceptance['version'] != 'first-acceptance-v1'
+            or development['hypothesis_id'] != 'R1-raw-vs-batch'
+            or development['diagnostic_only'] is not True
+            or development['allow_new_fedsgd_interactions'] is not False):
+        raise ValueError('Only registered diagnostic R1-raw-vs-batch without new FedSGD is allowed')
+    seeds = list(development['risk_fit_seeds'])
+    panels = list(development['panel_seeds'])
+    if (len(seeds) != 3 or len(set(seeds)) != 3 or any(type(seed) is not int for seed in seeds)
+            or not panels or len(set(panels)) != len(panels)
+            or any(type(seed) is not int for seed in panels)):
+        raise ValueError('Register three distinct integer fit seeds and distinct development panel seeds')
+    confirmation = acceptance['confirmation']
+    reserved = set(confirmation['training_seeds']) | set(confirmation['risk_fit_seeds']) | set(confirmation['panel_seeds'])
+    reserved.update(int(seed) for seed in confirmation['evaluation_seeds'].values())
+    reserved.update(int(seed) for seed in confirmation['evaluation_seeds'])
+    if (set(seeds) | set(panels)) & reserved:
+        raise ValueError('Development seeds must not overlap reserved confirmation seeds')
+    thresholds = {key: acceptance[key] for key in first_acceptance_thresholds()}
+    if thresholds != first_acceptance_thresholds():
+        raise ValueError('Calibration thresholds must match first-acceptance-v1')
+    return seeds, panels, thresholds
+
+
+def first_acceptance_thresholds() -> dict[str, float]:
+    """纯 API 默认首版标准；运行入口显式传 CONFIG 值。 / Pure API defaults, not runtime config."""
+    return {'calibration_underestimation_multiplier': .95, 'calibration_mae_multiplier': 1.10}
+
+
 def state_hash(value: Any) -> str:
     """稳定哈希实际数组/权重/元数据。 / Hash actual weights, arrays and metadata."""
     digest = sha256()
@@ -145,7 +178,8 @@ def trajectory_metrics(frame: pd.DataFrame, raw: np.ndarray,
     return rows
 
 
-def summarize_pairs(rows: list[dict[str, Any]], registered_seeds: list[int]) -> dict[str, Any]:
+def summarize_pairs(rows: list[dict[str, Any]], registered_seeds: list[int],
+                    thresholds: dict[str, float] | None = None) -> dict[str, Any]:
     """先轨迹后拟合种子等权；开发结果不作确认。 / Equal trajectories then fit seeds."""
     if len(registered_seeds) != 3 or len(set(registered_seeds)) != 3:
         raise ValueError('Exactly three distinct preregistered fit seeds required')
@@ -173,17 +207,21 @@ def summarize_pairs(rows: list[dict[str, Any]], registered_seeds: list[int]) -> 
         reasons.append('Fewer than three independent panel trajectories; do not duplicate trajectories')
     if means['raw']['U'] == 0 or means['raw']['EWMAE'] == 0:
         reasons.append('Zero raw reference; no preregistered absolute improvement rule')
-    gates = {'U': means['calibrated']['U'] <= .95 * means['raw']['U'],
-             'EWMAE': means['calibrated']['EWMAE'] <= 1.10 * means['raw']['EWMAE']}
+    thresholds = first_acceptance_thresholds() if thresholds is None else dict(thresholds)
+    if thresholds != first_acceptance_thresholds():
+        raise ValueError('Calibration thresholds must match first-acceptance-v1')
+    gates = {'U': means['calibrated']['U'] <= thresholds['calibration_underestimation_multiplier'] * means['raw']['U'],
+             'EWMAE': means['calibrated']['EWMAE'] <= thresholds['calibration_mae_multiplier'] * means['raw']['EWMAE']}
     return {'scope': 'development_only_not_confirmation', 'means': means,
             'paired_rows': rows, 'fit_seeds': sorted(seeds), 'panel_trajectories': sorted(panels),
-            'numerical_gates': gates, 'limitations': reasons,
+            'numerical_gates': gates, 'thresholds': thresholds, 'limitations': reasons,
             'development_status': 'insufficient_evidence' if reasons else
                 ('pass' if all(gates.values()) else 'fail'), 'final_test_opened': False}
 
 
 def read_development_sources(paths: list[Path], expected_split: str,
-                             collection_configs: dict[str, Path]) -> pd.DataFrame:
+                             collection_configs: dict[str, Path],
+                             registered_panel_seeds: list[int] | None = None) -> pd.DataFrame:
     """读既有原生审计或同列 CSV；核对采集种子。 / Read existing audits, not new experiments."""
     if expected_split not in ('train', 'validation') or not paths:
         raise ValueError('Only nonempty development sources are allowed')
@@ -200,7 +238,10 @@ def read_development_sources(paths: list[Path], expected_split: str,
         validate_frame(frame)
         if not frame.split.eq(expected_split).all():
             raise ValueError('Source split mismatch; official test feedback forbidden')
-        allowed_seeds = {11, 12, 13, 14} if expected_split == 'train' else {21, 22}
+        allowed_seeds = {11, 12, 13, 14} if expected_split == 'train' else set(
+            [21, 22] if registered_panel_seeds is None else registered_panel_seeds)
+        if expected_split == 'validation' and not allowed_seeds <= {21, 22}:
+            raise ValueError('Only known development panels 21/22 may be read by this runner')
         for run_id in frame.run_id.unique():
             # The packet belongs to a collection run; its config identifies the real seed.
             collection = Path(collection_configs[run_id])
@@ -217,6 +258,32 @@ def read_development_sources(paths: list[Path], expected_split: str,
     return combined
 
 
+def batch_diagnostics(frame: pd.DataFrame, raw: np.ndarray, calibrated: np.ndarray,
+                       checkpoint: dict[str, Any]) -> list[dict[str, Any]]:
+    """按 batch 披露残差、偏移、曝光和边界饱和；不用于选参。 / Batch diagnostics, not tuning."""
+    validate_frame(frame)
+    # Reuse the prediction contract; diagnostics do not alter gate aggregation.
+    trajectory_metrics(frame, raw, calibrated, 0)
+    truth = frame.feature_recovery.to_numpy(dtype=float)
+    batches = frame.batch_size.to_numpy(dtype=float)
+    offsets = dict(zip(checkpoint['calibration_values'], checkpoint['calibration_offsets']))
+    diagnostics = []
+    for batch in sorted(np.unique(batches)):
+        mask = batches == batch
+        item: dict[str, Any] = {'batch_size': float(batch), 'uploads': int(mask.sum()),
+                               'calibration_offset': float(offsets.get(batch, checkpoint['calibration_offset'])),
+                               'calibration_source': 'batch_holdout' if batch in offsets else 'global_holdout_fallback',
+                               'exposure_share': float(batches[mask].sum() / batches.sum())}
+        for arm, prediction in (('raw', np.asarray(raw)), ('calibrated', np.asarray(calibrated))):
+            current = prediction[mask]
+            item[arm] = {'mean_residual': float((truth[mask] - current).mean()),
+                         'lower_boundary_fraction': float((current == 0).mean()),
+                         'upper_boundary_fraction': float((current == 1).mean()),
+                         'boundary_saturation_fraction': float(((current == 0) | (current == 1)).mean())}
+        diagnostics.append(item)
+    return diagnostics
+
+
 def run_development_seed(config: dict[str, Any], *, fit_seed: int, risk_version: str,
                          training_sources: list[Path], panel_sources: list[Path],
                          collection_configs: dict[str, Path],
@@ -227,16 +294,16 @@ def run_development_seed(config: dict[str, Any], *, fit_seed: int, risk_version:
     Output must not exist. Failed stages retain status/artifacts; use a new stage path.
     """
     started = perf_counter()
-    seeds = config['development_risk_fit_seeds']
-    if seeds != [501, 502, 503] or type(fit_seed) is not int or fit_seed not in seeds:
-        raise ValueError('Use Notebook development_risk_fit_seeds=[501,502,503], never confirmation seeds')
+    seeds, panel_seeds, thresholds = development_registration(config)
+    if type(fit_seed) is not int or fit_seed not in seeds:
+        raise ValueError('Fit seed must match nested Notebook development registration')
     if not {'data', 'model', 'environment', 'risk', 'execution'}.issubset(config):
         raise ValueError('Pass the complete Notebook CONFIG')
     risk_config = deepcopy(config['risk'])
     if not risk_config.get('mean_calibration') or risk_config.get('calibration_feature_index') != 1:
         raise ValueError('Notebook CONFIG must already enable batch mean calibration at feature index 1')
     training = read_development_sources(training_sources, 'train', collection_configs)
-    panel = read_development_sources(panel_sources, 'validation', collection_configs)
+    panel = read_development_sources(panel_sources, 'validation', collection_configs, panel_seeds)
     check_group_isolation(training, panel)
     # Complete provenance before fitting; missing lock/source identity is a preflight failure.
     repository = Path(repository).resolve()
@@ -265,7 +332,8 @@ def run_development_seed(config: dict[str, Any], *, fit_seed: int, risk_version:
         detail.to_csv(output / 'predictions.csv', index=False)
         import torch
         torch.save(checkpoint, output / 'risk.pt')
-        result = {**summarize_pairs(rows, seeds), 'fit_seed': fit_seed, 'hashes': hashes,
+        result = {**summarize_pairs(rows, seeds, thresholds=thresholds), 'fit_seed': fit_seed, 'hashes': hashes,
+                  'batch_diagnostics': batch_diagnostics(panel, raw.mean, calibrated.mean, checkpoint),
                   'fit_metadata': checkpoint['fit_metadata'], 'source_sha256': sources,
                   'source_lock_sha256': identities, 'notebook_config': deepcopy(config),
                   'config_sha256': state_hash(config), 'fit_seconds': fit_seconds,
