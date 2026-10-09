@@ -156,6 +156,12 @@ def summarize_pairs(rows: list[dict[str, Any]], registered_seeds: list[int]) -> 
     panels = {row['trajectory'] for row in rows}
     if not seeds <= set(registered_seeds) or pairs != {(s, p) for s in seeds for p in panels}:
         raise ValueError('Each fit seed must use the identical common panel')
+    for row in rows:
+        for arm in ('raw', 'calibrated'):
+            for metric in ('U', 'EWMAE'):
+                value = row[arm][metric]
+                if not np.isfinite(value) or not 0 <= value <= 1:
+                    raise ValueError('Paired metrics must be finite and in [0,1]')
     means = {arm: {metric: float(np.mean([
         np.mean([row[arm][metric] for row in rows if row['fit_seed'] == seed])
         for seed in sorted(seeds)])) for metric in ('U', 'EWMAE')}
