@@ -52,6 +52,27 @@ def first_acceptance_thresholds() -> dict[str, float]:
     return {'calibration_underestimation_multiplier': .95, 'calibration_mae_multiplier': 1.10}
 
 
+def development_risk_config(config: dict[str, Any]) -> dict[str, Any]:
+    """从唯一 CONFIG 已登记候选派生，不搜索或改写根配置。 / Derive registered overlay only."""
+    development_registration(config)
+    acceptance = config['native_acceptance']
+    development = acceptance['development']
+    candidate = development['risk_candidate']
+    if (candidate != 'width64-100-b16-batch-calibrated'
+            or candidate not in acceptance['risk_candidates']):
+        raise ValueError('Register the existing width64-100-b16-batch-calibrated candidate for R1')
+    if development['device'] != 'cpu':
+        raise ValueError('Development risk ablation is a local CPU diagnostic')
+    effective = deepcopy(config['risk'])
+    effective.update(deepcopy(acceptance['risk_candidates'][candidate]))
+    effective['device'] = development['device']
+    if (effective.get('mean_calibration') is not True
+            or type(effective.get('calibration_feature_index')) is not int
+            or effective['calibration_feature_index'] != 1):
+        raise ValueError('Registered candidate must enable batch mean calibration at feature index 1')
+    return effective
+
+
 def state_hash(value: Any) -> str:
     """稳定哈希实际数组/权重/元数据。 / Hash actual weights, arrays and metadata."""
     digest = sha256()
@@ -299,9 +320,7 @@ def run_development_seed(config: dict[str, Any], *, fit_seed: int, risk_version:
         raise ValueError('Fit seed must match nested Notebook development registration')
     if not {'data', 'model', 'environment', 'risk', 'execution'}.issubset(config):
         raise ValueError('Pass the complete Notebook CONFIG')
-    risk_config = deepcopy(config['risk'])
-    if not risk_config.get('mean_calibration') or risk_config.get('calibration_feature_index') != 1:
-        raise ValueError('Notebook CONFIG must already enable batch mean calibration at feature index 1')
+    risk_config = development_risk_config(config)
     training = read_development_sources(training_sources, 'train', collection_configs)
     panel = read_development_sources(panel_sources, 'validation', collection_configs, panel_seeds)
     check_group_isolation(training, panel)
@@ -336,6 +355,8 @@ def run_development_seed(config: dict[str, Any], *, fit_seed: int, risk_version:
                   'batch_diagnostics': batch_diagnostics(panel, raw.mean, calibrated.mean, checkpoint),
                   'fit_metadata': checkpoint['fit_metadata'], 'source_sha256': sources,
                   'source_lock_sha256': identities, 'notebook_config': deepcopy(config),
+                  'effective_risk_config': deepcopy(risk_config),
+                  'risk_candidate': config['native_acceptance']['development']['risk_candidate'],
                   'config_sha256': state_hash(config), 'fit_seconds': fit_seconds,
                   'elapsed_seconds': perf_counter() - started,
                   'new_fedsgd_interactions': 0, 'new_audit_calls': 0,
