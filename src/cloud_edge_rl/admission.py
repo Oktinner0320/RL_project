@@ -181,6 +181,9 @@ def verify_not_spawned(spec, root, proof_descriptor):
     with _locked(log):
         rows = _rows(log)
         reservations, bound, closed = _journal(rows, log)
+        if any(not _first_json_equal(row['ledger_manifest'], witness['ledger_manifest'])
+               for row in reservations.values()):
+            raise ValueError('Reservation history baseline cannot reset or change')
         if spec.run_id not in reservations or spec.run_id in bound:
             raise ValueError('Closure requires an unbound reservation')
         _validate_no_spawn(spec, root, proof_descriptor, reservations[spec.run_id])
