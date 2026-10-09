@@ -441,7 +441,8 @@ def first_acceptance_report(config: dict, evidence: dict) -> dict:
                                side['metric_split'] == 'official_test', 'Unfrozen/unpaired evaluation settings')
                 call = ledger[side['training_call_id']]
                 _first_require(call['method'] == method and str(call['seed']) == seed and
-                               call['partition'] == 'iid' and call['run_id'] == side['run_id'],
+                               call['partition'] == 'iid' and call['run_id'] == side['run_id'] and
+                               call['configuration_id'] == settings,
                                'Training ledger identity mismatch')
                 own_groups.append(side['group_id'])
                 own_runs.append(side['run_id'])
