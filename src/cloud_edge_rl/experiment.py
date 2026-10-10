@@ -16,6 +16,17 @@ from .experiment_graph import MAX_METADATA, expand, freeze_graph, run_graph, val
 from .transport import read_json, run_bounded, write_json
 
 
+class RemoteCompletionUnavailable(RuntimeError):
+    """Keep both lookup failures without treating missing evidence as completion."""
+
+    def __init__(self, call_error, receipt_error):
+        super().__init__('Original call and durable completion unavailable; no resubmission')
+        self.details = {
+            'call': {'type': type(call_error).__name__, 'message': str(call_error)},
+            'receipt': {'type': type(receipt_error).__name__, 'message': str(receipt_error)},
+        }
+
+
 class Experiment:
     def __init__(self, directory, root):
         self.directory, self.root = Path(directory).resolve(), Path(root).resolve()
@@ -261,11 +272,11 @@ def _remote_state(experiment, submission):
         raise
     except Exception as original:
         from .transport import _decode_json
-        volume = modal.Volume.from_name(submission['volume_name'],
-                                        environment_name=submission['environment'])
         content = bytearray()
         path = f"experiments/{experiment.graph['experiment_id']}/calls/{submission['attempt_id']}.json"
         try:
+            volume = modal.Volume.from_name(submission['volume_name'],
+                                            environment_name=submission['environment'])
             for chunk in volume.read_file(path):
                 if len(content) + len(chunk) > 2 * 1024**2:
                     raise ValueError('Bounded remote completion receipt exceeded')
@@ -274,8 +285,8 @@ def _remote_state(experiment, submission):
             if receipt['attempt_id'] != submission['attempt_id']:
                 raise ValueError('Remote completion attempt mismatch')
             state = receipt['state']
-        except Exception:
-            raise RuntimeError('Original call and durable completion unavailable; no resubmission') from original
+        except Exception as receipt_error:
+            raise RemoteCompletionUnavailable(original, receipt_error) from original
     if (type(state) is not dict or state.get('experiment_id') != experiment.graph['experiment_id']
             or set(state.get('nodes', {})) != {node['run_id'] for node in experiment.graph['nodes']}
             or state.get('status') not in ('cloud_verified', 'paused_deadline', 'blocked')):
@@ -362,13 +373,18 @@ def cli():
                        {'attempt_id': submission['attempt_id'], 'call_id': submission['call_id'],
                         'shutdown': result, 'actual_interactions': None}, replace=True)
     else:
+        binding = {'attempt_id': submission['attempt_id'], 'call_id': submission['call_id'],
+                   'experiment_id': experiment.graph['experiment_id']}
         try:
             state = _remote_state(experiment, submission)
-            result = {'status': state['status'], 'call_completed': True,
-                      'attempt_id': submission['attempt_id'],
-                      'experiment_id': state['experiment_id'], 'nodes': state['nodes']}
+            result = {**binding, 'status': state['status'], 'call_completed': True,
+                      'nodes': state['nodes']}
         except TimeoutError:
-            result = {'status': 'running', 'call_completed': False, 'attempt_id': submission['attempt_id']}
+            result = {**binding, 'status': 'running', 'call_completed': False}
+        except RemoteCompletionUnavailable as error:
+            result = {**binding, 'status': 'remote_completion_unavailable', 'call_completed': False,
+                      'error': error.details, 'reconciliation_required': True,
+                      'next_action': 'Reconcile the original call before preparing an explicit continuation.'}
         write_json(args.directory / 'remote-status.json', result, replace=True)
 
 
