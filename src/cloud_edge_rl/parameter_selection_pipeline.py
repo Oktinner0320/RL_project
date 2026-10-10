@@ -1,5 +1,6 @@
-"""Independent, fail-closed DQN/PPO parameter-selection entry point.
+"""独立 DQN/PPO 参数选择入口，证据不足即阻断。 / Independent, fail-closed DQN/PPO parameter-selection entry point.
 
+独立配置优先于旧 Notebook CONFIG；计划和任务仅为冻结快照，复用既有训练与传输。
 Standalone config takes precedence over legacy notebook CONFIG. Plans and registered jobs are immutable snapshots,
 not alternate configuration inputs. Existing training and transport are reused as-is.
 """
@@ -20,13 +21,14 @@ from .transport import TransportLimits, download_artifacts, read_json, run_bound
 
 
 def _config_target(node):
+    """判断赋值或更新目标是否根植于 CONFIG。 / Check whether an assignment or update target is rooted in CONFIG."""
     while isinstance(node, (ast.Subscript, ast.Attribute)):
         node = node.value
     return isinstance(node, ast.Name) and node.id == 'CONFIG'
 
 
 def load_notebook_config(path: Path) -> dict:
-    """Load standalone CONFIG first; deprecated notebook fallback never runs jobs."""
+    """优先读取独立配置；旧 Notebook 回退不执行任务。 / Load standalone CONFIG first; the legacy notebook fallback never runs jobs."""
     path = Path(path).resolve()
     root = path if path.is_dir() else path.parent
     standalone = root / 'config' / 'experiment.json'
@@ -67,6 +69,7 @@ def load_notebook_config(path: Path) -> dict:
     if definitions != 1:
         raise ValueError('Exactly one notebook CONFIG definition required')
     namespace = {'__builtins__': {'dict': dict, 'list': list, 'tuple': tuple, 'zip': zip}}
+    # 仅编译筛选出的配置构造语句，不执行完整 Notebook 单元。 / Compile only selected CONFIG construction statements, not whole notebook cells.
     code = ast.fix_missing_locations(ast.Module(body=statements, type_ignores=[]))
     exec(compile(code, str(path), 'exec'), namespace)
     if type(namespace['CONFIG']) is not dict:
@@ -75,7 +78,7 @@ def load_notebook_config(path: Path) -> dict:
 
 
 def prepare_selection(config: dict, root: Path, directory: Path | None = None) -> dict:
-    """Write twenty design snapshots with no model loads, SDK calls or approvals."""
+    """登记二十个设计快照，不加载模型、调用 SDK 或授予许可。 / Register twenty design snapshots without model loads, SDK calls or approvals."""
     settings = config['native_acceptance']['parameter_selection']
     directory = (Path(directory) if directory is not None
                  else Path(root) / settings['output_directory']).resolve()
@@ -105,6 +108,7 @@ def prepare_selection(config: dict, root: Path, directory: Path | None = None) -
                 write_json(candidate_path, value)
         write_json(path, manifest)
     state_path = directory / 'state.json'
+    # 已有执行目录却缺状态时不能重建零消耗记录。 / Missing state after possible execution cannot be reset to zero consumption.
     if state_path.exists():
         state = read_json(state_path)
         if (type(state) is not dict or type(state.get('status')) is not str
@@ -119,8 +123,9 @@ def prepare_selection(config: dict, root: Path, directory: Path | None = None) -
 
 
 def prepare_parameter_specs(config: dict, root: Path) -> list[RunSpec]:
-    """Return the exact registered graph for Experiment.prepare, without execution.
+    """为 Experiment.prepare 返回确切登记任务，不执行计算。 / Return exact registered jobs for Experiment.prepare, without execution.
 
+    保留原科学设计和依赖检查，提交准入及语义核验由公共控制器负责。
     Retains the historical scientific-design and dependency checks; admission and
     semantic verification remain owned by the common controller at submission.
     """
@@ -129,6 +134,7 @@ def prepare_parameter_specs(config: dict, root: Path) -> list[RunSpec]:
 
 
 def _scientific(config):
+    """复制配置并排除许可、变体标签及执行划分后比较科学设置。 / Copy scientific settings without admission, variant labels or execution split."""
     config = deepcopy(config)
     config.get('native_acceptance', {}).pop('execution_admission', None)
     config.get('experiment', {}).pop('variant', None)
@@ -137,6 +143,7 @@ def _scientific(config):
 
 
 def _registered_jobs(config, root):
+    """核对登记矩阵，返回二十训练、四十验证和两个参考任务。 / Validate the registered matrix of twenty training, forty validation and two reference jobs."""
     settings = config['native_acceptance']['parameter_selection']
     paths = settings.get('registered_spec_paths')
     if type(paths) is not list or len(paths) != 62 or any(type(path) is not str for path in paths):
@@ -144,6 +151,7 @@ def _registered_jobs(config, root):
     specs = [RunSpec(**read_json(Path(root) / path)) for path in paths]
     descriptors = settings.get('shared_execution_descriptors')
     if descriptors is not None:
+        # 紧凑任务只按明确共享描述符补全，不隐式生成新源码或许可。 / Expand compact jobs only from explicit shared source/admission descriptors.
         from .comparisons.acceptance import _first_artifact
         if type(descriptors) is not dict or set(descriptors) != {'source', 'admission'}:
             raise ValueError('Exactly two frozen shared execution descriptor paths required')
@@ -202,12 +210,14 @@ def _registered_jobs(config, root):
             or set(references) != set(settings['evaluation_seeds'])):
         raise ValueError('Incomplete registered training/evaluation matrix')
     for (cid, _), spec in evaluations.items():
+        # 每个候选必须评价自身训练产物，不能借用其他候选的模型。 / Each candidate must evaluate its own exact trained checkpoint.
         if spec.inputs.get('agent_checkpoint') != f'runs/{trains[cid].run_id}/agent.pt':
             raise ValueError('Evaluation must load its own exact final 500-step checkpoint')
     return trains, evaluations, references
 
 
 def verify_validation_artifacts(spec: RunSpec, artifacts: Path, result: dict) -> dict:
+    """核验单条自然结束的验证轨迹和数据隔离，不作正式验收。 / Verify one naturally completed validation trajectory and isolation, not formal acceptance."""
     if (spec.stage != 'validate' or spec.config['execution']['split'] != 'validation'
             or read_json(artifacts / 'config.json') != asdict(spec)
             or read_json(artifacts / 'status.json').get('state') != 'completed'):
@@ -232,6 +242,7 @@ def verify_validation_artifacts(spec: RunSpec, artifacts: Path, result: dict) ->
     summary = read_json(artifacts / 'summary.json')
     rounds = len(rows)
     flags = ('is_warmup', 'terminated', 'truncated')
+    # 预热占前十二轮；只有末轮可以终止或截断，不能拼接多个任务。 / Warmup occupies the first twelve rounds; only the final round may end the single task.
     if any(row[key].lower() not in ('true', 'false') for row in rows for key in flags):
         raise ValueError('Invalid validation task/warmup flags')
     terminal = [row['terminated'].lower() == 'true' or row['truncated'].lower() == 'true' for row in rows]
@@ -248,6 +259,7 @@ def verify_validation_artifacts(spec: RunSpec, artifacts: Path, result: dict) ->
                 for key in ('elapsed_seconds', 'energy_joules', 'validation_accuracy', 'validation_loss')):
             raise ValueError('Invalid validation metrics or risk version')
     for key in ('elapsed_seconds', 'energy_joules', 'validation_accuracy'):
+        # 持久化摘要、指标末行和计算返回值必须相互一致。 / Match the summary, final metric row and compute return.
         value = summary[key]
         if (type(value) not in (int, float) or not math.isfinite(value) or value < 0
                 or value != float(rows[-1][key]) or result.get(key) != value):
@@ -263,7 +275,7 @@ def verify_validation_artifacts(spec: RunSpec, artifacts: Path, result: dict) ->
 
 
 def verify_parameter_training(spec: RunSpec, artifacts: Path, result: dict) -> dict:
-    """Extend, not change, the native gate with this batch's actual learning clocks."""
+    """在原生核验基础上检查本批次实际学习时钟。 / Extend the native gate with this batch's actual learning clocks."""
     import torch
 
     from .training_pipeline import verify_training_artifacts
@@ -285,6 +297,7 @@ def verify_parameter_training(spec: RunSpec, artifacts: Path, result: dict) -> d
             or int(rows[-1]['round']) != environment['round_index']):
         raise ValueError('Actual 500-interaction task and warmup counters disagree')
     rl = spec.config['rl']
+    # 更新次数由非预热学习步推导，DQN 与 PPO 使用各自原生时钟。 / Derive update counts from learned steps using each algorithm's native clock.
     if spec.method == 'dqn':
         expected_updates = sum(step >= max(rl['learning_starts'], rl['batch_size'])
                                and step % rl['train_frequency'] == 0
@@ -292,6 +305,7 @@ def verify_parameter_training(spec: RunSpec, artifacts: Path, result: dict) -> d
                                 for step in range(1, learned + 1))
     else:
         final_step_is_warmup = rows[-1]['is_warmup'].lower() == 'true'
+        # 预算末步仍在预热时保留旧 rollout，否则按原逻辑刷新尾段。 / Retain the rollout if the final step is warmup; otherwise account for the native tail flush.
         expected_updates = (learned // rl['rollout_steps'] if final_step_is_warmup
                             else math.ceil(learned / rl['rollout_steps']))
         expected_rollout = learned % rl['rollout_steps'] if final_step_is_warmup else 0
@@ -306,6 +320,7 @@ def verify_parameter_training(spec: RunSpec, artifacts: Path, result: dict) -> d
 
 def _evaluate(spec, root, directory, destination, limits, worker=run_bounded,
               downloader=download_artifacts):
+    """恢复原验证调用，依次清理、下载、核验并保留失败证据。 / Resume the original evaluation call, then clean up, download and verify with failure evidence."""
     from .training_pipeline import _compute_receipt
 
     directory.mkdir(parents=True, exist_ok=True)
@@ -319,6 +334,7 @@ def _evaluate(spec, root, directory, destination, limits, worker=run_bounded,
     common = [sys.executable, '-m', 'cloud_edge_rl.parameter_selection_pipeline',
               '--root', str(root), '--stage', str(directory)]
     try:
+        # 已完成回执允许跳过计算，但不能跳过应用停止和产物核验。 / A completed receipt skips compute, not shutdown or artifact verification.
         receipt = _compute_receipt(directory, spec)
         if receipt is None:
             try:
@@ -364,7 +380,7 @@ def _evaluate(spec, root, directory, destination, limits, worker=run_bounded,
 def run_parameter_selection(config: dict, root: Path, directory: Path, *,
                             training_runner=None, evaluation_runner=None,
                             max_new_jobs: int | None = None) -> dict:
-    """All twenty jobs are frozen/preflighted first; no implicit approval or retries."""
+    """先冻结并检查全部候选，再按阶段任务上限执行，不隐式授权或重试。 / Preflight frozen candidates and execute within the stage job bound, without implicit approval or retries."""
     blockers = execution_blockers(config)
     if blockers:
         raise ValueError('Parameter selection blocked: ' + '; '.join(blockers))
@@ -380,7 +396,7 @@ def run_parameter_selection(config: dict, root: Path, directory: Path, *,
     if registration['config_snapshot'] != config:
         raise ValueError('Sole CONFIG differs from the registered selection snapshot')
     trains, evaluations, references = _registered_jobs(config, root)
-    # Existing shared paid guards are deliberately not bypassed or relaxed here.
+    # 参数选择不能绕过或放宽既有付费准入检查。 / Do not bypass or relax the existing shared paid guards.
     check_admission([*trains.values(), *evaluations.values(), *references.values()], root)
     training_runner = run_training_pipeline if training_runner is None else training_runner
     evaluation_runner = _evaluate if evaluation_runner is None else evaluation_runner
@@ -396,6 +412,7 @@ def run_parameter_selection(config: dict, root: Path, directory: Path, *,
             new_jobs = 0
 
             def stage_complete(phase):
+                """保存阶段暂停，保留未知消耗且不宣称整体完成。 / Persist a stage pause without claiming full completion or known total consumption."""
                 state.update(status='stage_completed', active_phase=phase,
                              automatic_retry=False, actual_interactions=None,
                              observed_completed_interactions=observed_interactions)
@@ -406,6 +423,7 @@ def run_parameter_selection(config: dict, root: Path, directory: Path, *,
                         'formal_acceptance': 'not_evaluated', 'official_test_access': False}
 
             for cid, spec in trains.items():
+                # 恢复仍重新核验旧任务；仅新完成任务占本轮配额。 / Reverify retained jobs on resume; only newly completed jobs consume this invocation's quota.
                 prior = state['jobs'].get(cid, {}).get('training_verified') is True
                 if not prior and max_new_jobs is not None and new_jobs >= max_new_jobs:
                     return stage_complete('training')
@@ -456,6 +474,7 @@ def run_parameter_selection(config: dict, root: Path, directory: Path, *,
                 state['observed_completed_interactions'] = observed_interactions
                 write_json(state_path, state, replace=True)
             result = rank_results(registration['plan'], list(outcomes.values()), reference)
+            # 只有完整训练及配对验证证据到齐才排名；仍不等于正式验收。 / Rank only after the full paired evidence is assembled; this is not formal acceptance.
             write_json(directory / f'results-{uuid.uuid4().hex}.json', result)
             state.update(status=result['status'], formal_acceptance='not_evaluated',
                          actual_interactions=observed_interactions)
@@ -469,6 +488,7 @@ def run_parameter_selection(config: dict, root: Path, directory: Path, *,
 
 
 def main():
+    """分派登记、检查、有限执行、报告和验证工作进程。 / Dispatch registration, checks, bounded execution, reports and validation workers."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--action', choices=('prepare', 'check', 'run', 'report', 'compute',
                                           'cleanup', 'verify-validation'), required=True)

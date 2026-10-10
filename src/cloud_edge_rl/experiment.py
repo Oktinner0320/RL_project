@@ -1,5 +1,7 @@
-"""The single notebook-facing experiment lifecycle.
+"""统一面向 Notebook 的实验生命周期。 / The single notebook-facing experiment lifecycle.
 
+规划不执行计算；提交保留准入与预约屏障，计算、传输和本地闭环分别持久化。
+下载失败不能触发新的训练调用。
 Planning is inert. Submission retains the existing admission and reservation
 barriers. Cloud computation, artifact transfer and local closure are separate
 durable states: a failed download can never start another training call.
@@ -17,9 +19,10 @@ from .transport import read_json, run_bounded, write_json
 
 
 class RemoteCompletionUnavailable(RuntimeError):
-    """Keep both lookup failures without treating missing evidence as completion."""
+    """保留两种查询失败，不将缺少证据解释为完成。 / Keep both lookup failures without treating missing evidence as completion."""
 
     def __init__(self, call_error, receipt_error):
+        """同时记录原调用和持久回执查询错误。 / Record both original-call and durable-receipt lookup errors."""
         super().__init__('Original call and durable completion unavailable; no resubmission')
         self.details = {
             'call': {'type': type(call_error).__name__, 'message': str(call_error)},
@@ -28,7 +31,10 @@ class RemoteCompletionUnavailable(RuntimeError):
 
 
 class Experiment:
+    """管理冻结计划、云端提交、产物收集和本地核验。 / Manage frozen plans, cloud submission, artifact collection and local verification."""
+
     def __init__(self, directory, root):
+        """打开有大小上限的冻结图并校验其契约。 / Open a size-bounded frozen graph and validate its contract."""
         self.directory, self.root = Path(directory).resolve(), Path(root).resolve()
         self._requested_controls = None
         path = self.directory / 'snapshot.json'
@@ -39,15 +45,18 @@ class Experiment:
 
     @classmethod
     def open(cls, directory, root=None):
+        """从既有目录打开实验，不规划或提交任务。 / Open an existing experiment without planning or submitting jobs."""
         return cls(directory, Path.cwd() if root is None else root)
 
     @classmethod
     def prepare(cls, config, root, specs=None, verifiers=None, directory=None):
+        """冻结配置与有序任务图，或复用一致的旧快照；不授予执行许可。 / Freeze configuration and ordered jobs, or reopen matching snapshots, without execution permission."""
         root = Path(root).resolve()
         controls = config['workflow']['experiment']
         target = Path(directory) if directory is not None else root / controls['directory']
         target = target.resolve()
         if (target / 'snapshot.json').exists():
+            # 可调整执行控制，但科学配置和显式任务不能在重开时改变。 / Reopening keeps scientific configuration and explicit jobs frozen.
             saved = cls(target, root)
             if scientific_configuration(read_json(target / 'configuration.json')) != scientific_configuration(config):
                 raise ValueError('Frozen configuration changed; reopen the original experiment')
@@ -63,6 +72,7 @@ class Experiment:
         dependencies = None
         source_snapshot = None
         if specs is None:
+            # 各模式复用自己的计划器，统一交给冻结图管理依赖和核验。 / Reuse each mode's planner and freeze its dependencies and verifiers in one graph.
             mode = controls['mode']
             if mode == 'fresh':
                 from .fresh_benchmark import build_plan, build_run_specs
@@ -91,7 +101,8 @@ class Experiment:
                              verifier=verifiers, node_dependencies=dependencies,
                              node_seconds=controls['node_timeout_seconds'],
                              verify_seconds=controls['verification_timeout_seconds'],
-                             graph_seconds=controls['graph_timeout_seconds'])
+                              graph_seconds=controls['graph_timeout_seconds'])
+        # 先保存配置和可选源码快照，最后发布图；中断后不覆盖不同内容。 / Save configuration/source before publishing the graph, without overwriting changed partial contents.
         target.mkdir(parents=True, exist_ok=True)
         config_path = target / 'configuration.json'
         if config_path.exists():
@@ -112,6 +123,7 @@ class Experiment:
         return prepared
 
     def _controls(self):
+        """科学配置保持冻结，仅读取当前允许变化的工作流控制。 / Keep scientific configuration frozen while reading current workflow controls."""
         frozen = read_json(self.directory / 'configuration.json')
         live_path = self.root / 'config' / 'experiment.json'
         if live_path.is_file():
@@ -122,12 +134,14 @@ class Experiment:
         return self._requested_controls or frozen['workflow']['experiment']
 
     def _command(self, action, timeout):
+        """在有界子进程中执行控制动作并保存独立日志。 / Run a control action in a bounded subprocess with a separate log."""
         return run_bounded([sys.executable, '-m', 'cloud_edge_rl.experiment',
                             '--action', action, '--directory', str(self.directory),
                             '--root', str(self.root)], timeout,
                            self.directory / 'controller' / f'{action}-{uuid.uuid4().hex}.log')
 
     def submit(self):
+        """按显式开关提交一次；已有绑定只返回状态。 / Submit once when enabled; return status for an existing binding."""
         controls = self._controls()
         if controls['submission_enabled'] is not True:
             raise ValueError('Submission is disabled in the frozen configuration')
@@ -141,24 +155,26 @@ class Experiment:
         return self.status()
 
     def resume(self):
-        """Explicit continuation only after the original call returned safely."""
+        """仅在原调用安全返回后显式继续。 / Continue explicitly only after the original call returned safely."""
         if self._controls()['submission_enabled'] is not True:
             raise ValueError('Submission disabled')
         self._command('resume', self._controls()['controller_timeout_seconds'])
         return self.status()
 
     def cancel(self):
-        """Stop only this experiment's recorded call/app; retain unknown consumption."""
+        """只停止本实验记录的调用和应用，保留未知消耗。 / Stop only this experiment's recorded call/app; retain unknown consumption."""
         self._command('cancel', 120)
         return self.status()
 
     def status(self, refresh=False):
+        """汇总当前提交的持久状态，可显式刷新云端状态。 / Summarize the current attempt's durable state with optional cloud refresh."""
         if refresh:
             self._command('status', 60)
         result = {'experiment_id': self.graph['experiment_id'],
                   'planned_nodes': len(self.graph['nodes']), 'status': 'prepared',
                   'formal_acceptance': 'not_evaluated', 'actual_cloud_cost_usd': None}
         for name in ('submission', 'remote-status', 'transfer', 'partial-transfer', 'closure', 'cancellation'):
+            # 只关联当前 attempt，防止旧收集或闭环回执误报本次完成。 / Bind receipts to the current attempt so stale transfers or closure cannot imply completion.
             path = self.directory / f'{name}.json'
             if path.exists():
                 value = read_json(path)
@@ -183,6 +199,7 @@ class Experiment:
         return result
 
     def collect(self, *, available_only=False):
+        """确认调用完成及应用停止后收集产物；部分收集不宣称完整核验。 / Collect artifacts after completion/shutdown checks; partial transfer cannot claim full verification."""
         from .experiment_transfer import collect_experiment
         if type(available_only) is not bool:
             raise ValueError('Explicit boolean available-only transfer required')
@@ -198,7 +215,7 @@ class Experiment:
         if (remote.get('attempt_id') != submission['attempt_id']
                 or remote.get('experiment_id') != self.graph['experiment_id']):
             raise ValueError('Stale or unbound remote completion; refresh the current attempt')
-        # Exact app cleanup precedes the one logical artifact return stage.
+        # 必须先确认原应用停止，再开始产物回传。 / Verify exact app shutdown before artifact return.
         shutdown = self.directory / f"shutdown-{submission['attempt_id']}.json"
         if not shutdown.exists():
             if available_only:
@@ -221,7 +238,7 @@ class Experiment:
                     raise ValueError('Exact export app shutdown required before partial transfer')
         elif (remote.get('status') == 'blocked'
                 and remote.get('error', {}).get('phase') == 'export'):
-            # Recovery only packages existing verified artifacts. It never resumes compute.
+            # 导出恢复只打包既有核验产物，不恢复训练计算。 / Export recovery packages existing verified artifacts, never resumes compute.
             self._command('repair-export', 2400)
         destination = self.directory / ('partial-artifacts' if available_only else 'artifacts') / submission['attempt_id']
         options = {'available_only': True, 'expected_graph': self.graph} if available_only else {}
@@ -236,7 +253,7 @@ class Experiment:
         return result
 
     def verify(self):
-        """Entirely local closure; never opens Modal or starts compute."""
+        """仅在本地完成证据闭环，不启动云端应用或计算。 / Close evidence entirely locally, without cloud apps or compute."""
         transfer = read_json(self.directory / 'transfer.json')
         submission = read_json(self.directory / 'submission.json')
         if (transfer.get('transport_complete') is not True
@@ -257,7 +274,7 @@ class Experiment:
         for node in self.graph['nodes']:
             if state['nodes'][node['run_id']]['status'] != 'verified':
                 raise ValueError('Unverified cloud node')
-            # Reverify all scientific evidence against the returned dependency tree.
+            # 按回传依赖树重新核验科学证据，不只信任云端完成状态。 / Reverify scientific evidence against the returned dependency tree.
             run_bounded([sys.executable, '-m', 'cloud_edge_rl.experiment_graph',
                          '--snapshot', str(self.directory / 'snapshot.json'),
                          '--workspace', str(artifacts), '--run-id', node['run_id'],
@@ -274,7 +291,7 @@ class Experiment:
 
 
 def run_remote_graph(graph, volume_name, attempt_id):
-    """Detached call: commit progress independently of notebook connectivity."""
+    """在独立云端调用中提交进度，不依赖 Notebook 连接。 / Commit detached-call progress independently of notebook connectivity."""
     import modal
     volume = modal.Volume.from_name(volume_name)
     volume.reload()
@@ -284,7 +301,7 @@ def run_remote_graph(graph, volume_name, attempt_id):
     workspace = Path('/workspace')
     result = run_graph(graph, workspace, commit=volume.commit, export_inventory=False)
     receipt = workspace / 'experiments' / graph['experiment_id'] / 'calls' / f'{attempt_id}.json'
-    # Export failures are resumable closure failures, never permission to recompute.
+    # 先持久化待导出状态；导出失败不构成重新计算的许可。 / Persist export-pending state; export failure never permits recomputation.
     pending = {**result, 'status': 'blocked', 'error': {'phase': 'export', 'message': 'Export pending'}}
     write_json(receipt, {'attempt_id': attempt_id, 'state': pending})
     volume.commit()
@@ -299,11 +316,12 @@ def run_remote_graph(graph, volume_name, attempt_id):
 
 
 def _remote_state(experiment, submission):
-    """Use a durable attempt receipt when the SDK's transient result expired."""
+    """原调用结果不可用时读取持久 attempt 回执，并核对身份。 / Fall back to a durable attempt receipt when the original result is unavailable, checking identity."""
     import modal
     try:
         state = modal.FunctionCall.from_id(submission['call_id']).get(timeout=0)
     except TimeoutError:
+        # 尚在运行不等于结果过期，不能回退到旧的完成回执。 / A running call is not an expired result; do not fall back on timeout.
         raise
     except Exception as original:
         from .transport import _decode_json
@@ -330,12 +348,14 @@ def _remote_state(experiment, submission):
 
 
 def _submit(experiment, *, continuation=False):
+    """持有提交锁后进入统一提交路径。 / Enter the common submission path under the submission lock."""
     from .admission import _locked
     with _locked(experiment.directory / 'submission.json'):
         return _submit_locked(experiment, continuation=continuation)
 
 
 def _submit_locked(experiment, *, continuation=False):
+    """核对继续条件并预约任务，持久化唯一云端提交绑定。 / Validate continuation, reserve jobs and persist the cloud submission binding."""
     import modal
 
     from .experiment_admission import validate_and_reserve_graph
@@ -347,6 +367,7 @@ def _submit_locked(experiment, *, continuation=False):
     submission = directory / 'submission.json'
     specs = [RunSpec(**expand(graph['pool'], node['spec_ref'])) for node in graph['nodes']]
     if continuation:
+        # 只允许已观测到的暂停或核验阻断；未知或失败计算不能自动重试。 / Continue only observed pauses or verification blocks, never ambiguous or failed compute.
         prior = read_json(submission)
         result = _remote_state(experiment, prior)
         if result.get('status') not in ('paused_deadline', 'blocked'):
@@ -362,7 +383,7 @@ def _submit_locked(experiment, *, continuation=False):
         write_json(directory / f"prior-submission-{uuid.uuid4().hex}.json", prior)
     elif submission.exists():
         raise ValueError('Existing submission cannot be repeated')
-    # Preserve all historical approvals, allocations, failed attempts and source checks.
+    # 保留历史许可、配额、失败记录与源码检查，不因继续而清零。 / Preserve historical approvals, allocations, failures and source checks on continuation.
     validate_and_reserve_graph(graph, experiment.root, directory)
     settings = specs[0].config['modal']
     record = {'experiment_id': graph['experiment_id'], 'status': 'reserved',
@@ -376,6 +397,7 @@ def _submit_locked(experiment, *, continuation=False):
                                   graph_timeout_seconds=graph['graph_seconds'],
                                   graph_controller_directory=directory)
     with modal.enable_output(), app.run(detach=True):
+        # spawn 前保存应用身份；未知调用绑定需人工核对而不是重新提交。 / Persist app identity before spawn; reconcile unknown call bindings instead of resubmitting.
         record.update(status='submitting', app_id=app.app_id)
         write_json(submission, record, replace=True)
         call = function.spawn(graph, settings['volume_name'], record['attempt_id'])
@@ -384,6 +406,7 @@ def _submit_locked(experiment, *, continuation=False):
 
 
 def _export_recovery_result(record, *, timeout):
+    """读取导出恢复结果或有界持久回执，核对原提交绑定。 / Read an export-recovery result or bounded durable receipt and validate the original binding."""
     import modal
     from modal.exception import FunctionTimeoutError
 
@@ -411,7 +434,7 @@ def _export_recovery_result(record, *, timeout):
 
 
 def _repair_export(experiment):
-    """Reconcile one CPU export call; never reserve or resume scientific compute."""
+    """核对单次 CPU 导出调用，不预约或恢复科学计算。 / Reconcile one CPU export call, never reserve or resume scientific compute."""
     import modal
     from modal.exception import FunctionTimeoutError
 
@@ -435,6 +458,7 @@ def _repair_export(experiment):
                    ('experiment_id', 'attempt_id', 'call_id', 'app_id', 'volume_name', 'environment')}
         existing = path.exists()
         if existing:
+            # 未知、超时或失败的恢复记录保留，不自动创建第二个导出调用。 / Retain unknown, timed-out or blocked recovery records without a second automatic call.
             record = read_json(path)
             if record.get('binding') != binding:
                 raise ValueError('Export recovery belongs to another original submission')
@@ -477,6 +501,7 @@ def _repair_export(experiment):
             write_json(path, record, replace=True)
             raise
         finally:
+            # 成功和失败都清理确切恢复应用，且不掩盖原异常。 / Clean up the exact recovery app on either outcome without masking the original exception.
             original_error = sys.exc_info()[1]
             app_id = record.get('app_id') or (getattr(app, 'app_id', None) if app is not None else None)
             if app_id is not None:
@@ -496,6 +521,7 @@ def _repair_export(experiment):
 
 
 def cli():
+    """分派提交、继续、状态、清理、取消和仅导出恢复动作。 / Dispatch submission, continuation, status, cleanup, cancellation and export-only recovery."""
     parser = argparse.ArgumentParser()
     parser.add_argument('--action', choices=('submit', 'resume', 'status', 'cleanup', 'cancel',
                                             'repair-export'), required=True)

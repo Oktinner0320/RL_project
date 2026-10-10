@@ -1,4 +1,4 @@
-"""One invocation for frozen training jobs; durable barriers and no compute retries."""
+"""串行执行冻结任务，保留阶段证据且不自动重试计算。 / Run frozen jobs with durable barriers and no compute retries."""
 
 from __future__ import annotations
 
@@ -26,11 +26,13 @@ from cloud_edge_rl.transport import (
 
 
 def _same(left, right):
+    """按既有严格 JSON 规则比较快照。 / Compare snapshots using the existing strict JSON equality gate."""
     from cloud_edge_rl.comparisons.acceptance import _first_json_equal
     return _first_json_equal(left, right)
 
 
 def _state_equal(left, right):
+    """递归比较状态类型、张量和数组内容。 / Compare state types, tensors and arrays recursively."""
     import numpy as np
     import torch
     if type(left) is not type(right):
@@ -47,11 +49,13 @@ def _state_equal(left, right):
 
 
 def _limits(spec):
+    """读取任务的有界传输设置。 / Read the job's bounded transport settings."""
     return TransportLimits(**spec.config["modal"].get("transport", {}))
 
 
 @contextmanager
 def _controller_lock(directory: Path):
+    """独占输出目录，识别失效锁并只释放自己的锁。 / Lock one output directory and release only the owned lock."""
     import psutil
     path = directory / "controller.lock.json"
     token = uuid.uuid4().hex
@@ -67,6 +71,7 @@ def _controller_lock(directory: Path):
         except FileExistsError:
             old = read_json(path)
             try:
+                # PID 可能被复用，需同时核对进程创建时间。 / Check creation time as well as PID to detect reuse.
                 process = psutil.Process(old["pid"])
                 if process.create_time() == old["created"]:
                     raise ValueError("Training controller already running for this output")
@@ -87,6 +92,7 @@ def _controller_lock(directory: Path):
 
 
 def _compute_receipt(directory: Path, spec: RunSpec):
+    """读取已完成计算回执并核对任务、调用和应用绑定。 / Read a completed compute receipt and validate its binding."""
     path = directory / "compute-result.json"
     if not path.exists():
         return None
@@ -107,6 +113,7 @@ def run_training_pipeline(specs: list[RunSpec], root: Path, directory: Path, *,
                           artifact_destination: Path | None = None,
                           transport_limits: TransportLimits | None = None,
                           local_only: bool = False) -> dict:
+    """在目录锁内执行或本地复核冻结任务。 / Run or locally reverify frozen jobs under a directory lock."""
     directory = Path(directory).resolve()
     directory.mkdir(parents=True, exist_ok=True)
     with _controller_lock(directory):
@@ -117,7 +124,7 @@ def run_training_pipeline(specs: list[RunSpec], root: Path, directory: Path, *,
 
 
 def _validate_controller_specs(specs, root, verify):
-    """Only an exact admitted fresh scope widens the historical native route."""
+    """仅明确准入的 fresh 范围可扩展原生训练路由。 / Only an exact admitted fresh scope widens the historical native route."""
     from cloud_edge_rl.comparisons.acceptance import _first_artifact
     purpose = 'fresh_seven_method_development_benchmark_v1'
     markers = [spec.config.get('native_acceptance', {}).get('fresh_benchmark') for spec in specs]
@@ -148,8 +155,10 @@ def _run_training_pipeline(specs: list[RunSpec], root: Path, directory: Path, *,
                           artifact_destination: Path | None = None,
                            transport_limits: TransportLimits | None = None,
                            local_only: bool = False) -> dict:
-    """Run approved jobs serially. `verify` is a required, local semantic gate.
+    """串行执行准入任务，并要求本地语义核验。 / Run approved jobs serially with a required local semantic gate.
 
+    完成回执独立于清理、下载失败；只重连原调用，不重提任务。
+    未知提交保留预约，完整训练目标仍由冻结 spec 决定。
     Existing completed receipts survive cleanup/download failures. Unknown spawns remain
     reserved. An invocation may reattach a known call, but can never resubmit that job.
     Full training targets stay in the frozen specs, not in this transport controller.
@@ -166,7 +175,7 @@ def _run_training_pipeline(specs: list[RunSpec], root: Path, directory: Path, *,
         raise ValueError("Explicit bounded transport limits required")
     root, directory = Path(root).resolve(), Path(directory).resolve()
     directory.mkdir(parents=True, exist_ok=True)
-    # The immutable manifest is an execution snapshot, not a second CONFIG entry point.
+    # 不可变清单只记录执行快照，不是第二个配置入口。 / The immutable manifest is an execution snapshot, not another CONFIG entry point.
     artifacts_root = (directory / "artifacts" if artifact_destination is None
                       else Path(artifact_destination).resolve())
     manifest = {"run_ids": [safe_run_id(spec.run_id) for spec in specs],
@@ -213,6 +222,7 @@ def _run_training_pipeline(specs: list[RunSpec], root: Path, directory: Path, *,
         if not (stage / "call.json").exists():
             fresh.append(spec)
     if fresh:
+        # 只有没有调用绑定的任务需要新准入；本地复核不允许提交。 / New admission is needed for unbound jobs; local reverification cannot submit.
         if local_only:
             raise ValueError('Local reverification cannot submit or recover unknown compute')
         from cloud_edge_rl.admission import check_admission
@@ -243,7 +253,7 @@ def _run_training_pipeline(specs: list[RunSpec], root: Path, directory: Path, *,
                            stage / f"compute-{uuid.uuid4().hex}.log")
                 except Exception as error:
                     row["controller_error"] = {"type": type(error).__name__, "message": str(error)}
-                    # A completed GPU task is not made incomplete by an app context failure.
+                    # 应用上下文报错不抹去已持久化的计算结果。 / An app context failure does not invalidate a durable compute result.
                     receipt = _compute_receipt(stage, spec)
                     if receipt is None:
                         raise
@@ -253,6 +263,7 @@ def _run_training_pipeline(specs: list[RunSpec], root: Path, directory: Path, *,
             row.update(compute_completed=True, call_id=receipt["call_id"], app_id=receipt["app_id"])
             row["phase"] = "cleanup"
             write_json(state_path, state, replace=True)
+            # 先确认原应用已停止，再允许下载和推进下一任务。 / Verify exact app shutdown before downloading or advancing.
             shutdown = stage / "shutdown.json"
             if not shutdown.exists():
                 if local_only:
@@ -289,7 +300,7 @@ def _run_training_pipeline(specs: list[RunSpec], root: Path, directory: Path, *,
                                                            download_seconds=min(limits.download_seconds, 180)))
             row["phase"] = "verify"
             write_json(state_path, state, replace=True)
-            # Re-run the semantic gate on resumed files: a receipt is NOT integrity proof.
+            # 恢复时重新核验文件；完成回执不能代替完整性证据。 / Re-run the semantic gate: a receipt is not integrity proof.
             verification = stage / f"verification-{uuid.uuid4().hex}.json"
             worker([*common, "--action", "verify", "--verifier", verify,
                     "--artifacts", str(artifacts), "--verification-output", str(verification)],
@@ -303,8 +314,7 @@ def _run_training_pipeline(specs: list[RunSpec], root: Path, directory: Path, *,
         write_json(state_path, state, replace=True)
         return state
     except BaseException as error:
-        # A failed/timed-out compute can still have opened a remote app. Do not leave
-        # it alive merely because no completed GPU return was published.
+        # 失败或超时仍可能留下应用，即使没有完成回执也要尝试清理。 / Failed compute may leave an app even without a completed receipt.
         if ("row" in locals() and row.get("phase") == "compute" and any((stage / name).exists()
                                                   for name in ("app.json", "call.json"))):
             try:
@@ -324,7 +334,7 @@ def _run_training_pipeline(specs: list[RunSpec], root: Path, directory: Path, *,
 
 
 def execute_compute(spec: RunSpec, root: Path, directory: Path):
-    """Persist the paid binding and return before leaving the app context."""
+    """在退出应用上下文前保存付费调用绑定和结果。 / Persist the paid binding and return before leaving the app context."""
     import modal
 
     from cloud_edge_rl import admission, modal_runner
@@ -337,13 +347,13 @@ def execute_compute(spec: RunSpec, root: Path, directory: Path):
         if (binding.get("run_id") != spec.run_id
                 or admission.bound_call(spec, root) != binding.get("call_id")):
             raise ValueError("Retained paid binding mismatch")
-        # Read-only reattachment uses the original spec/binding, not a new source approval.
+        # 只读重连沿用原 spec 和绑定，不重新申请源码执行许可。 / Read-only reattachment uses the original spec and binding.
         call = modal.FunctionCall.from_id(binding["call_id"])
         result = call.get(timeout=wait_seconds)
         write_json(directory / "compute-result.json", {**binding, "result": result,
                                                        "compute_completed": True})
         return
-    # All guards, including historical quotas/source/owner, precede any app creation.
+    # 历史配额、源码和所有者检查必须先于应用创建。 / Check historical quotas, source and owner before creating an app.
     admission.check_admission([spec], root)
     bound = admission.reserve(spec, root)
     if bound is not None:
@@ -367,7 +377,7 @@ def execute_compute(spec: RunSpec, root: Path, directory: Path):
 
 
 def _cleanup_binding(spec: RunSpec, root: Path, directory: Path) -> dict:
-    """Select only this job's retained app, including an interrupted unknown spawn."""
+    """只选择本任务保留的应用，包含中断的未知提交。 / Select only this job's retained app, including an interrupted unknown spawn."""
     from cloud_edge_rl import admission
     call_path = directory / "call.json"
     binding = read_json(call_path if call_path.exists() else directory / "app.json")
@@ -381,13 +391,13 @@ def _cleanup_binding(spec: RunSpec, root: Path, directory: Path) -> dict:
             if app.get("run_id") != spec.run_id or app.get("app_id") != binding.get("app_id"):
                 raise ValueError("Cleanup app and call receipts disagree")
     else:
-        # Cleanup only: source edits may not reset or authorize the unknown reservation.
+        # 此处只允许清理，源码修改不能重置或授权未知预约。 / Cleanup only: source edits cannot reset or authorize an unknown reservation.
         admission.check_admission([spec], root, _saved_source=True)
     return binding
 
 
 def verify_training_artifacts(spec: RunSpec, artifacts: Path, result: dict) -> dict:
-    """Verify native checkpoint/counters/isolation, not utility or privacy acceptance."""
+    """核验原生检查点、计数与数据隔离，不代表效用或隐私验收。 / Verify native checkpoints, counters and isolation, not utility or privacy acceptance."""
     import csv
     import math
 
@@ -409,6 +419,7 @@ def verify_training_artifacts(spec: RunSpec, artifacts: Path, result: dict) -> d
                           or requested_gpu not in runtime.get("gpu", "")):
         raise ValueError("Requested training GPU not observed")
     data = read_json(artifacts / "data_metadata.json")
+    # 开发训练必须排除官方测试集，并保持训练、验证和客户端划分一致。 / Exclude official test data and verify development/client partitions.
     if spec.config["execution"]["split"] != "train":
         raise ValueError("Development training must not use sealed-test execution")
     if data["official_test_included"] is not False or data["rows"]["official_test"] != 0:
@@ -445,6 +456,7 @@ def verify_training_artifacts(spec: RunSpec, artifacts: Path, result: dict) -> d
     previous = spec.inputs.get("previous_training_checkpoint", "")
     before = 0
     if previous:
+        # 恢复计数来自同版本、同设置的确切旧检查点，而非目录名推断。 / Read prior counters from the exact compatible checkpoint.
         from pathlib import PurePosixPath
         remote = PurePosixPath(previous)
         if (len(remote.parts) != 3 or remote.parts[0] != "runs" or remote.name != "training.pt"
@@ -464,6 +476,7 @@ def verify_training_artifacts(spec: RunSpec, artifacts: Path, result: dict) -> d
             raise ValueError('Retained training checkpoint identity/settings/counters mismatch')
         before = prior["state"]["environment_steps"]
     steps = state["environment_steps"]
+    # 总交互包含预热；本阶段指标只覆盖新增交互，不强制任务终止。 / Count warmup in total interactions and only new steps in this stage's metrics.
     expected = min(spec.config["rl"]["total_steps"], before + spec.config["rl"].get(
         "stage_interaction_limit", spec.config["rl"]["total_steps"]))
     if (any(type(state[key]) is not int or state[key] < 0 for key in
@@ -483,6 +496,7 @@ def verify_training_artifacts(spec: RunSpec, artifacts: Path, result: dict) -> d
     if any(not torch.isfinite(value).all().item() for value in state["agent"]["model"].values()):
         raise ValueError("Nonfinite trained model")
     agent = torch.load(artifacts / "agent.pt", map_location="cpu", weights_only=False)
+    # 独立 agent 文件须与完整训练状态一致，不能只核对模型是否有限。 / Match the agent file to the complete training state, not just finite weights.
     if (agent["risk_version"] != spec.risk_version
             or not _state_equal(agent["training"], state)
             or not _state_equal(agent["agent"], state["agent"])):
@@ -494,6 +508,7 @@ def verify_training_artifacts(spec: RunSpec, artifacts: Path, result: dict) -> d
 
 
 def main():
+    """分派串行控制、计算、清理或本地核验命令。 / Dispatch controller, compute, cleanup or local verification commands."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--action", choices=("run", "compute", "cleanup", "verify"), required=True)
     parser.add_argument("--root", type=Path, required=True)

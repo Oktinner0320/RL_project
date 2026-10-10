@@ -1,5 +1,6 @@
-"""Flat immutable experiments and a serial, restartable, cloud-owned execution graph.
+"""扁平不可变实验与可恢复的串行云端执行图。 / Flat immutable experiments and a serial, restartable, cloud-owned execution graph.
 
+内容池复用 JSON 原值，不使用文件摘要；历史许可在提交主机核对，云端不使用主机路径。
 The pool interns literal JSON values, not file digests. Historical approvals are
 resolved on the submitting host; no host path is used for cloud execution.
 """
@@ -29,6 +30,7 @@ VERIFIERS = frozenset({
 
 
 def _identity(value):
+    """验证可安全用于实验目录的标识。 / Validate an identity safe for experiment directories."""
     safe_run_id(value)
     if any(ord(c) < 32 or c in '<>"|?*' for c in value):
         raise ValueError('Unsafe experiment identity')
@@ -36,6 +38,7 @@ def _identity(value):
 
 
 def _relative(value):
+    """验证无父级跳转的可移植工作区相对路径。 / Validate a portable workspace-relative path without parent traversal."""
     if type(value) is not str or '\\' in value or ':' in value:
         raise ValueError('Portable workspace-relative artifact path required')
     path = PurePosixPath(value)
@@ -45,11 +48,13 @@ def _relative(value):
 
 
 class ContentPool:
-    """Factor repeated subtrees once, retaining exact JSON types and contents."""
+    """复用重复子树，保持 JSON 类型和内容不变。 / Factor repeated subtrees once, retaining exact JSON types and contents."""
     def __init__(self):
+        """初始化有序内容池及去重索引。 / Initialize the ordered content pool and deduplication index."""
         self.values, self.index = [], {}
 
     def add(self, value):
+        """递归登记严格 JSON 值并返回去重后的引用编号。 / Intern strict JSON values recursively and return their deduplicated reference."""
         if type(value) is dict:
             entry = ['object', [[k, self.add(v)] for k, v in sorted(value.items())]]
         elif type(value) is list:
@@ -59,6 +64,7 @@ class ContentPool:
         else:
             raise ValueError('Strict JSON execution snapshot required')
         key = json.dumps(entry, ensure_ascii=False, allow_nan=False, separators=(',', ':'))
+        # 类型标签区分对象、数组和原值，子项先于父项进入池。 / Tags distinguish objects, arrays and values; children are interned before parents.
         if key not in self.index:
             self.index[key] = len(self.values)
             self.values.append(entry)
@@ -66,9 +72,11 @@ class ContentPool:
 
 
 def expand(pool, reference):
+    """检查引用并展开为独立副本，不暴露池内可变对象。 / Validate references and expand a detached copy without exposing pooled mutable values."""
     cache = {}
 
     def get(ref, depth=0):
+        """有界递归读取引用，拒绝循环、前向引用和重复键。 / Resolve references with bounded depth, rejecting cycles, forward links and duplicate keys."""
         if type(ref) is not int or not 0 <= ref < len(pool) or depth > 100:
             raise ValueError('Invalid content reference')
         if ref in cache:
@@ -93,7 +101,7 @@ def expand(pool, reference):
 
 
 def input_runs(spec):
-    """Discover exact producer IDs from declared paths, never from opaque IDs."""
+    """从显式输入路径或字段提取生产者，不猜测不透明标识。 / Extract producer IDs from explicit input paths or fields, never guess from opaque IDs."""
     found = set()
     for key, value in spec.inputs.items():
         if value is None:
@@ -114,7 +122,7 @@ def input_runs(spec):
 
 def freeze_graph(specs, *, experiment_id, verifier, node_dependencies=None,
                  node_seconds=1800, verify_seconds=90, graph_seconds=86400):
-    """Freeze approved specifications; preparing a graph grants no paid permission."""
+    """冻结任务和核验器；图准备本身不授予付费执行许可。 / Freeze specifications and verifiers; graph preparation grants no paid permission."""
     _identity(experiment_id)
     if not specs or len(specs) > 256:
         raise ValueError('One to 256 explicitly bounded nodes required')
@@ -124,6 +132,7 @@ def freeze_graph(specs, *, experiment_id, verifier, node_dependencies=None,
         if run in seen:
             raise ValueError('Duplicate run identity')
         deps = input_runs(spec) | set((node_dependencies or {}).get(run, []))
+        # 输入依赖与额外依赖合并；生产者必须先出现，不能自动补造任务。 / Merge declared and extra dependencies; producers must already precede the consumer.
         if not deps <= seen:
             raise ValueError(f'Missing or out-of-order producer for {run}: {sorted(deps - seen)}')
         gate = verifier[run] if isinstance(verifier, dict) else verifier
@@ -139,6 +148,7 @@ def freeze_graph(specs, *, experiment_id, verifier, node_dependencies=None,
 
 
 def validate_graph(graph):
+    """核对不可变图的身份、顺序、时限、核验器及数据划分。 / Validate immutable graph identity, order, deadlines, verifiers and data splits."""
     if (graph.get('schema') != SCHEMA or graph.get('automatic_compute_retry') is not False
             or graph.get('historical_consumption_reset') is not False):
         raise ValueError('Immutable no-retry graph contract required')
@@ -151,6 +161,7 @@ def validate_graph(graph):
         raise ValueError('Factored graph metadata limit exceeded')
     seen = set()
     for node in graph['nodes']:
+        # 逐节点核对生产者绑定及白名单核验器，防止图与实际 spec 分离。 / Bind each node to its producers, actual spec and allowlisted verifier.
         run = _identity(node['run_id'])
         if run in seen or not set(node['dependencies']) <= seen:
             raise ValueError('Invalid graph order or duplicate node')
@@ -173,10 +184,12 @@ def validate_graph(graph):
 
 
 def _node_directory(workspace, graph, run):
+    """定位本实验中经身份校验的节点目录。 / Locate an identity-checked node directory within this experiment."""
     return Path(workspace) / 'experiments' / graph['experiment_id'] / 'nodes' / _identity(run)
 
 
 def execute_node(graph, node, workspace, phase):
+    """执行单个计算或核验阶段，并保存对应回执。 / Execute one compute or verification phase and persist its receipt."""
     directory = _node_directory(workspace, graph, node['run_id'])
     directory.mkdir(parents=True, exist_ok=True)
     spec = RunSpec(**expand(graph['pool'], node['spec_ref']))
@@ -185,6 +198,7 @@ def execute_node(graph, node, workspace, phase):
         result = run_experiment(spec, Path(workspace))
         write_json(directory / 'result.json', result)
     elif phase == 'verify':
+        # 核验只读取既有计算结果，由冻结节点指定语义检查函数。 / Verify existing compute results using the frozen node's semantic gate.
         result = read_json(directory / 'result.json')
         module, name = node['verifier'].split(':')
         proof = getattr(importlib.import_module(module), name)(
@@ -197,10 +211,10 @@ def execute_node(graph, node, workspace, phase):
 
 
 def verify_stage_artifacts(spec, artifacts, result):
-    """General evaluation closure; specialized native stages use their own gate."""
+    """核验通用评价阶段；原生专用阶段仍使用各自核验器。 / Verify general evaluation closure; specialized native stages use their own gate."""
     from .artifacts import artifact_payload
     stored = read_json(Path(artifacts) / 'config.json')
-    # Producer metadata can be either the native RunSpec or its public projection.
+    # 生产者元数据可能是完整 RunSpec 或公开投影，比较相同产物字段。 / Compare common artifact fields for native RunSpec or its public projection.
     if artifact_payload(stored) != artifact_payload(spec):
         raise ValueError('Actual producer configuration mismatch')
     if read_json(Path(artifacts) / 'status.json').get('state') != 'completed':
@@ -221,7 +235,7 @@ def verify_stage_artifacts(spec, artifacts, result):
 
 def run_graph(graph, workspace, *, commit, worker=run_bounded, clock=time.monotonic,
               export_inventory=True):
-    """Computed nodes reverify; ambiguous/failed compute never automatically reruns."""
+    """恢复时重新核验已计算节点，不自动重跑未知或失败计算。 / Reverify computed nodes on resume; never automatically rerun ambiguous or failed compute."""
     validate_graph(graph)
     base = Path(workspace) / 'experiments' / graph['experiment_id']
     base.mkdir(parents=True, exist_ok=True)
@@ -242,6 +256,7 @@ def run_graph(graph, workspace, *, commit, worker=run_bounded, clock=time.monoto
                  'nodes': {n['run_id']: {'status': 'pending'} for n in graph['nodes']}}
 
     def save():
+        """先写状态再提交持久卷，形成可恢复的阶段屏障。 / Write state and then commit the volume to form a durable stage barrier."""
         write_json(state_path, state, replace=True)
         commit()
 
@@ -255,15 +270,14 @@ def run_graph(graph, workspace, *, commit, worker=run_bounded, clock=time.monoto
                 receipt = read_json(_node_directory(workspace, graph, node['run_id']) / 'verification.json')
                 if receipt.get('run_id') != node['run_id'] or receipt.get('verified') is not True:
                     raise ValueError('Verified receipt missing or invalid')
-                # No hashes: recheck actual dependencies before consuming them on
-                # a later invocation. This phase cannot perform training.
+                # 恢复时先重新核验实际依赖，此阶段不能执行训练。 / Reverify actual dependencies on resume without performing training.
                 record['status'] = 'computed'
             if record['status'] not in ('pending', 'computed', 'verification_failed'):
                 raise ValueError('Unknown or failed compute requires explicit reconciliation')
             if any(state['nodes'][dep]['status'] != 'verified' for dep in node['dependencies']):
                 raise ValueError('Unverified dependency')
             required = (node['timeout_seconds'] if record['status'] == 'pending' else 0) + node['verify_seconds'] + 60
-            # Large real runs must leave time to close their bounded export shards.
+            # 大规模任务还需预留有界导出分片的结束时间。 / Reserve time to close bounded export shards for large runs.
             if graph['graph_seconds'] >= 1800 and any(
                     expand(graph['pool'], item['spec_ref']).get('config', {}).get('rl', {}).get('total_steps', 0) >= 1000
                     for item in graph['nodes']):
@@ -274,13 +288,14 @@ def run_graph(graph, workspace, *, commit, worker=run_bounded, clock=time.monoto
             directory = _node_directory(workspace, graph, node['run_id'])
             directory.mkdir(parents=True, exist_ok=True)
             phases = ('compute', 'verify') if record['status'] == 'pending' else ('verify',)
+            # 待执行节点才计算；已有计算或核验失败节点只重做核验。 / Compute only pending nodes; other resumable nodes only reverify.
             for phase in phases:
                 if phase == 'compute':
                     if (Path(workspace) / 'runs' / node['run_id']).exists():
                         raise ValueError('Existing run requires explicit import; never overwrite computation')
                     record.update(status='reserved', attempt_id=uuid.uuid4().hex,
                                   actual_interactions=None)
-                    save()  # Committed before the first possible interaction.
+                    save()  # 首次可能交互前先提交预约状态。 / Commit reservation before the first possible interaction.
                     record['status'] = 'running'
                     save()
                 try:
@@ -305,6 +320,7 @@ def run_graph(graph, workspace, *, commit, worker=run_bounded, clock=time.monoto
                     record.pop('error', None)
                     save()
                 except BaseException as error:
+                    # 区分计算失败与核验失败，决定是否允许只读继续。 / Distinguish compute failure from verification failure for safe continuation.
                     record['status'] = 'failed' if phase == 'compute' else 'verification_failed'
                     record['error'] = {'type': type(error).__name__, 'message': str(error)}
                     raise
@@ -322,12 +338,13 @@ def run_graph(graph, workspace, *, commit, worker=run_bounded, clock=time.monoto
 
 
 def publish_inventory(graph, workspace, *, commit=lambda: None):
-    """Exact complete dependency closure, including nested checkpoints and logs."""
+    """发布完整依赖闭包，包含嵌套检查点和日志。 / Publish the exact complete dependency closure, including nested checkpoints and logs."""
     from .experiment_export import publish_shards
     return publish_shards(graph, workspace, commit=commit)
 
 
 def cli():
+    """读取有界冻结图并执行指定节点的单一阶段。 / Load a bounded frozen graph and execute one specified node phase."""
     parser = argparse.ArgumentParser()
     parser.add_argument('--snapshot', type=Path, required=True)
     parser.add_argument('--workspace', type=Path, required=True)
