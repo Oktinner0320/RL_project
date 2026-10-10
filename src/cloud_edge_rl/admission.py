@@ -20,6 +20,8 @@ def frozen_payload(spec):
 
 _RESOURCE_PURPOSE = 'bounded_paired_resource_feedback_training'
 _RESOURCE_SCHEMA = 'resource_pair_shared_source_v1'
+_SELECTION_PURPOSE = 'bounded_dqn_ppo_parameter_selection'
+_SELECTION_SCHEMA = 'parameter_selection_shared_source_v1'
 
 
 def resource_frozen_payload(spec):
@@ -32,10 +34,227 @@ def resource_frozen_payload(spec):
 def _resource_shared_source(witness):
     if 'artifact_schema' not in witness:
         return False
-    if (witness.get('purpose') != _RESOURCE_PURPOSE
-            or witness['artifact_schema'] != _RESOURCE_SCHEMA):
+    if (witness.get('purpose'), witness['artifact_schema']) not in (
+            (_RESOURCE_PURPOSE, _RESOURCE_SCHEMA), (_SELECTION_PURPOSE, _SELECTION_SCHEMA)):
         raise ValueError('Unknown admission artifact schema')
     return True
+
+
+def _selection_history(witness, ledger):
+    """Reconcile scoped ancestry without claiming globally unknown history is zero."""
+    counter = _first_artifact(witness['counter_admission'])
+    exact = {'approved': True, 'owner': witness['owner'], 'freeze_id': witness['freeze_id'],
+             'ancestry_retained': True,
+             'scoped_counters_verified': True, 'historical_cloud_cost_usd': None,
+             'historical_cloud_cost_unknown_retained': True,
+             'ledger_manifest': witness['ledger_manifest']}
+    if witness.get('retained_failed_zero_closures'):
+        _selection_recovery(witness)
+        exact.update(scoped_no_previous_training_interactions=True,
+                     retained_failed_zero_closures=witness['retained_failed_zero_closures'])
+        if 'scoped_training_seed_unused' in counter:
+            raise ValueError('Failed training seed cannot be declared unused')
+    else:
+        exact['scoped_training_seed_unused'] = True
+    if any(key not in counter or not _first_json_equal(counter[key], value)
+           for key, value in exact.items()):
+        raise ValueError('Explicit verified scoped counter and retained ancestry proof required')
+    totals, calls, physical_total = {}, set(), 0
+    for row in ledger:
+        if row['call_id'] in calls:
+            raise ValueError('Duplicate historical budget call')
+        calls.add(row['call_id'])
+        amount = row.get('actual_interactions')
+        names = ('learned_steps', 'warmup_steps', 'collection_interactions', 'resume_offset')
+        if any(name in row for name in names):
+            counts = [row[name] for name in names]
+            if (any(type(value) is not int or value < 0 for value in counts)
+                    or counts[3] > sum(counts[:2])):
+                raise ValueError('Invalid historical interaction counters')
+            counted = sum(counts[:3]) - counts[3]
+            if amount is not None and (type(amount) is not int or amount != counted):
+                raise ValueError('Conflicting historical interaction counters')
+            amount = counted
+        if (type(row['seed']) is not int or type(amount) is not int or amount < 0
+                or row['state'] not in ('completed', 'failed', 'cancelled', 'canceled', 'interrupted')
+                or (row['state'] != 'completed' and row.get('consumption_verified') is not True)):
+            raise ValueError('Unreconciled historical consumption')
+        key = (row['method'], row['seed'], row['partition'])
+        if 'scoped_ancestry_allocations' in row or 'conservative_full_ancestry' in row:
+            allocations = [{'method': method, 'seed': 5101, 'partition': 'train',
+                            'owner': witness['owner'], 'collection_interactions': amount}
+                           for method in ('dqn', 'ppo')]
+            if (row.get('conservative_full_ancestry') is not True
+                    or row.get('owner') != witness['owner'] or row['state'] != 'completed'
+                    or row['method'] != 'round_robin' or row['partition'] != 'train'
+                    or row['seed'] in (5101, 6201, 6202)
+                    or type(row['call_id']) is not str or not row['call_id']
+                    or not 0 < amount <= 30
+                    or not _first_json_equal(row['scoped_ancestry_allocations'], allocations)):
+                raise ValueError('Invalid conservative physical ancestry allocations')
+            manifest = _first_artifact(row['physical_call_manifest'])
+            summary = _first_artifact(row['physical_summary'])
+            physical = manifest.get('spec', {})
+            if (manifest.get('state') != 'completed' or manifest.get('call_id') != row['call_id']
+                    or physical.get('method') != row['method'] or physical.get('seed') != row['seed']
+                    or physical.get('stage') != 'collect'
+                    or physical.get('config', {}).get('execution', {}).get('split') != row['partition']
+                    or summary.get('run_id') != physical.get('run_id')
+                    or summary.get('stage') != 'collect'
+                    or type(summary.get('round')) is not int or summary['round'] != amount
+                    or type(row.get('warmup_included')) is not int
+                    or not 0 <= row['warmup_included'] <= amount):
+                raise ValueError('Physical ancestry call identity or interaction evidence mismatch')
+            physical_total += amount
+            for method in ('dqn', 'ppo'):
+                scoped = (method, 5101, 'train')
+                totals[scoped] = totals.get(scoped, 0) + amount
+        if key[1] in (5101, 6201, 6202):
+            if row.get('owner') != witness['owner']:
+                raise ValueError('Scoped ledger owner mismatch')
+            if key[1] == 5101:
+                if (key[0] not in ('dqn', 'ppo') or key[2] != 'train'
+                        or row.get('collection_interactions') != amount
+                        or row.get('learned_steps') != 0 or row.get('warmup_steps') != 0
+                        or row.get('resume_offset') != 0):
+                    raise ValueError('Unused training seed permits retained collection only')
+            totals[key] = totals.get(key, 0) + amount
+    collection = {method: totals.get((method, 5101, 'train'), 0) for method in ('dqn', 'ppo')}
+    if (physical_total > 120 or any(value > 120 for value in collection.values())
+            or not _first_json_equal(counter.get('scoped_collection_interactions_by_algorithm'), collection)):
+        raise ValueError('Retained collection counters must be verified and at most 120 per algorithm')
+    expected = [{'method': method, 'seed': 5101, 'partition': 'train',
+                 'limit': 5000 + collection[method]} for method in ('dqn', 'ppo')]
+    expected += [{'method': method, 'seed': seed, 'partition': 'validation', 'limit': 3000}
+                 for method in ('dqn', 'ppo', 'time_greedy') for seed in (6201, 6202)]
+    if not _first_json_equal(witness.get('group_interaction_limits'), expected):
+        raise ValueError('Exact scoped training and unchanged validation limits required')
+    limits = {(row['method'], row['seed'], row['partition']): row['limit'] for row in expected}
+    for run in witness['runs']:
+        for charge in run['charges']:
+            key = (charge['method'], charge['seed'], charge['partition'])
+            totals[key] = totals.get(key, 0) + charge['actual_interactions']
+    if any(key not in limits or amount > limits[key] for key, amount in totals.items()):
+        raise ValueError('Full frozen matrix exceeds scoped group interaction limit')
+    return limits
+
+
+def _selection_physical_ancestry(ledger):
+    """Budget both descendants without duplicating physical calls or warmup."""
+    totals = {}
+    for row in ledger:
+        if row.get('conservative_full_ancestry') is True:
+            for allocation in row['scoped_ancestry_allocations']:
+                key = (allocation['method'], allocation['seed'], allocation['partition'])
+                totals[key] = totals.get(key, 0) + allocation['collection_interactions']
+    return totals
+
+
+def _selection_training(witness):
+    """Validate the entire 62-call matrix before admitting any individual call."""
+    from .parameter_selection import candidate_config
+    if not _resource_shared_source(witness):
+        raise ValueError('Parameter selection requires compact shared source schema')
+    authorization = witness.get('configuration_authorization', {})
+    ids = [f'{prefix}{index:02d}' for prefix in ('D', 'P') for index in range(10)]
+    exact = {'approved': True, 'owner': witness['owner'], 'freeze_id': witness['freeze_id'],
+             'approved_additional_slots': 20, 'training_seed': 5101,
+             'evaluation_seeds': [6201, 6202], 'training_interactions_per_algorithm': 5000,
+             'max_compute_calls': 62, 'historical_configuration_count_exact': None,
+             'historical_configuration_count_unknown_retained': True, 'configuration_ids': ids}
+    if any(key not in authorization or not _first_json_equal(authorization[key], value)
+           for key, value in exact.items()):
+        raise ValueError('Invalid explicit parameter-selection configuration authorization')
+    lower, risk = authorization.get('historical_configuration_lower_bound'), authorization.get('risk_version')
+    if type(lower) is not int or lower < 12 or type(risk) is not str or not risk:
+        raise ValueError('Retained historical lower bound and frozen risk version required')
+    plan = _first_artifact(witness['plan_config'])
+    if 'execution_admission' in plan.get('native_acceptance', {}):
+        raise ValueError('Plan CONFIG snapshot must exclude execution admission')
+    plan = deepcopy(plan)
+    plan.get('native_acceptance', {}).pop('execution_admission', None)
+    settings = plan['native_acceptance']['parameter_selection']
+    if (settings.get('training_seed') != 5101 or settings.get('evaluation_seeds') != [6201, 6202]
+            or settings.get('frozen_risk_version') != risk
+            or type(settings.get('frozen_risk_checkpoint')) is not str
+            or not settings['frozen_risk_checkpoint']):
+        raise ValueError('Plan CONFIG seed and risk freeze mismatch')
+    runs = witness.get('runs')
+    if type(runs) is not list or len(runs) != 62:
+        raise ValueError('Exactly 62 frozen parameter-selection runs required')
+    trains, evaluations, references, run_ids = {}, {}, {}, set()
+    def scientific(config):
+        value = deepcopy(config)
+        value.get('native_acceptance', {}).pop('execution_admission', None)
+        value.get('experiment', {}).pop('variant', None)
+        value['execution'].pop('split', None)
+        value['modal'].pop('timeout_seconds', None)
+        return value
+    source = None
+    for run in runs:
+        payload = run['spec']
+        config, inputs = payload['config'], payload['inputs']
+        cid = config.get('experiment', {}).get('variant')
+        reference = cid == 'reference-time_greedy'
+        method = 'time_greedy' if reference else 'dqn' if cid in ids[:10] else 'ppo'
+        if (cid not in ids and not reference or payload['method'] != method
+                or type(payload['seed']) is not int
+                or type(payload['run_id']) is not str or not payload['run_id']
+                or payload['run_id'] in run_ids or payload['risk_version'] != risk
+                or inputs.get('risk_checkpoint') != settings['frozen_risk_checkpoint']
+                or config['execution'].get('backend') != 'modal'
+                or payload.get('provenance', {}).get('identity_kind') != 'source_contents_no_hash'
+                or 'source_contents' in payload['provenance']):
+            raise ValueError('Invalid frozen selection run, source, configuration or risk')
+        if source is None:
+            source = payload['provenance']
+        if not _first_json_equal(source, payload['provenance']):
+            raise ValueError('Selection matrix provenance differs')
+        run_ids.add(payload['run_id'])
+        modal = config['modal']
+        bounded = {'gpu': 'H100', 'cpu': 16.0, 'memory_mb': 65536,
+                   'startup_timeout_seconds': 180, 'max_containers': 1}
+        timeout = modal.get('timeout_seconds')
+        if (any(not _first_json_equal(modal.get(key), value) for key, value in bounded.items())
+                or type(timeout) is not int or not 1 <= timeout <= 900
+                or type(modal.get('retries', 0)) is not int or modal.get('retries', 0) != 0):
+            raise ValueError('Bounded H100 settings and zero retries required')
+        expected = candidate_config(plan, 'D00' if reference else cid)
+        if not _first_json_equal(scientific(config), scientific(expected)):
+            raise ValueError('Selection run differs from sole scientific CONFIG design')
+        stage, seed = payload['stage'], payload['seed']
+        if stage == 'train_policy':
+            if (reference or cid in trains or seed != 5101
+                    or config['execution'].get('split') != 'train'
+                    or set(inputs) != {'risk_checkpoint', 'previous_training_checkpoint'}
+                    or inputs['previous_training_checkpoint'] not in (None, '')):
+                raise ValueError('Invalid 500-interaction no-resume training run')
+            trains[cid] = payload
+            amount, partition = 500, 'train'
+        elif stage == 'validate':
+            if seed not in (6201, 6202) or config['execution'].get('split') != 'validation':
+                raise ValueError('Invalid paired validation seed or split')
+            if reference:
+                if seed in references or set(inputs) != {'risk_checkpoint'}:
+                    raise ValueError('Invalid fixed time-greedy reference')
+                references[seed] = payload
+            else:
+                if (cid, seed) in evaluations or set(inputs) != {'risk_checkpoint', 'agent_checkpoint'}:
+                    raise ValueError('Invalid or duplicate candidate evaluation')
+                evaluations[cid, seed] = payload
+            amount, partition = 30, 'validation'
+        else:
+            raise ValueError('Unrelated selection stage forbidden')
+        charge = {'method': method, 'seed': seed, 'partition': partition,
+                  'configuration_id': cid, 'actual_interactions': amount}
+        if not _first_json_equal(run.get('charges'), [charge]):
+            raise ValueError('Exact canonical interaction charge required')
+    if set(trains) != set(ids) or len(evaluations) != 40 or set(references) != {6201, 6202}:
+        raise ValueError('Incomplete selection matrix')
+    for (cid, _), payload in evaluations.items():
+        if payload['inputs']['agent_checkpoint'] != f"runs/{trains[cid]['run_id']}/agent.pt":
+            raise ValueError('Evaluation must load its own exact training agent')
+    return set(ids) | {'reference-time_greedy'}
 
 
 def _resource_training(witness):
@@ -179,10 +398,12 @@ def check_admission(specs, root, *, _saved_source=False):
         witness = _first_artifact(descriptor)
         if (witness.get('approved') is not True or type(witness.get('owner')) is not str
                 or not witness['owner'] or witness.get('purpose') not in
-                ('fixedcandidate_independent_validation', _RESOURCE_PURPOSE)):
+                 ('fixedcandidate_independent_validation', _RESOURCE_PURPOSE, _SELECTION_PURPOSE)):
             raise ValueError('Explicit owner stage approval required')
         if witness['purpose'] == _RESOURCE_PURPOSE:
             _resource_training(witness)
+        if witness['purpose'] == _SELECTION_PURPOSE:
+            _selection_training(witness)
         compact = _resource_shared_source(witness)
         if compact and not _first_json_equal(
                 _first_artifact(witness['source_contents_manifest']), spec.provenance['source_contents']):
@@ -211,6 +432,8 @@ def check_admission(specs, root, *, _saved_source=False):
             raise ValueError('Explicit historical budget ledger required')
         if witness['purpose'] == _RESOURCE_PURPOSE:
             _resource_history(ledger)
+        if witness['purpose'] == _SELECTION_PURPOSE:
+            _selection_history(witness, ledger)
         log = Path(witness['reservation_log'])
         if not log.is_absolute():
             raise ValueError('Absolute durable reservation log required')
@@ -300,6 +523,186 @@ def _validate_no_spawn(spec, root, proof_descriptor, reservation):
     return log
 
 
+def _validate_failed_zero(approval, proof_descriptor, reservation, binding, log):
+    """Only the preserved constructor failure can release a bound selection charge."""
+    witness, proof = _first_artifact(approval), _first_artifact(proof_descriptor)
+    run_id = reservation['run_id']
+    payload = reservation['spec']
+    if (witness.get('approved') is not True or witness.get('purpose') != _SELECTION_PURPOSE
+            or type(witness.get('owner')) is not str or not witness['owner']
+            or Path(witness['reservation_log']) != log
+            or reservation['freeze_id'] != witness['freeze_id']
+            or not _first_json_equal(reservation['ledger_manifest'], witness['ledger_manifest'])
+            or not any(_first_json_equal(item, {'spec': payload, 'charges': reservation['charges']})
+                       for item in witness['runs'])
+            or payload.get('stage') != 'train_policy' or payload.get('method') != 'dqn'
+            or type(payload.get('seed')) is not int or payload['seed'] != 5101
+            or payload['config'].get('experiment', {}).get('variant') != 'D00'
+            or not _first_json_equal(reservation['charges'], [{'method': 'dqn', 'seed': 5101,
+                    'partition': 'train', 'configuration_id': 'D00', 'actual_interactions': 500}])):
+        raise ValueError('Failed-zero closure requires exact saved D00 selection approval')
+    freeze = _first_artifact(witness['freeze_manifest'])
+    if (freeze.get('freeze_id') != witness['freeze_id']
+            or not _first_json_equal(freeze.get('runs'), witness['runs'])):
+        raise ValueError('Saved failed-zero freeze mismatch')
+    _first_artifact(witness['ledger_manifest'])
+    source = _first_artifact(witness['source_contents_manifest'])
+    exact = {'approved': True, 'owner': witness['owner'], 'purpose': _SELECTION_PURPOSE,
+             'freeze_id': witness['freeze_id'], 'run_id': run_id,
+             'call_id': binding['call_id'], 'classification': 'FAILED_ZERO_INTERACTIONS',
+             'actual_environment_interactions': 0, 'optimizer_updates': 0,
+             'failed_call_actual_cloud_cost_usd': None, 'no_cost_imputed_zero': True}
+    if any(key not in proof or not _first_json_equal(proof[key], value) for key, value in exact.items()):
+        raise ValueError('Invalid bound failed-zero proof identity or counters')
+    app_id = proof.get('app_id')
+    if type(app_id) is not str or not app_id or type(binding.get('call_id')) is not str or not binding['call_id']:
+        raise ValueError('Explicit bound call and app required')
+    config = _first_artifact(proof['config'])
+    expected = deepcopy(payload)
+    expected['provenance']['source_contents'] = source
+    actual = deepcopy(config)
+    actual.get('config', {}).get('native_acceptance', {}).pop('execution_admission', None)
+    if not _first_json_equal(actual, expected):
+        raise ValueError('Original failed config does not match saved approval')
+    metadata = _first_artifact(proof['metadata'])
+    if any(not _first_json_equal(metadata.get(key), expected[key])
+           for key in ('run_id', 'stage', 'method', 'seed', 'risk_version', 'provenance')):
+        raise ValueError('Original failed metadata mismatch')
+    if (expected['config'].get('risk', {}).get('mode') != 'unavailable'
+            or not _first_json_equal(expected['config'].get('reward', {}).get('risk_weight'), 0.1)):
+        raise ValueError('Only unavailable risk with positive frozen reward is reconciled')
+    status = _first_artifact(proof['status'])
+    error = '无风险模型时风险权重必须为 0 / Unavailable risk requires risk_weight=0'
+    if status.get('state') != 'failed' or status.get('error') != error:
+        raise ValueError('Exact failed pre-environment constructor error required')
+    runtime = _first_artifact(proof['runtime'])
+    if (type(runtime.get('python')) is not str or type(runtime.get('packages')) is not dict
+            or runtime.get('cuda_available') is not True or runtime.get('gpu') != 'NVIDIA H100 80GB HBM3'):
+        raise ValueError('Original remote H100 runtime required')
+    inspection = _first_artifact(proof['inspection'])
+    inspected = {'run_id': run_id, 'call_id': binding['call_id'], 'app_id': app_id,
+                 'status': 'failed_before_environment_construction_no_training_interactions',
+                 'remote_status': status, 'risk_mode_in_frozen_spec': 'unavailable',
+                 'risk_weight_in_frozen_spec': 0.1, 'environment_constructor_failed_before_reset': True,
+                 'actual_environment_interactions': 0, 'optimizer_updates': 0, 'new_audits': 0,
+                 'new_compute_calls_in_recovery': 0, 'failed_call_actual_cloud_cost_usd': None,
+                 'no_cost_imputed_zero': True, 'same_failed_run_retry_authorized': False}
+    files = inspection.get('observed_remote_files')
+    if (any(key not in inspection or not _first_json_equal(inspection[key], value)
+            for key, value in inspected.items()) or type(files) is not list
+            or len(files) != 6 or set(files) != {'config.json', 'data_metadata.json', 'error.txt',
+                                               'metadata.json', 'runtime.json', 'status.json'}):
+        raise ValueError('Original inspection must exclude all partial training artifacts')
+    shutdown = _first_artifact(proof['shutdown'])
+    receipt = shutdown.get('observed_app_row', {})
+    stopped = {'run_id': run_id, 'call_id': binding['call_id'], 'app_id': app_id,
+               'verified': True, 'stopped': True, 'new_compute_calls': 0,
+               'automatic_retry_authorized': False}
+    if (any(key not in shutdown or not _first_json_equal(shutdown[key], value)
+            for key, value in stopped.items()) or receipt.get('app_id') != app_id
+            or receipt.get('state') != 'stopped' or receipt.get('tasks') != '0'
+            or type(receipt.get('stopped_at')) is not str or not receipt['stopped_at']):
+        raise ValueError('Exact terminal stopped app receipt required')
+    return witness
+
+
+def verify_failed_zero_interactions(approval_descriptor, proof_descriptor):
+    """Append a durable bound-call closure using old approval, not current source."""
+    witness = _first_artifact(approval_descriptor)
+    log = Path(witness['reservation_log'])
+    if not log.is_absolute():
+        raise ValueError('Absolute durable reservation log required')
+    with _locked(log):
+        rows = _rows(log)
+        reservations, bound, closed = _journal(rows, log)
+        proof = _first_artifact(proof_descriptor)
+        run_id = proof['run_id']
+        if run_id not in reservations or run_id not in bound:
+            raise ValueError('Failed-zero closure requires an existing bound reservation')
+        binding = next(row for row in rows if row['event'] == 'bound' and row['run_id'] == run_id)
+        _validate_failed_zero(approval_descriptor, proof_descriptor, reservations[run_id], binding, log)
+        closure = {'event': 'verified_failed_zero_interactions', 'run_id': run_id,
+                   'actual_interactions': 0, 'failed_call_actual_cloud_cost_usd': None,
+                   'approval': approval_descriptor, 'proof': proof_descriptor, 'reservation_log': str(log)}
+        if run_id in closed:
+            if not any(_first_json_equal(row, closure) for row in rows):
+                raise ValueError('Failed-zero closure proof changed')
+            return closure
+        _append(log, closure)
+        return closure
+
+
+def _failed_zero_summary(closure):
+    approval = _first_artifact(closure['approval'])
+    proof = _first_artifact(closure['proof'])
+    return {'event': closure['event'], 'run_id': closure['run_id'],
+            'actual_interactions': closure['actual_interactions'],
+            'failed_call_actual_cloud_cost_usd': closure['failed_call_actual_cloud_cost_usd'],
+            'owner': approval['owner'], 'purpose': approval['purpose'],
+            'freeze_id': approval['freeze_id'], 'app_id': proof['app_id'],
+            'call_id': proof['call_id'], 'reservation_log': closure['reservation_log']}
+
+
+def failed_zero_closure_summary(closure):
+    """Return a small exact summary only for a revalidated full durable closure."""
+    log = Path(closure['reservation_log'])
+    if not log.is_absolute():
+        raise ValueError('Absolute durable reservation log required')
+    with _locked(log):
+        rows = _rows(log)
+        _journal(rows, log)
+        matches = [row for row in rows if row.get('event') == 'verified_failed_zero_interactions'
+                   and row.get('run_id') == closure.get('run_id')]
+        if len(matches) != 1 or not _first_json_equal(matches[0], closure):
+            raise ValueError('Summary requires an exact unique full durable closure')
+        return _failed_zero_summary(matches[0])
+
+
+def _selection_recovery(witness):
+    """A new matrix retains the exact old ledger and one closed D00 call, not new slots."""
+    descriptors = witness.get('retained_failed_zero_closures')
+    amendment = witness.get('failed_zero_amendment', {})
+    exact = {'approved': True, 'owner': witness['owner'], 'purpose': _SELECTION_PURPOSE,
+             'freeze_id': witness['freeze_id'], 'max_total_compute_calls': 63,
+             'max_active_matrix_calls': 62, 'approved_additional_slots': 20,
+             'no_counter_reset': True, 'retained_failed_zero_closures': descriptors}
+    if (type(descriptors) is not list or len(descriptors) != 1
+            or any(key not in amendment or not _first_json_equal(amendment[key], value)
+                   for key, value in exact.items())):
+        raise ValueError('Explicit same-owner failed-zero amendment required')
+    log = Path(witness['reservation_log'])
+    rows = _rows(log)
+    reservations, _, closed = _journal(rows, log)
+    retained = []
+    for descriptor in descriptors:
+        saved = _first_artifact(descriptor)
+        matches = [row for row in rows if row.get('event') == 'verified_failed_zero_interactions'
+                   and row.get('run_id') == saved.get('run_id')]
+        if len(matches) != 1:
+            raise ValueError('Exact unique durable failed-zero closure required')
+        closure = matches[0]
+        # Full descriptors remain compatible; compact summaries must match every field.
+        if not (_first_json_equal(saved, closure)
+                or _first_json_equal(saved, _failed_zero_summary(closure))):
+            raise ValueError('Exact durable failed-zero closure descriptor required')
+        retained.append(closure)
+        old = _first_artifact(closure['approval'])
+        if (old['owner'] != witness['owner'] or old['purpose'] != witness['purpose']
+                or old['freeze_id'] == witness['freeze_id']
+                or not _first_json_equal(old['ledger_manifest'], witness['ledger_manifest'])
+                or not _first_json_equal(old['configuration_authorization']['configuration_ids'],
+                                         witness['configuration_authorization']['configuration_ids'])
+                or old['configuration_authorization']['historical_configuration_lower_bound']
+                   != witness['configuration_authorization']['historical_configuration_lower_bound']):
+            raise ValueError('Recovery cannot reset owner, ancestry or configuration slots')
+    retained_ids = {row['run_id'] for row in retained}
+    matrix_ids = {row['spec']['run_id'] for row in witness['runs']}
+    if retained_ids & matrix_ids or any(run_id not in matrix_ids and
+            (run_id not in closed or run_id not in retained_ids) for run_id in reservations):
+        raise ValueError('Foreign or unknown spawn cannot be excluded by new freeze')
+    return retained_ids
+
+
 def _journal(rows, log):
     reservations, bound, closed = {}, set(), set()
     for row in rows:
@@ -329,6 +732,17 @@ def _journal(rows, log):
             _validate_no_spawn(spec, None, row['proof'], reservations[run_id])
             if witness['reservation_log'] != row['reservation_log'] or Path(row['reservation_log']) != log:
                 raise ValueError('Closure journal changed')
+            closed.add(run_id)
+        elif event == 'verified_failed_zero_interactions':
+            if run_id not in reservations or run_id not in bound or run_id in closed:
+                raise ValueError('Contradictory bound failed-zero closure')
+            if (type(row.get('actual_interactions')) is not int or row['actual_interactions'] != 0
+                    or 'failed_call_actual_cloud_cost_usd' not in row
+                    or row['failed_call_actual_cloud_cost_usd'] is not None
+                    or Path(row['reservation_log']) != log):
+                raise ValueError('Invalid failed-zero durable closure')
+            binding = next(item for item in rows if item['event'] == 'bound' and item['run_id'] == run_id)
+            _validate_failed_zero(row['approval'], row['proof'], reservations[run_id], binding, log)
             closed.add(run_id)
         else:
             raise ValueError('Unknown reservation event')
@@ -382,10 +796,15 @@ def reserve(spec, root):
     with _locked(log):
         rows = _rows(log)
         _, _, closed = _journal(rows, log)
+        retained = (_selection_recovery(witness) if witness['purpose'] == _SELECTION_PURPOSE
+                    and witness.get('retained_failed_zero_closures') else set())
         for row in rows:
             if row['event'] == 'reserved' and not _first_json_equal(
                     row['ledger_manifest'], witness['ledger_manifest']):
                 raise ValueError('Reservation history baseline cannot reset or change')
+            if (witness['purpose'] == _SELECTION_PURPOSE and row['event'] == 'reserved'
+                    and row['freeze_id'] != witness['freeze_id'] and row['run_id'] not in retained):
+                raise ValueError('Selection freeze cannot reset or change')
         old = [row for row in rows if row['run_id'] == spec.run_id]
         if old:
             if spec.run_id in closed:
@@ -398,6 +817,19 @@ def reserve(spec, root):
                 return bound[0]['call_id']
             raise ValueError('Unknown paid spawn remains reserved; manual reconciliation required')
         resource_ids = None
+        group_limits = None
+        if witness['purpose'] == _SELECTION_PURPOSE:
+            resource_ids = _selection_training(witness)
+            group_limits = _selection_history(witness, ledger)
+            reservations = [row for row in rows if row['event'] == 'reserved']
+            if len(reservations) >= 62 + len(retained):
+                raise ValueError('Maximum 62 compute reservations exceeded')
+            approved_runs = {item['spec']['run_id']: item for item in witness['runs']}
+            if any(row['run_id'] not in approved_runs
+                   or not _first_json_equal(row['spec'], approved_runs[row['run_id']]['spec'])
+                   or not _first_json_equal(row['charges'], approved_runs[row['run_id']]['charges'])
+                    for row in reservations if row['run_id'] not in retained):
+                raise ValueError('Selection journal contains foreign or changed runs')
         if witness['purpose'] == _RESOURCE_PURPOSE:
             resource_ids = _resource_training(witness)
             reservations = [row for row in rows if row['event'] == 'reserved']
@@ -435,6 +867,9 @@ def reserve(spec, root):
                 for charge in row['charges']:
                     key = (charge['method'], charge['seed'], charge['partition'])
                     totals[key] = totals.get(key, 0) + charge['actual_interactions']
+        if witness['purpose'] == _SELECTION_PURPOSE:
+            for key, amount in _selection_physical_ancestry(ledger).items():
+                totals[key] = totals.get(key, 0) + amount
         for charge in charges:
             key = (charge['method'], charge['seed'], charge['partition'])
             amount = charge['actual_interactions']
@@ -444,7 +879,7 @@ def reserve(spec, root):
                          configurations.get((key[0], key[2]), set())))):
                 raise ValueError('No new configuration tuning is authorized')
             totals[key] = totals.get(key, 0) + amount
-            if amount and totals[key] > 3000:
+            if amount and totals[key] > (group_limits[key] if group_limits is not None else 3000):
                 raise ValueError('Cumulative group interaction limit exceeded')
         _append(log, {'event': 'reserved', 'run_id': spec.run_id, 'spec': run['spec'],
                       'charges': charges, 'freeze_id': witness['freeze_id'],
@@ -454,11 +889,15 @@ def reserve(spec, root):
 
 def bind_call(spec, root, call_id):
     """Append call binding only after spawn; a failure here leaves the reservation intact."""
-    _, _, _, log = check_admission([spec], root)[0]
+    witness, _, _, log = check_admission([spec], root)[0]
     if type(call_id) is not str or not call_id:
         raise ValueError('Explicit call ID required')
     with _locked(log):
-        rows = [row for row in _rows(log) if row['run_id'] == spec.run_id]
+        journal = _rows(log)
+        if (witness['purpose'] == _SELECTION_PURPOSE
+                and any(row['event'] == 'bound' and row['call_id'] == call_id for row in journal)):
+            raise ValueError('Duplicate compute call binding')
+        rows = [row for row in journal if row['run_id'] == spec.run_id]
         if len(rows) != 1 or rows[0]['event'] != 'reserved':
             raise ValueError('Call binding requires exactly one reservation')
         _append(log, {'event': 'bound', 'run_id': spec.run_id, 'call_id': call_id})

@@ -172,8 +172,13 @@ def stop_and_verify(app_id: str, *, environment: str = "main", limits=None,
         raise ValueError("Exact Modal app ID required")
     command = command or _cli
     start = clock()
-    command(["app", "stop", "-y", "--env", environment, app_id],
-            min(20, limits.cleanup_seconds))
+    stop_error = None
+    try:
+        command(["app", "stop", "-y", "--env", environment, app_id],
+                min(20, limits.cleanup_seconds))
+    except Exception as error:
+        # A failed stop command is not proof of state (the app may already be stopped).
+        stop_error = f"{type(error).__name__}: {error}"
     last = None
     for attempt in range(limits.status_reads):
         remaining = limits.cleanup_seconds - (clock() - start)
@@ -190,8 +195,11 @@ def stop_and_verify(app_id: str, *, environment: str = "main", limits=None,
             raise ValueError("Exact app absent or duplicated; shutdown remains unknown")
         last = matching[0]["state"].lower()
         if last == "stopped" and clock() - start < limits.cleanup_seconds:
-            return {"app_id": app_id, "verified": True, "stopped": True,
-                    "status_reads": attempt + 1, "elapsed_seconds": clock() - start}
+            receipt = {"app_id": app_id, "verified": True, "stopped": True,
+                       "status_reads": attempt + 1, "elapsed_seconds": clock() - start}
+            if stop_error is not None:
+                receipt["stop_error"] = stop_error
+            return receipt
         if last not in {"stopping", "running", "active", "ephemeral", "detached",
                         "initializing", "deployed"}:
             raise ValueError(f"Unknown app state: {last}")
