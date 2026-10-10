@@ -1,4 +1,6 @@
-"""Internal, isolated stage execution; admission belongs to the ablation runner."""
+"""在独立工作区执行内部阶段；执行准入由消融入口负责。
+Execute internal stages in an isolated workspace; admission belongs to the ablation runner.
+"""
 
 import csv
 from dataclasses import replace
@@ -15,8 +17,9 @@ from cloud_edge_rl.transport import read_json
 
 
 def _inside(root, value):
+    """检查相对产物路径，返回工作区内的绝对路径。 / Check a relative artifact path and return its absolute workspace path."""
     path = _path(value)
-    # Check the lexical path first: resolving first conceals internal aliases.
+    # 先检查原始路径，再解析，避免掩盖内部路径别名。 / Check the lexical path first; resolving first conceals internal aliases.
     resolved = _check_local(root.joinpath(*path.parts)).resolve()
     if not resolved.is_relative_to(root):
         raise ValueError('Artifact path escapes ablation workspace')
@@ -24,6 +27,11 @@ def _inside(root, value):
 
 
 def _guard(spec, workspace):
+    """检查工作区身份、实验设置和输入边界，返回根目录及实验编号。
+    Check workspace identity, experiment settings, and input boundaries; return the root and experiment ID.
+
+    这些检查不授予执行许可。 / These checks do not grant execution approval.
+    """
     root = Path(workspace).resolve(strict=True)
     marker = _inside(root, 'ablation-workspace.json')
     identity = read_json(marker)
@@ -40,6 +48,7 @@ def _guard(spec, workspace):
     _inside(root, f'runs/{spec.run_id}')
     cfg = spec.config
     rl = cfg['rl']
+    # 只允许固定奖励、1200 次总交互的 1-step/3-step Double DQN。 / Allow only fixed-reward 1/3-step Double DQN with 1200 interactions.
     if (rl.get('algorithm') != 'dqn' or type(rl.get('n_step')) is not int
             or rl['n_step'] not in (1, 3) or rl.get('gamma') != 1
             or rl.get('resource_feedback') is not None
@@ -58,17 +67,20 @@ def _guard(spec, workspace):
             raise ValueError('Training must be bounded to 500 or 700 integer interactions')
         if rl['seed'] != spec.seed:
             raise ValueError('Training configuration seed must match RunSpec seed')
+    # 只使用训练或验证划分，禁止载入正式测试集。 / Use only train/validation splits and forbid official test loading.
     if cfg['execution'].get('split') != ('train' if spec.stage == 'train_policy' else 'validation'):
         raise ValueError('Official/test splits are forbidden')
     if cfg['data'].get('include_official_test', False):
         raise ValueError('Official test loading is forbidden')
     if cfg['risk'].get('mode') != 'fitted':
         raise ValueError('A frozen fitted risk checkpoint is required')
+    # 输入必须显式登记；风险模型固定，策略只能来自先前工作区运行。 / Require explicit inputs, frozen risk, and prior workspace policy artifacts.
     allowed = {'risk_checkpoint', 'previous_training_checkpoint'} if spec.stage == 'train_policy' else {'risk_checkpoint', 'agent_checkpoint'}
     if set(spec.inputs) != allowed or spec.inputs['risk_checkpoint'] != 'inputs/risk.pt':
         raise ValueError('Only explicit workspace risk and policy inputs are allowed')
     if spec.stage == 'train_policy':
         fresh = spec.inputs['previous_training_checkpoint'] is None
+        # 初次训练 500 次，再续训 700 次，不能跳过已登记的阶段。 / Start with 500 interactions, then continue for 700.
         if rl['stage_interaction_limit'] != (500 if fresh else 700):
             raise ValueError('Registered progression requires fresh 500 then continuation 700')
     for key, value in spec.inputs.items():
@@ -85,19 +97,25 @@ def _guard(spec, workspace):
 
 
 def _config(spec, training_seed=None):
+    """组合策略配置；可显式使用训练种子而非评价种子。 / Build policy settings, optionally using the training seed instead of the evaluation seed."""
     return {**spec.config['rl'], 'risk_version': spec.risk_version,
             'seed': spec.seed if training_seed is None else training_seed,
             'warmup_actions': spec.config['execution']['warmup_actions'], 'algorithm': 'dqn'}
 
 
 def _load(path):
+    """在 CPU 上读取完整检查点，仅用于可信本地产物。 / Load a full checkpoint on CPU, only from trusted local artifacts."""
     return torch.load(path, map_location='cpu', weights_only=False)
 
 
 def _training(envelope, spec, experiment, expected_run_id):
+    """核对训练检查点的身份、固定设置和交互计数，返回内部状态。
+    Check training checkpoint identity, fixed settings, and interaction counters; return its state.
+    """
     config = _config(spec)
     state = envelope['state']
     settings = {**_settings(config), 'total_steps': config['total_steps']}
+    # 风险版本、种子和 n_step 必须匹配，不能跨实验或跨臂恢复。 / Match risk, seed, and n_step; do not resume across experiments or arms.
     if (envelope.get('run_id') != expected_run_id
             or envelope.get('ablation_experiment_id') != experiment
             or envelope.get('risk_version') != spec.risk_version
@@ -108,6 +126,7 @@ def _training(envelope, spec, experiment, expected_run_id):
     for key in ('environment_steps', 'learned_steps', 'warmup_steps', 'updates'):
         if type(state.get(key)) is not int or state[key] < 0:
             raise ValueError('Invalid actual training counter')
+    # 真实交互预算同时计入学习步和预热步。 / Count both learning and warmup steps in the interaction budget.
     if state['environment_steps'] != state['learned_steps'] + state['warmup_steps']:
         raise ValueError('Warmup must be included in the interaction budget')
     load_agent(state['agent'], config)
@@ -115,18 +134,22 @@ def _training(envelope, spec, experiment, expected_run_id):
 
 
 def _prior(spec, root, experiment):
+    """读取并核对先前训练产物；初次训练没有前序状态。 / Load and check prior training artifacts; fresh training has no prior state."""
     key = 'previous_training_checkpoint' if spec.stage == 'train_policy' else 'agent_checkpoint'
     relative = spec.inputs[key]
     if relative is None:
         return None
     run_id = Path(relative).parts[1]
     envelope = _load(_inside(root, relative))
+    # 验证阶段用配对训练种子核对策略，spec.seed 仍保留评价种子。 / Check policies with the paired training seed; retain spec.seed for evaluation.
     training_spec = spec if spec.stage == 'train_policy' else replace(spec, seed=spec.config['rl']['seed'])
     state = _training(envelope, training_spec, experiment, run_id)
+    # 续训从 500 次开始，验证只能使用完成 1200 次的策略。 / Continue from 500 interactions; validate only a 1200-interaction policy.
     if state['environment_steps'] != (500 if spec.stage == 'train_policy' else 1200):
         raise ValueError('Prior checkpoint does not match registered progression')
     status = read_json(_inside(root, f'runs/{run_id}/status.json'))
     saved = read_json(_inside(root, f'runs/{run_id}/config.json'))
+    # 不能只相信检查点，还要核对完成状态和原运行配置。 / Check completed status and saved configuration, not just the checkpoint.
     if (status.get('state') != 'completed' or saved.get('run_id') != run_id
             or saved.get('stage') != 'train_policy' or saved.get('method') != 'dqn'
             or saved.get('seed') != training_spec.seed or saved.get('risk_version') != spec.risk_version
@@ -141,15 +164,18 @@ def _prior(spec, root, experiment):
 
 
 def execute_stage(spec: RunSpec, workspace: Path) -> dict:
-    """LOW-LEVEL internal worker AFTER runner admission, not an unguarded notebook launcher.
+    """执行已通过入口准入的内部训练或验证阶段，返回运行摘要。
+    Execute an internal training/validation stage after runner admission; return its summary.
 
-    Requires an isolated marked workspace, frozen risk input, and explicit prior
-    training/agent input. Validation rl.seed is the training seed; spec.seed is
-    the evaluation seed. This function supplies no approval or submission API.
+    需要带身份标记的独立工作区、冻结风险模型和显式前序输入；不能直接作为无约束 Notebook 启动器。
+    Require a marked isolated workspace, frozen risk, and explicit prior inputs; not an unguarded notebook launcher.
+    验证时 rl.seed 是训练种子，spec.seed 是评价种子；本函数不提供审批或提交接口。
+    For validation, rl.seed is the training seed and spec.seed the evaluation seed; no approval or submission API is provided.
     """
     root, experiment = _guard(spec, workspace)
     previous = _prior(spec, root, experiment)
     with RunStore(root, spec) as store:
+        # 复用原数据和环境组件，但产物写入独立工作区，且不载入正式测试集。 / Reuse data/environment components with isolated outputs and no official test data.
         store.write_json('runtime.json', pipeline.runtime_info())
         data = pipeline.prepare_adult(spec.config['data'], store.path / 'data', include_official_test=False)
         store.write_json('data_metadata.json', data.metadata)
@@ -159,6 +185,7 @@ def execute_stage(spec: RunSpec, workspace: Path) -> dict:
                 from ablations.variants.dqn_nstep import train_agent
 
                 def save_training(state):
+                    """保存完整训练状态，并绑定运行、实验及风险版本。 / Save full training state bound to the run, experiment, and risk version."""
                     store.save_checkpoint({'state': state, 'risk_version': spec.risk_version,
                                            'run_id': spec.run_id, 'ablation_experiment_id': experiment}, 'training.pt')
 
@@ -169,17 +196,20 @@ def execute_stage(spec: RunSpec, workspace: Path) -> dict:
                                        'training_seed': spec.seed, 'n_step': spec.config['rl']['n_step'],
                                        'ablation_experiment_id': experiment}, 'agent.pt')
                 store.write_json('policy_training.json', state['history'])
+                # 续训仅登记本次新增交互，同时保留累计计数。 / Record only new interactions for this call alongside cumulative counters.
                 before = previous['state']['environment_steps'] if previous else 0
                 result = {'trained': True, 'new_environment_steps': state['environment_steps'] - before,
                           **{key: state[key] for key in ('environment_steps', 'learned_steps', 'warmup_steps', 'updates')}}
             else:
                 seed = spec.config['rl']['seed']
                 state = previous['state']
+                # 加载已训练策略，不更新权重；用独立评价种子运行验证回合。 / Load without weight updates and evaluate with the separate evaluation seed.
                 policy = load_agent(state['agent'], _config(spec, seed))
                 if policy.observation_space != env.observation_space or policy.action_count != env.action_space.n:
                     raise ValueError('Validation environment space mismatch')
                 result = pipeline._run_episode(env, policy, spec.seed)
                 store.save_checkpoint(env.snapshot(), 'environment.pt')
+            # 此阶段报告预测风险，不是独立攻击审计得到的真实风险。 / Report predicted risk, not true risk from an independent attack audit.
             result = {'run_id': spec.run_id, 'stage': spec.stage, 'risk_version': spec.risk_version,
                       'ablation_experiment_id': experiment, 'risk_measurement': 'predicted_risk', **result}
             store.write_json('summary.json', result)
@@ -189,12 +219,18 @@ def execute_stage(spec: RunSpec, workspace: Path) -> dict:
 
 
 def verify_stage(spec: RunSpec, workspace: Path, result: dict) -> dict:
-    """Read actual artifacts and counters; not formal acceptance or true-risk auditing."""
+    """读取实际产物与计数，核对阶段完成情况并返回核验记录。
+    Read actual artifacts and counters; return a stage verification record.
+
+    不代表正式验收或真实风险审计。 / This is not formal acceptance or true-risk auditing.
+    """
     root, experiment = _guard(spec, workspace)
     prior = _prior(spec, root, experiment)
     def read(name):
+        """读取当前运行目录中的 JSON 产物。 / Read a JSON artifact from the current run directory."""
         return read_json(_inside(root, f'runs/{spec.run_id}/{name}'))
 
+    # 完成标记、保存配置和摘要必须与本次运行及返回值一致。 / Match completion status, saved configuration, and summary to this run and result.
     if read('status.json').get('state') != 'completed' or read('config.json') != artifact_payload(spec) or read('summary.json') != result:
         raise ValueError('Completed status/config/summary content mismatch')
     with _inside(root, f'runs/{spec.run_id}/metrics.csv').open(encoding='utf-8', newline='') as stream:
@@ -214,6 +250,7 @@ def verify_stage(spec: RunSpec, workspace: Path, result: dict) -> dict:
             raise ValueError('Exported agent binding mismatch')
         exported = load_agent(agent['agent'], _config(spec))
         actual = load_agent(state['agent'], _config(spec))
+        # 按张量核对导出权重，防止身份正确但策略内容不同。 / Compare exported weights tensor by tensor, not just checkpoint identity.
         if any(not torch.equal(value, exported.network.state_dict()[key])
                for key, value in actual.network.state_dict().items()):
             raise ValueError('Exported agent differs from trained checkpoint')
@@ -221,14 +258,17 @@ def verify_stage(spec: RunSpec, workspace: Path, result: dict) -> dict:
         before = prior['state']['environment_steps'] if prior else 0
         target = min(1200, before + spec.config['rl']['stage_interaction_limit'])
         delta = state['environment_steps'] - before
+        # 本次指标行数必须等于新增真实交互，累计步数必须达到阶段目标。 / Match metric rows to new interactions and cumulative steps to the stage target.
         if (state['environment_steps'] != target or delta != len(rows) or delta != result.get('new_environment_steps')
                 or state['updates'] <= 0 or read('policy_training.json') != state['history']
                 or any(result.get(k) != state[k] for k in ('environment_steps', 'learned_steps', 'warmup_steps', 'updates'))):
             raise ValueError('Actual trained checkpoint/counters/stage target mismatch')
         warmup_before = _load(_inside(root, prior_path))['state']['warmup_steps'] if prior_path else 0
+        # 单独核对预热行，避免把预热遗漏或误计为学习步。 / Check warmup rows separately to avoid omitted or misclassified steps.
         if sum(row.get('is_warmup') == 'True' for row in rows) != state['warmup_steps'] - warmup_before:
             raise ValueError('Actual warmup metric count mismatch')
     else:
+        # 验证必须到达真正终止，不能把预算截断视为回合完成。 / Require true termination; a budget truncation is not a completed episode.
         if rows[-1].get('terminated') != 'True' or rows[-1].get('truncated') != 'False':
             raise ValueError('Validation must reach a true terminal, not a budget truncation')
         _load(_inside(root, f'runs/{spec.run_id}/environment.pt'))
