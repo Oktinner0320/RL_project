@@ -7,6 +7,8 @@ from copy import deepcopy
 from cloud_edge_rl.fresh_benchmark import run_config
 
 STUDIES = {
+    # N 是唯一可执行假设；其余条目只登记研究问题，不意味着实现或执行获准。
+    # N is the only executable hypothesis; other entries register ideas, not approval.
     'N': {'status': 'implemented', 'question': 'Does 3-step improve short-budget Double DQN?',
           'arms': {'N1': {'n_step': 1}, 'N3': {'n_step': 3}},
           'training_seeds': [96101, 96102, 96103],
@@ -50,6 +52,11 @@ def arm_configuration(base: dict, experiment_id: str, arm: str, seed: int,
 
     不继承原管线的执行许可或科学输入规则。
     Do not inherit its execution permissions or scientific-input rules.
+
+    N1/N3 共用奖励、风险模型和 DQN 设置，只改变回报长度 n_step。
+    N1/N3 share reward, risk model, and DQN settings; only n_step changes.
+    500+700 累计达到 1200，不能把阶段拆分当作新的交互额度。
+    The 500+700 stages accumulate to 1200; splitting a run creates no new quota.
     """
     study = study_definition('N')
     seeds = study['training_seeds'] if stage == 'train_policy' else study['validation_seeds']
@@ -81,7 +88,13 @@ def arm_configuration(base: dict, experiment_id: str, arm: str, seed: int,
 
 
 def build_plan(base: dict, experiment_id: str, study_id: str = 'N') -> dict:
-    """生成配对消融计划和门槛，不执行实验或授予许可。 / Build a paired ablation plan and gates, without execution or approval."""
+    """生成配对消融计划和门槛，不执行实验或授予许可。
+    Build a paired ablation plan and gates, without execution or approval.
+
+    500 步预检只验证执行链路；候选效果必须在固定终点和配对种子上比较。
+    The 500-step pilot checks execution only; efficacy needs fixed-endpoint,
+    paired-seed comparison. Predicted risk is not a full true-risk audit.
+    """
     definition = study_definition(study_id)
     if definition['status'] != 'implemented':
         raise ValueError('This study is registered as an idea, not an executable implementation')
