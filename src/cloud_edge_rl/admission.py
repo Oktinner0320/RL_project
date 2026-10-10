@@ -1079,6 +1079,54 @@ def reserve(spec, root):
     return None
 
 
+def _fresh_reserve(spec, witness, run, ledger, log, rows, closed):
+    """Called under the existing OS lock; unknown reservations remain fully charged."""
+    totals, collected = _fresh_history(witness, ledger)
+    approved = {r['spec']['run_id']: r for r in witness['runs']}
+    ledger_calls = {r['call_id'] for r in ledger}
+    bindings = {r['run_id']: r['call_id'] for r in rows if r['event'] == 'bound'}
+    reservations = [r for r in rows if r['event'] == 'reserved']
+    for saved in reservations:
+        old_ledger = _first_artifact(saved['ledger_manifest'])
+        if (saved['freeze_id'] != witness['freeze_id'] or saved['run_id'] not in approved
+                or not _first_json_equal(saved['spec'], approved[saved['run_id']]['spec'])
+                or not _first_json_equal(saved['charges'], approved[saved['run_id']]['charges'])
+                or not _first_json_equal(old_ledger, ledger[:len(old_ledger)])):
+            raise ValueError('Fresh journal/freeze cannot reset or change retained ledger')
+        if saved['run_id'] == spec.run_id:
+            if spec.run_id in closed:
+                raise ValueError('Closed run ID cannot retry')
+            if spec.run_id in bindings:
+                return bindings[spec.run_id]
+            raise ValueError('Unknown paid spawn remains reserved; manual reconciliation required')
+        if saved['run_id'] in closed or bindings.get(saved['run_id']) in ledger_calls:
+            continue
+        for charge in saved['charges']:
+            key = (charge['method'], charge['seed'], charge['partition'])
+            totals[key] = totals.get(key, 0) + charge['actual_interactions']
+            if charge['method'] == 'round_robin':
+                collected += charge['actual_interactions']
+    if spec.stage == 'train_policy':
+        physical = [r for r in ledger if r.get('experiment_id') ==
+                    _first_artifact(witness['freeze_manifest'])['fresh_contract']['experiment_id']
+                    and r.get('method') == 'round_robin']
+        if {r['seed'] for r in physical} != {8301, 8302, 8303}:
+            raise ValueError('Verified shared physical collection allocations required before policy reservation')
+    for charge in run['charges']:
+        key = (charge['method'], charge['seed'], charge['partition'])
+        totals[key] = totals.get(key, 0) + charge['actual_interactions']
+        if charge['method'] == 'round_robin':
+            collected += charge['actual_interactions']
+        if totals[key] > (3090 if key[2] == 'train' else 30):
+            raise ValueError('Fresh scoped 3090 interaction limit exceeded')
+    if collected > 90:
+        raise ValueError('Fresh physical shared collection exceeds 90')
+    _append(log, {'event': 'reserved', 'run_id': spec.run_id, 'spec': run['spec'],
+                  'charges': run['charges'], 'freeze_id': witness['freeze_id'],
+                  'ledger_manifest': witness['ledger_manifest']})
+    return None
+
+
 def bind_call(spec, root, call_id):
     """Append call binding only after spawn; a failure here leaves the reservation intact."""
     witness, _, _, log = check_admission([spec], root)[0]
