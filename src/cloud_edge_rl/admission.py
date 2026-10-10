@@ -580,12 +580,14 @@ def check_admission(specs, root, *, _saved_source=False):
         witness = _first_artifact(descriptor)
         if (witness.get('approved') is not True or type(witness.get('owner')) is not str
                 or not witness['owner'] or witness.get('purpose') not in
-                 ('fixedcandidate_independent_validation', _RESOURCE_PURPOSE, _SELECTION_PURPOSE)):
+                 ('fixedcandidate_independent_validation', _RESOURCE_PURPOSE, _SELECTION_PURPOSE, _FRESH_PURPOSE)):
             raise ValueError('Explicit owner stage approval required')
         if witness['purpose'] == _RESOURCE_PURPOSE:
             _resource_training(witness)
         if witness['purpose'] == _SELECTION_PURPOSE:
             _selection_training(witness)
+        if witness['purpose'] == _FRESH_PURPOSE:
+            _fresh_contract(witness)
         compact = _resource_shared_source(witness)
         if compact and not _first_json_equal(
                 _first_artifact(witness['source_contents_manifest']), spec.provenance['source_contents']):
@@ -616,9 +618,15 @@ def check_admission(specs, root, *, _saved_source=False):
             _resource_history(ledger)
         if witness['purpose'] == _SELECTION_PURPOSE:
             _selection_history(witness, ledger)
+        if witness['purpose'] == _FRESH_PURPOSE:
+            _fresh_history(witness, ledger)
         log = Path(witness['reservation_log'])
         if not log.is_absolute():
             raise ValueError('Absolute durable reservation log required')
+        if witness['purpose'] == _FRESH_PURPOSE:
+            output = Path(_first_artifact(witness['freeze_manifest'])['fresh_contract']['output_root']).resolve()
+            if not log.resolve().is_relative_to(output):
+                raise ValueError('Fresh reservation journal must be confined to new output root')
         run = next(item for item in witness['runs'] if _first_json_equal(payload, item['spec']))
         approved.append((witness, run, ledger, log))
     return approved
@@ -980,6 +988,8 @@ def reserve(spec, root):
         _, _, closed = _journal(rows, log)
         retained = (_selection_recovery(witness) if witness['purpose'] == _SELECTION_PURPOSE
                     and witness.get('retained_failed_zero_closures') else set())
+        if witness['purpose'] == _FRESH_PURPOSE:
+            return _fresh_reserve(spec, witness, run, ledger, log, rows, closed)
         for row in rows:
             if row['event'] == 'reserved' and not _first_json_equal(
                     row['ledger_manifest'], witness['ledger_manifest']):
@@ -1076,7 +1086,7 @@ def bind_call(spec, root, call_id):
         raise ValueError('Explicit call ID required')
     with _locked(log):
         journal = _rows(log)
-        if (witness['purpose'] == _SELECTION_PURPOSE
+        if (witness['purpose'] in (_SELECTION_PURPOSE, _FRESH_PURPOSE)
                 and any(row['event'] == 'bound' and row['call_id'] == call_id for row in journal)):
             raise ValueError('Duplicate compute call binding')
         rows = [row for row in journal if row['run_id'] == spec.run_id]
