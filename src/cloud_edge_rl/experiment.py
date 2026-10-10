@@ -158,7 +158,7 @@ class Experiment:
         result = {'experiment_id': self.graph['experiment_id'],
                   'planned_nodes': len(self.graph['nodes']), 'status': 'prepared',
                   'formal_acceptance': 'not_evaluated', 'actual_cloud_cost_usd': None}
-        for name in ('submission', 'remote-status', 'transfer', 'closure', 'cancellation'):
+        for name in ('submission', 'remote-status', 'transfer', 'partial-transfer', 'closure', 'cancellation'):
             path = self.directory / f'{name}.json'
             if path.exists():
                 value = read_json(path)
@@ -182,8 +182,12 @@ class Experiment:
             result['status'] = result['submission']['status']
         return result
 
-    def collect(self):
+    def collect(self, *, available_only=False):
         from .experiment_transfer import collect_experiment
+        if type(available_only) is not bool:
+            raise ValueError('Explicit boolean available-only transfer required')
+        if available_only and self._controls()['collection_enabled'] is not True:
+            raise ValueError('Collection disabled')
         submission = read_json(self.directory / 'submission.json')
         self.status(refresh=True)
         remote = read_json(self.directory / 'remote-status.json')
@@ -197,19 +201,38 @@ class Experiment:
         # Exact app cleanup precedes the one logical artifact return stage.
         shutdown = self.directory / f"shutdown-{submission['attempt_id']}.json"
         if not shutdown.exists():
+            if available_only:
+                raise ValueError('Original app shutdown must be verified before read-only partial transfer')
             self._command('cleanup', 120)
         stopped = read_json(shutdown)
         if stopped.get('stopped') is not True or stopped.get('app_id') != submission['app_id']:
             raise ValueError('Exact app shutdown not verified')
-        if (remote.get('status') == 'blocked'
+        if available_only:
+            recovery_path = self.directory / 'export-recovery.json'
+            if recovery_path.exists():
+                recovery = read_json(recovery_path)
+                keys = ('experiment_id', 'attempt_id', 'call_id', 'app_id', 'volume_name', 'environment')
+                if recovery.get('binding') != {key: submission[key] for key in keys}:
+                    raise ValueError('Partial transfer recovery binding mismatch')
+                recovery_stop = read_json(self.directory / f"export-shutdown-{recovery['recovery_id']}.json")
+                if (recovery_stop.get('stopped') is not True
+                        or not recovery.get('app_id')
+                        or recovery_stop.get('app_id') != recovery['app_id']):
+                    raise ValueError('Exact export app shutdown required before partial transfer')
+        elif (remote.get('status') == 'blocked'
                 and remote.get('error', {}).get('phase') == 'export'):
             # Recovery only packages existing verified artifacts. It never resumes compute.
             self._command('repair-export', 2400)
-        destination = self.directory / 'artifacts' / submission['attempt_id']
+        destination = self.directory / ('partial-artifacts' if available_only else 'artifacts') / submission['attempt_id']
+        options = {'available_only': True, 'expected_graph': self.graph} if available_only else {}
         result = collect_experiment(submission['volume_name'], self.graph['experiment_id'],
-                                    destination, environment=submission['environment'])
+                                    destination, environment=submission['environment'], **options)
+        if available_only and (result.get('transport_complete') is not False
+                               or result.get('semantic_verified') is not False):
+            raise ValueError('Partial transfer cannot claim full transport or semantic completion')
         result['attempt_id'] = submission['attempt_id']
-        write_json(self.directory / 'transfer.json', result, replace=True)
+        receipt = 'partial-transfer.json' if available_only else 'transfer.json'
+        write_json(self.directory / receipt, result, replace=True)
         return result
 
     def verify(self):

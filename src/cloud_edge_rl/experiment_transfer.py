@@ -211,12 +211,21 @@ def _snapshot_ids(snapshot, experiment_id):
 
 
 def collect_experiment(volume_name, experiment_id, destination, *, limits=None,
-                       environment='main', worker=run_bounded) -> dict:
+                       environment='main', worker=run_bounded, available_only=False,
+                       expected_graph=None) -> dict:
     """Export the exact final inventory; success denotes transport, not semantic trust."""
     safe_run_id(experiment_id)
     limits = GraphTransferLimits() if limits is None else limits
     if type(limits) is not GraphTransferLimits:
         raise ValueError('Explicit graph transfer limits required')
+    if type(available_only) is not bool:
+        raise ValueError('Explicit available-only flag required')
+    if available_only:
+        from .experiment_graph import validate_graph
+        if type(expected_graph) is not dict or expected_graph.get('schema') != 'experiment_graph_v1':
+            raise ValueError('Exact frozen graph required for available-only download')
+        validate_graph(expected_graph)
+        _snapshot_ids(expected_graph, experiment_id)
     _check_local(destination)
     root = Path(destination).absolute()
     root = _confined(root, 'experiments').parent.resolve()
@@ -224,29 +233,36 @@ def collect_experiment(volume_name, experiment_id, destination, *, limits=None,
     stage.mkdir(parents=True, exist_ok=True)
     binding = {'volume_name': volume_name, 'environment': environment,
                'experiment_id': experiment_id, 'destination': str(root)}
+    if available_only:
+        binding['available_only'] = True
+        binding['expected_graph'] = expected_graph
     binding_path = stage / 'binding.json'
     if binding_path.exists():
         if read_json(binding_path) != binding:
             raise ValueError('Experiment transfer binding changed on resume')
     else:
         write_json(binding_path, binding)
-    completion_path = _check_local(stage / 'complete.json')
+    completion_path = _check_local(stage / ('partial-complete.json' if available_only else 'complete.json'))
     completion_path.unlink(missing_ok=True)
     started = time.monotonic()
     common = [sys.executable, '-m', 'cloud_edge_rl.experiment_transfer', '--volume', volume_name,
               '--experiment-id', experiment_id, '--environment', environment,
               '--limits', json.dumps(asdict(limits))]
-    inventory_path = stage / 'inventory.json'
+    inventory_path = stage / ('partial-inventory.json' if available_only else 'inventory.json')
     if not inventory_path.exists():
         try:
-            worker([*common, '--action', 'inventory', '--output', str(inventory_path)],
+            worker([*common, '--action', 'available' if available_only else 'inventory',
+                    '--output', str(inventory_path)],
                    min(limits.listing_seconds, limits.download_seconds),
                    stage / f'inventory-{uuid.uuid4().hex}.log')
         except Exception as error:
             if isinstance(error, TimeoutError):
                 raise
+            if available_only and not isinstance(error, FileNotFoundError):
+                raise
             return {'experiment_id': experiment_id, 'transport_complete': False,
-                    'semantic_verified': False, 'status': 'inventory_not_available',
+                    'semantic_verified': False,
+                    'status': 'partial_not_available' if available_only else 'inventory_not_available',
                     'error': str(error), 'destination': str(root)}
     _no_symlinks(inventory_path)
     if inventory_path.stat().st_size > limits.max_inventory_bytes:
@@ -282,7 +298,10 @@ def collect_experiment(volume_name, experiment_id, destination, *, limits=None,
     snapshot_remote = f'experiments/{experiment_id}/snapshot.json'
     snapshot_index = next(index for index, row in enumerate(files) if row['path'] == snapshot_remote)
     snapshot_path = transfer(files[snapshot_index], snapshot_index)
-    node_ids, run_ids = _snapshot_ids(read_json(snapshot_path), experiment_id)
+    snapshot = read_json(snapshot_path)
+    if available_only and snapshot != expected_graph:
+        raise ValueError('Available experiment snapshot differs from exact frozen graph')
+    node_ids, run_ids = _snapshot_ids(snapshot, experiment_id)
     for row in files:
         parts = PurePosixPath(row['path']).parts
         if parts[0] == 'runs' and parts[1] not in run_ids:
@@ -333,6 +352,17 @@ def collect_experiment(volume_name, experiment_id, destination, *, limits=None,
     state = read_json(_confined(root, f'experiments/{experiment_id}/state.json'))
     if type(state) is not dict or state.get('experiment_id') != experiment_id:
         raise ValueError('Experiment state identity mismatch')
+    if available_only:
+        present_runs = {PurePosixPath(row['path']).parts[1] for row in files
+                        if PurePosixPath(row['path']).parts[0] == 'runs'}
+        result = {'experiment_id': experiment_id, 'status': 'partial_download',
+                  'available_shards_complete': True, 'transport_complete': False,
+                  'semantic_verified': False, 'files': completed, 'bytes': completed_bytes,
+                  'shards': len(inventory['shards']), 'destination': str(root),
+                  'inventory': str(inventory_path), 'missing_run_ids': sorted(run_ids - present_runs),
+                  'elapsed_seconds': time.monotonic() - started}
+        write_json(completion_path, result, replace=True)
+        return result
     # A failed graph may legitimately lack results for unstarted/failed nodes.
     # A globally completed graph must retain every result and native gate receipt.
     if state.get('status', state.get('state')) in ('completed', 'cloud_verified'):
@@ -366,9 +396,72 @@ def _read_inventory(chunks, limits):
     return _decode_json(data.decode('utf-8'))
 
 
+def _available_inventory(volume, experiment_id, limits):
+    """Pin only existing, receipted archives; never publish or start remote work."""
+    prefix = f'experiments/{experiment_id}/export/'
+    entries = {}
+    for index, entry in enumerate(volume.iterdir(prefix.rstrip('/'), recursive=False)):
+        if index >= 20000:
+            raise ValueError('Available export listing exceeds 20000 entries')
+        path = entry.path.lstrip('/')
+        parsed = _path(path)
+        if (not path.startswith(prefix) or len(parsed.parts) != 4
+                or path.casefold() in entries or type(entry.size) is not int or entry.size < 0):
+            raise ValueError('Invalid available export listing path/size')
+        entries[path.casefold()] = (path, entry.size, int(entry.type))
+    files, shards, receipt_bytes = [], [], 0
+    for _, (path, size, kind) in sorted(entries.items()):
+        if kind != 1 or not path.endswith('.tar'):
+            continue
+        receipt_path = path[:-4] + '.receipt.json'
+        pair = entries.get(receipt_path.casefold())
+        if pair is None:
+            continue
+        if pair[0] != receipt_path or pair[2] != 1:
+            raise ValueError('Available archive receipt path/type mismatch')
+        if not 0 < size <= limits.max_shard_bytes or not 0 < pair[1] <= 8 * 1024**2:
+            raise ValueError('Available archive/receipt exceeds byte bound')
+        receipt_bytes += pair[1]
+        if receipt_bytes > 64 * 1024**2:
+            raise ValueError('Available receipts exceed aggregate byte bound')
+        data = bytearray()
+        for chunk in volume.read_file(receipt_path):
+            if type(chunk) is not bytes or len(data) + len(chunk) > pair[1]:
+                raise ValueError('Available receipt stream exceeds listed size')
+            data.extend(chunk)
+        if len(data) != pair[1]:
+            raise ValueError('Available receipt stream shorter than listed size')
+        receipt = _decode_json(data.decode('utf-8'))
+        if (type(receipt) is not dict or set(receipt) != {'binding', 'bytes'}
+                or type(receipt['bytes']) is not int or receipt['bytes'] != size
+                or type(receipt['binding']) is not dict
+                or set(receipt['binding']) != {'path', 'members'}
+                or receipt['binding']['path'] != path
+                or type(receipt['binding']['members']) is not list
+                or not receipt['binding']['members']):
+            raise ValueError('Invalid available archive receipt binding/bytes')
+        members = receipt['binding']['members']
+        if len(files) + len(members) > limits.max_entries:
+            raise ValueError('Available export exceeds file count bound')
+        for row in members:
+            if (type(row) is not dict or set(row) != {'path', 'bytes'}
+                    or type(row['bytes']) is not int or not 0 <= row['bytes'] <= limits.max_file_bytes):
+                raise ValueError('Invalid available receipt member')
+            _path(row['path'])
+        files.extend(members)
+        shards.append({'path': path, 'bytes': size, 'members': [row['path'] for row in members]})
+    required = {f'experiments/{experiment_id}/snapshot.json', f'experiments/{experiment_id}/state.json'}
+    if not shards or not required <= {row['path'] for row in files}:
+        raise FileNotFoundError('Partial export not available: completed snapshot/state base required')
+    inventory = {'schema': 'experiment_inventory_v2', 'experiment_id': experiment_id,
+                 'files': files, 'bytes': sum(row['bytes'] for row in files), 'shards': shards}
+    _inventory(inventory, experiment_id, limits)
+    return inventory
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--action', choices=('inventory', 'read', 'extract'), required=True)
+    parser.add_argument('--action', choices=('inventory', 'available', 'read', 'extract'), required=True)
     parser.add_argument('--volume', required=True)
     parser.add_argument('--experiment-id', required=True)
     parser.add_argument('--environment', default='main')
@@ -403,7 +496,12 @@ def main(argv=None):
         _check_local(args.receipt)
     import modal
     volume = modal.Volume.from_name(args.volume, environment_name=args.environment)
-    if args.action == 'inventory':
+    if args.action == 'available':
+        inventory = _available_inventory(volume, args.experiment_id, limits)
+        if len(json.dumps(inventory).encode('utf-8')) > limits.max_inventory_bytes:
+            raise ValueError('Available inventory document exceeds byte bound')
+        write_json(args.output, inventory)
+    elif args.action == 'inventory':
         inventory = _read_inventory(volume.read_file(f'experiments/{args.experiment_id}/inventory.json'), limits)
         _inventory(inventory, args.experiment_id, limits)
         write_json(args.output, inventory)
