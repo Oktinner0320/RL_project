@@ -10,7 +10,7 @@ import subprocess
 import sys
 import time
 import uuid
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path, PurePosixPath
 
 
@@ -48,9 +48,14 @@ REMOTE_ONLY_DIRECTORIES = frozenset({
     "uploads", "reference_uploads", "referenceuploads", "private", "updates", "references",
     "attack_details",
 })
+POLICY_SNAPSHOTS = tuple(f'agent-step{step:05d}.pt' for step in (500, 1000, 1500, 2000, 2500, 3000))
 
 
 def read_json(path: Path):
+    return _decode_json(Path(path).read_text(encoding='utf-8'))
+
+
+def _decode_json(text):
     def pairs(items):
         result = {}
         for key, value in items:
@@ -68,7 +73,7 @@ def read_json(path: Path):
             invalid(value)
         return number
 
-    return json.loads(Path(path).read_text(encoding="utf-8"), object_pairs_hook=pairs,
+    return json.loads(text, object_pairs_hook=pairs,
                       parse_constant=invalid, parse_float=finite_float)
 
 
@@ -222,7 +227,9 @@ def _cli(arguments, timeout):
     return output.read_text(encoding="utf-8")
 
 
-def inventory_entries(entries, run_id: str, limits: TransportLimits) -> dict:
+def inventory_entries(entries, run_id: str, limits: TransportLimits, *, policy_snapshots=()) -> dict:
+    if type(policy_snapshots) is not tuple or any(name not in POLICY_SNAPSHOTS for name in policy_snapshots) or len(set(policy_snapshots)) != len(policy_snapshots):
+        raise ValueError('Only registered exact policy snapshots allowed')
     prefix = "runs/" + safe_run_id(run_id)
     selected, skipped, seen = [], [], set()
     total = 0
@@ -238,7 +245,7 @@ def inventory_entries(entries, run_id: str, limits: TransportLimits) -> dict:
         if kind == 2 and relative.name in REMOTE_ONLY_DIRECTORIES:
             skipped.append(path)
             continue
-        if kind != 1 or relative.name not in ARTIFACT_FILES:
+        if kind != 1 or relative.name not in ARTIFACT_FILES | set(policy_snapshots):
             raise ValueError(f"Unexpected remote artifact: {path}")
         if type(entry.size) is not int or not 0 <= entry.size <= limits.max_file_bytes:
             raise ValueError("Remote artifact size exceeds bound")
@@ -298,9 +305,11 @@ def _restore_file(row: dict, target: Path, receipt: Path) -> bool:
 
 
 def download_artifacts(volume_name: str, run_id: str, destination: Path, *, environment="main",
-                       limits=None, worker=run_bounded) -> Path:
+                       limits=None, worker=run_bounded, policy_snapshots=()) -> Path:
     """Resume completed files, retry only bounded reads, never recreate a compute call."""
     limits = limits or TransportLimits()
+    if type(policy_snapshots) is not tuple or any(name not in POLICY_SNAPSHOTS for name in policy_snapshots) or len(set(policy_snapshots)) != len(policy_snapshots):
+        raise ValueError('Only exact registered policy snapshots allowed')
     safe_run_id(run_id)
     destination = Path(destination).resolve()
     stage = destination / ".transfers" / run_id
@@ -310,7 +319,7 @@ def download_artifacts(volume_name: str, run_id: str, destination: Path, *, envi
     started = time.monotonic()
     common = [sys.executable, "-m", "cloud_edge_rl.transport", "--volume", volume_name,
               "--run-id", run_id, "--environment", environment,
-              "--limits", json.dumps(asdict(limits))]
+              "--limits", json.dumps(asdict(limits)), '--policy-snapshots', json.dumps(policy_snapshots)]
     inventory_path = stage / "inventory.json"
     if not inventory_path.exists():
         worker([*common, "--action", "list", "--output", str(inventory_path)],
@@ -322,7 +331,7 @@ def download_artifacts(volume_name: str, run_id: str, destination: Path, *, envi
     # Revalidate cached inventory against current bounds without contacting the cloud.
     from types import SimpleNamespace
     checked = inventory_entries([SimpleNamespace(path=row["path"], size=row["bytes"], type=1)
-                                 for row in inventory["files"]], run_id, limits)
+                                  for row in inventory["files"]], run_id, limits, policy_snapshots=policy_snapshots)
     if checked["files"] != inventory["files"] or checked["bytes"] != inventory["bytes"]:
         raise ValueError("Download inventory changed")
     for row in inventory["files"]:
@@ -358,9 +367,139 @@ def download_artifacts(volume_name: str, run_id: str, destination: Path, *, envi
     return target_dir
 
 
+def _no_symlinks(path):
+    path = Path(path).absolute()
+    if any(item.is_symlink() for item in (path, *path.parents)):
+        raise ValueError('Symbolic public artifact path forbidden')
+
+
+def _public_manifest(rows, run_id):
+    if type(rows) is not list or not 1 <= len(rows) <= 66:
+        raise ValueError('Exactly bounded 1..66 public upload entries required')
+    seen = set()
+    for row in rows:
+        if type(row) is not dict or set(row) != {'name', 'path'}:
+            raise ValueError('Exact public manifest schema required')
+        name = row['name']
+        if (type(name) is not str or not name.endswith('.pt')
+                or safe_run_id(name[:-3]) + '.pt' != name
+                or row['path'] != f'runs/{safe_run_id(run_id)}/updates/{name}' or name in seen):
+            raise ValueError('Unsafe or duplicate public packet path')
+        seen.add(name)
+    return rows
+
+
+def _public_inventory(entries, rows, run_id, limits):
+    expected = {row['path']: row['name'] for row in _public_manifest(rows, run_id)}
+    files, seen, total = [], set(), 0
+    for entry in entries:
+        path = entry.path.lstrip('/')
+        if (path not in expected or path in seen or len(seen) >= 66 or int(entry.type) != 1
+                or type(entry.size) is not int or not 0 <= entry.size <= limits.max_file_bytes):
+            raise ValueError('Unexpected public update inventory')
+        seen.add(path)
+        total += entry.size
+        if total > limits.max_total_bytes:
+            raise ValueError('Public update byte limit exceeded')
+        files.append({'path': path, 'name': expected[path], 'bytes': entry.size})
+    if seen != set(expected):
+        raise ValueError('Missing exact public updates')
+    return {'run_id': run_id, 'files': files, 'bytes': total}
+
+
+def download_public_updates(spec, artifacts: Path, *, worker=run_bounded, limits=None,
+                            environment='main') -> Path:
+    """Read ONLY exact public packets from an already-downloaded fresh collection.
+
+    No compute, reservation, model loading, recursive listing or private references.
+    A failed read is never automatically retried; completed receipts are resumable.
+    """
+    from .comparisons.acceptance import _first_artifact
+    purpose = 'fresh_seven_method_development_benchmark_v1'
+    native = spec.config.get('native_acceptance', {})
+    witness = _first_artifact(native.get('execution_admission'))
+    if (spec.stage != 'collect' or spec.method != 'round_robin'
+            or native.get('fresh_benchmark', {}).get('schema') != purpose
+            or witness.get('purpose') != purpose or witness.get('approved') is not True):
+        raise ValueError('Public packet transfer requires exact approved fresh collection')
+    payload = asdict(spec)
+    payload['config']['native_acceptance'].pop('execution_admission', None)
+    payload['provenance'].pop('source_contents', None)
+    if not any(row.get('spec') == payload for row in witness.get('runs', [])):
+        raise ValueError('Public transfer spec is not in the exact fresh approval')
+    _no_symlinks(artifacts)
+    artifacts = Path(artifacts).absolute()
+    run_id = safe_run_id(spec.run_id)
+    for name in ('config.json', 'status.json', 'uploads.jsonl'):
+        _no_symlinks(artifacts / name)
+        if (artifacts / name).stat().st_size > 64 * 1024 * 1024:
+            raise ValueError('Public collection metadata exceeds bound')
+    if read_json(artifacts / 'config.json') != asdict(spec) or read_json(artifacts / 'status.json').get('state') != 'completed':
+        raise ValueError('Exact completed frozen collection required')
+    rows = []
+    with (artifacts / 'uploads.jsonl').open(encoding='utf-8') as stream:
+        for line in stream:
+            if not line.strip():
+                continue
+            upload = _decode_json(line)
+            if type(upload) is not dict or upload.get('run_id') != run_id or upload.get('split') != 'train':
+                raise ValueError('Public upload run identity mismatch')
+            name = safe_run_id(upload.get('upload_id')) + '.pt'
+            rows.append({'name': name, 'path': upload.get('packet_path')})
+            if len(rows) > 66:
+                raise ValueError('Public upload count exceeds 66')
+    _public_manifest(rows, run_id)
+    limits = limits or replace(TransportLimits(), read_attempts=1, max_entries=66)
+    if (type(limits) is not TransportLimits or limits.read_attempts != 1 or limits.file_seconds > 45
+            or limits.listing_seconds > 45 or limits.download_seconds > 180
+            or limits.max_file_bytes > 64 * 1024 * 1024 or limits.max_total_bytes > 128 * 1024 * 1024):
+        raise ValueError('Explicit bounded single-attempt public transport required')
+    stage, target_dir = artifacts / '.public-transfers', artifacts / 'updates'
+    for path in (stage, target_dir):
+        _no_symlinks(path)
+        path.mkdir(parents=True, exist_ok=True)
+    manifest = stage / 'manifest.json'
+    _no_symlinks(manifest)
+    if manifest.exists():
+        if read_json(manifest) != rows:
+            raise ValueError('Frozen public upload manifest changed')
+    else:
+        write_json(manifest, rows)
+    common = [sys.executable, '-m', 'cloud_edge_rl.transport', '--volume', spec.config['modal']['volume_name'],
+              '--run-id', run_id, '--environment', environment, '--limits', json.dumps(asdict(limits)),
+              '--public-manifest', str(manifest)]
+    started = time.monotonic()
+    inventory_path = stage / 'inventory.json'
+    _no_symlinks(inventory_path)
+    if not inventory_path.exists():
+        worker([*common, '--action', 'public-list', '--output', str(inventory_path)],
+               min(limits.listing_seconds, limits.download_seconds), stage / f'list-{uuid.uuid4().hex}.log')
+    inventory = read_json(inventory_path)
+    from types import SimpleNamespace
+    checked = _public_inventory([SimpleNamespace(path=r['path'], size=r['bytes'], type=1)
+                                for r in inventory['files']], rows, run_id, limits)
+    if checked != inventory:
+        raise ValueError('Public transfer inventory changed')
+    for row in inventory['files']:
+        target, receipt = target_dir / row['name'], stage / (row['name'] + '.receipt.json')
+        _no_symlinks(target)
+        _no_symlinks(receipt)
+        if _restore_file(row, target, receipt):
+            continue
+        remaining = limits.download_seconds - (time.monotonic() - started)
+        if remaining <= 0:
+            raise TimeoutError('Public transfer stage deadline; receipts retained')
+        worker([*common, '--action', 'public-read', '--remote-path', row['path'], '--bytes', str(row['bytes']),
+                '--output', str(target), '--receipt', str(receipt)], min(limits.file_seconds, remaining),
+               stage / f'read-{row["name"]}-{uuid.uuid4().hex}.log')
+        if not _restore_file(row, target, receipt):
+            raise ValueError('Public worker completion receipt absent')
+    return target_dir
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--action", choices=("list", "read"), required=True)
+    parser.add_argument("--action", choices=("list", "read", 'public-list', 'public-read'), required=True)
     parser.add_argument("--volume", required=True)
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--environment", required=True)
@@ -369,19 +508,46 @@ def main():
     parser.add_argument("--remote-path")
     parser.add_argument("--bytes", type=int)
     parser.add_argument("--receipt", type=Path)
+    parser.add_argument('--public-manifest', type=Path)
+    parser.add_argument('--policy-snapshots', default='[]')
     args = parser.parse_args()
     limits = TransportLimits(**json.loads(args.limits))
     safe_run_id(args.run_id)
+    snapshots = tuple(_decode_json(args.policy_snapshots))
+    if any(name not in POLICY_SNAPSHOTS for name in snapshots) or len(set(snapshots)) != len(snapshots):
+        raise ValueError('Only exact registered policy snapshots allowed')
+    if args.action.startswith('public-') and (limits.read_attempts != 1 or limits.file_seconds > 45
+            or limits.listing_seconds > 45 or limits.download_seconds > 180
+            or limits.max_file_bytes > 64 * 1024 * 1024 or limits.max_total_bytes > 128 * 1024 * 1024):
+        raise ValueError('Unsafe public worker limits')
     import modal
     volume = modal.Volume.from_name(args.volume, environment_name=args.environment)
-    if args.action == "list":
+    if args.action.startswith('public-'):
+        if args.public_manifest is None or args.public_manifest.stat().st_size > 1024 * 1024:
+            raise ValueError('Bounded exact public manifest required')
+        _no_symlinks(args.public_manifest)
+        rows = _public_manifest(read_json(args.public_manifest), args.run_id)
+        if args.action == 'public-list':
+            inventory = _public_inventory(volume.iterdir('runs/' + args.run_id + '/updates', recursive=False),
+                                          rows, args.run_id, limits)
+            write_json(args.output, inventory)
+        else:
+            name = PurePosixPath(args.remote_path).name
+            if ({'name': name, 'path': args.remote_path} not in rows or args.output.name != name
+                    or args.bytes is None or not 0 <= args.bytes <= limits.max_file_bytes or args.receipt is None):
+                raise ValueError('Exact bounded public read required')
+            _no_symlinks(args.output)
+            _no_symlinks(args.receipt)
+            receive_file(volume.read_file(args.remote_path),
+                         {'name': name, 'path': args.remote_path, 'bytes': args.bytes}, args.output, args.receipt)
+    elif args.action == "list":
         inventory = inventory_entries(volume.iterdir("runs/" + args.run_id, recursive=False),
-                                      args.run_id, limits)
+                                      args.run_id, limits, policy_snapshots=snapshots)
         write_json(args.output, inventory)
     else:
         name = PurePosixPath(args.remote_path).name
         if (args.remote_path != "runs/" + args.run_id + "/" + name
-                or name not in ARTIFACT_FILES or args.output.name != name
+                or name not in ARTIFACT_FILES | set(snapshots) or args.output.name != name
                 or args.bytes is None or not 0 <= args.bytes <= limits.max_file_bytes
                 or args.receipt is None):
             raise ValueError("Read worker requires an exact bounded artifact")

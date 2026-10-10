@@ -223,7 +223,7 @@ def bootstrap_target_ids(config: dict) -> dict:
         batch = batches[action % len(batches)]
         for client in env['client_sets'][action // len(batches)]:
             if len(targets[batch]) < s['panel_uploads_per_batch']:
-                targets[batch].append(f'e0-r{round_index}-c{client}')
+                targets[batch].append(f'e0-r{round_index + 1}-c{client}')
     if any(len(ids) != s['panel_uploads_per_batch'] for ids in targets.values()):
         raise ValueError('All registered batch strata must reach the frozen target count')
     selected = [upload for batch in batches for upload in targets[batch]]

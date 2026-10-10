@@ -72,17 +72,8 @@ def _public_uploads(spec, artifacts):
                            for k, v in value.items())
             return isinstance(value, (list, tuple)) and any(private(v) for v in value)
         _require(not private(packet['feature_metadata']), 'Private feature metadata in public packet')
-    settings = spec.config['native_acceptance']['fresh_benchmark']
-    warmup = len(spec.config['execution']['warmup_actions'])
-    env = spec.config['environment']
-    targets = {batch: [] for batch in env['batch_sizes']}
-    for round_index in range(warmup, settings['collection_rounds_per_seed']):
-        action = settings['collection_actions'][(round_index - warmup) % len(settings['collection_actions'])]
-        batch = env['batch_sizes'][action % len(env['batch_sizes'])]
-        for client in env['client_sets'][action // len(env['batch_sizes'])]:
-            if len(targets[batch]) < settings['panel_uploads_per_batch']:
-                targets[batch].append(f'e0-r{round_index}-c{client}')
-    selected = [i for batch in env['batch_sizes'] for i in targets[batch]]
+    from .fresh_benchmark import bootstrap_target_ids
+    selected = bootstrap_target_ids(spec.config)['all']
     available = {u['upload_id']: u for u in uploads}
     _require(len(selected) == 12 and set(selected) <= set(ids)
              and all(available[i]['is_warmup'] is False for i in selected), 'Frozen audit targets absent from actual uploads')
@@ -181,9 +172,10 @@ def verify_fresh_artifacts(spec: RunSpec, artifacts: Path, result: dict) -> dict
         rows = _metrics(spec, artifacts)
         saved = _load(artifacts / 'environment.pt')
         env = saved['environment']
+        # CloudEdgeEnv.history holds per-client statistics, not environment calls.
         _require(saved['episode'] == 0 and type(env['round_index']) is int
                  and env['round_index'] == len(rows) == summary['round'] and 1 <= len(rows) <= 30
-                 and env['risk_version'] == spec.risk_version and len(env['history']) == len(rows), 'Episode actual step count mismatch')
+                 and env['risk_version'] == spec.risk_version, 'Episode actual step count mismatch')
         for key in ('elapsed_seconds', 'energy_joules', 'validation_accuracy'):
             _require(math.isclose(float(summary[key]), float(rows[-1][key]), rel_tol=1e-8, abs_tol=1e-8), 'Episode summary/CSV mismatch')
         if spec.stage == 'collect':

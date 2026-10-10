@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from contextlib import contextmanager
 import os
 from pathlib import Path
@@ -13,7 +13,7 @@ import uuid
 from cloud_edge_rl.config import RunSpec
 from cloud_edge_rl.transport import (
     TransportLimits, download_artifacts, read_json, run_bounded, safe_run_id,
-    stop_and_verify, write_json,
+    stop_and_verify, write_json, download_public_updates, POLICY_SNAPSHOTS,
 )
 
 
@@ -258,12 +258,25 @@ def _run_training_pipeline(specs: list[RunSpec], root: Path, directory: Path, *,
             row.update(shutdown_verified=True, phase="download")
             write_json(state_path, state, replace=True)
             if local_only:
-                artifacts = Path(row.get('artifact_directory', artifacts_root / spec.run_id)).resolve()
+                artifacts = Path(row.get('artifact_directory', artifacts_root / 'runs' / spec.run_id)).resolve()
                 if not artifacts.is_relative_to(artifacts_root.resolve()) or not artifacts.is_dir():
                     raise ValueError('Local reverification requires confined cached artifacts')
             else:
+                fresh_scope = verify == 'cloud_edge_rl.fresh_benchmark:verify_fresh_artifacts'
+                extra = {}
+                if fresh_scope and spec.stage == 'train_policy':
+                    steps = spec.config['native_acceptance']['fresh_benchmark']['checkpoint_steps']
+                    if steps != [500, 1000, 1500, 2000, 2500, 3000]:
+                        raise ValueError('Exact registered fresh curve snapshots required')
+                    extra['policy_snapshots'] = POLICY_SNAPSHOTS
+                    limits = replace(limits, max_entries=64)
                 artifacts = downloader(spec.config["modal"]["volume_name"], spec.run_id,
-                                       artifacts_root, limits=limits)
+                                       artifacts_root, limits=limits, **extra)
+                row['artifact_directory'] = str(artifacts)
+                write_json(state_path, state, replace=True)
+                if fresh_scope and spec.stage == 'collect':
+                    download_public_updates(spec, artifacts, worker=worker,
+                                            limits=replace(limits, read_attempts=1, max_entries=66))
             row["phase"] = "verify"
             write_json(state_path, state, replace=True)
             # Re-run the semantic gate on resumed files: a receipt is NOT integrity proof.
