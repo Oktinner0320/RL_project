@@ -303,12 +303,16 @@ def collect_experiment(volume_name, experiment_id, destination, *, limits=None,
             if remaining <= 0:
                 raise TimeoutError('Experiment transfer deadline before extraction')
             members = [{key: by_path[path][key] for key in ('path', 'bytes')} for path in shard['members']]
+            # Thousands of atomic small-file publications need a larger bounded
+            # worker slice than a single bulk network read; retain the 2h total.
+            extract_seconds = min(remaining, max(limits.file_seconds,
+                                                 min(1800, 30 + len(members) // 50)))
             member_path = _check_local(stage / f'shard-{index:05d}.members.json')
             write_json(member_path, members, replace=True)
             worker([*common, '--action', 'extract', '--output', str(target),
                     '--members', str(member_path), '--destination', str(root),
                     '--receipt', str(stage / f'shard-{index:05d}.extract.json'),
-                    '--seconds', str(min(limits.file_seconds, remaining))], min(limits.file_seconds, remaining),
+                    '--seconds', str(extract_seconds)], extract_seconds,
                    stage / f'extract-{index:05d}-{uuid.uuid4().hex}.log')
             extracted = read_json(stage / f'shard-{index:05d}.extract.json')
             if extracted != {'complete': True, 'members': members}:
