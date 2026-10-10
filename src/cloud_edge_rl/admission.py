@@ -68,11 +68,27 @@ def _fresh_contract(witness):
     dag = contract.get('dag')
     if type(runs) is not list or not runs or type(dag) is not list:
         raise ValueError('Explicit fresh frozen DAG required')
+    from .fresh_benchmark import build_plan, run_config, bootstrap_target_ids
+    plan_config = _first_artifact(witness['plan_config'])
+    planned = build_plan(plan_config)
+    if len(runs) != 101 or len(planned['nodes']) != 101:
+        raise ValueError('Exact 101-node fresh convergence matrix required')
     ids = [r['spec']['run_id'] for r in runs]
     if (any(type(i) is not str or not i or '/' in i or '\\' in i or i in ('.', '..') for i in ids)
             or len(set(ids)) != len(ids) or len(dag) != len(ids)
             or [d['run_id'] for d in dag] != ids):
         raise ValueError('Unique ordered fresh run IDs required')
+    node_run_ids = {node['id']: rid for node, rid in zip(planned['nodes'], ids)}
+    targets = bootstrap_target_ids(plan_config)
+    for node, entry, run in zip(planned['nodes'], dag, runs):
+        p = run['spec']
+        metadata = {key: node[key] for key in ('checkpoint_step', 'training_seed', 'final_comparison') if key in node}
+        actual_metadata = {key: entry[key] for key in ('checkpoint_step', 'training_seed', 'final_comparison') if key in entry}
+        if (p['stage'] != node['phase'] or p['method'] != node['method']
+                or not _first_json_equal(p['seed'], node['seed'])
+                or entry['dependencies'] != [node_run_ids[key] for key in node['dependencies']]
+                or not _first_json_equal(actual_metadata, metadata)):
+            raise ValueError('Fresh ordered run/DAG differs from exact registered plan')
     by_id, seen, trains, validations, collections, fits = {}, set(), {}, set(), set(), []
     for entry, run in zip(dag, runs):
         p = run['spec']
@@ -81,6 +97,14 @@ def _fresh_contract(witness):
         if (type(deps) is not list or len(set(deps)) != len(deps) or not set(deps) <= seen):
             raise ValueError('Only declared new DAG predecessors allowed')
         config, inputs = p['config'], p['inputs']
+        expected_config = run_config(plan_config, method, stage, seed,
+                                    stage_interaction_limit=(config['rl'].get('stage_interaction_limit')
+                                                             if stage == 'train_policy' and method != 'pqn' else None))
+        expected_config['modal']['startup_timeout_seconds'] = 180
+        actual_config = deepcopy(config)
+        actual_config.get('native_acceptance', {}).pop('execution_admission', None)
+        if not _first_json_equal(actual_config, expected_config):
+            raise ValueError('Fresh settings differ from the sole frozen new scientific design')
         execution, data, modal = config['execution'], config['data'], config['modal']
         if (execution.get('backend') != 'modal' or execution.get('split') not in ('train', 'validation')
                 or data.get('split_seed') != 8501 or data.get('partition_seed') != 8502
@@ -95,7 +119,12 @@ def _fresh_contract(witness):
             raise ValueError('Fresh bounded H100 settings and zero retries required')
         # Input artifacts use suite-relative paths; IDs are resolved only through the DAG.
         for key, value in inputs.items():
-            if key.endswith('run_ids'):
+            if key == 'target_ids':
+                if (stage not in ('audit', 'benchmark_attack') or type(value) is not list
+                        or not value or any(type(v) is not str or not v for v in value)
+                        or len(set(value)) != len(value)):
+                    raise ValueError('Explicit unique frozen audit target IDs required')
+            elif key.endswith('run_ids'):
                 if type(value) is not list or not value or not set(value) <= set(deps):
                     raise ValueError('Fresh audit/source IDs must be declared predecessors')
             elif key.endswith('run_id'):
@@ -103,18 +132,19 @@ def _fresh_contract(witness):
                     raise ValueError('Fresh source ID must be a declared predecessor')
             elif value not in (None, ''):
                 parts = value.split('/') if type(value) is str else []
+                snapshot = f"agent-step{entry.get('checkpoint_step'):05d}.pt" if type(entry.get('checkpoint_step')) is int else None
                 if (len(parts) != 3 or parts[0] != 'runs' or parts[1] not in deps
-                        or parts[2] not in ('risk.pt', 'agent.pt', 'training.pt')):
+                        or parts[2] not in ('risk.pt', 'training.pt', snapshot)):
                     raise ValueError('Historical or unconfined scientific input forbidden')
                 producer = by_id[parts[1]]
                 if (parts[2] == 'risk.pt' and producer['stage'] != 'fit_risk'
-                        or parts[2] in ('agent.pt', 'training.pt') and
+                        or (parts[2] == 'training.pt' or parts[2] == snapshot) and
                         (producer['stage'] != 'train_policy' or producer['method'] != method
                          or producer['seed'] != (seed if stage == 'train_policy' else 8101 + seed - 8201))):
                     raise ValueError('Cross-arm or invalid checkpoint producer forbidden')
         amount, partition = 0, execution['split']
         if stage == 'collect':
-            amount = config['rl'].get('stage_interaction_limit')
+            amount = config['environment'].get('max_rounds')
             if (method != 'round_robin' or seed not in (8301, 8302, 8303)
                     or seed in collections or partition != 'train' or inputs
                     or type(amount) is not int or not 1 <= amount <= 30):
@@ -142,21 +172,30 @@ def _fresh_contract(witness):
                 raise ValueError('Fresh training must start from zero then its own predecessor')
             group.append(rid)
         elif stage == 'validate':
+            step, training_seed = entry.get('checkpoint_step'), entry.get('training_seed')
+            identity = (method, seed, step)
             if (method not in _FRESH_METHODS or seed not in (8201, 8202, 8203)
-                    or partition != 'validation' or (method, seed) in validations):
+                    or partition != 'validation' or identity in validations
+                    or training_seed != 8101 + seed - 8201
+                    or entry.get('final_comparison') is not (step is None or step == 3000)):
                 raise ValueError('Exact fresh paired validation matrix required')
-            validations.add((method, seed))
-            amount = config.get('evaluation', {}).get('episodes')
+            validations.add(identity)
+            amount = config['environment'].get('max_rounds')
             if type(amount) is not int or not 1 <= amount <= 30 or not inputs.get('risk_checkpoint'):
                 raise ValueError('Bounded fresh validation required')
             if method in ('dqn', 'ppo', 'pqn'):
                 group = trains.get((method, 8101 + seed - 8201), [])
-                if not group or inputs.get('agent_checkpoint') != f'runs/{group[-1]}/agent.pt':
-                    raise ValueError('Validation must use its own final fresh policy')
-            elif set(inputs) != {'risk_checkpoint'}:
+                if step not in (500, 1000, 1500, 2000, 2500, 3000):
+                    raise ValueError('Exactly registered convergence steps required')
+                index = 0 if method == 'pqn' else {500: 0, 1000: 1, 1500: 1, 2000: 2, 2500: 2, 3000: 3}[step]
+                if (len(group) <= index or set(inputs) != {'risk_checkpoint', 'agent_checkpoint'}
+                        or inputs['agent_checkpoint'] != f'runs/{group[index]}/agent-step{step:05d}.pt'):
+                    raise ValueError('Validation must use its own exact fresh snapshot producer')
+            elif step is not None or set(inputs) != {'risk_checkpoint'}:
                 raise ValueError('Static methods cannot load policy checkpoints')
         elif stage == 'fit_risk':
-            if seed != 8401 or partition != 'train' or set(inputs) != {'audit_run_ids'}:
+            if (seed != 8401 or partition != 'train' or set(inputs) != {'audit_run_ids'}
+                    or len(inputs['audit_run_ids']) != 3 or len(set(inputs['audit_run_ids'])) != 3):
                 raise ValueError('Fresh risk fit must use new audit labels')
             if any(by_id[i]['stage'] != 'audit' for i in inputs['audit_run_ids']):
                 raise ValueError('Fresh risk fit requires audit producers')
@@ -165,6 +204,17 @@ def _fresh_contract(witness):
             if partition != 'train' or not inputs.get('source_run_ids') or any(
                     by_id[i]['stage'] != 'collect' for i in inputs['source_run_ids']):
                 raise ValueError('Fresh audits require only fresh collection producers')
+            if (set(inputs) != ({'source_run_ids', 'target_ids'} if stage == 'benchmark_attack'
+                                else {'source_run_ids', 'target_ids', 'benchmark_run_id'})
+                    or len(inputs['source_run_ids']) != 1
+                    or len(inputs['target_ids']) != (3 if stage == 'benchmark_attack' else
+                                                   9 if by_id[inputs['source_run_ids'][0]]['seed'] == 8301 else 12)):
+                raise ValueError('Exact frozen bootstrap target matrix required')
+            expected_targets = (targets['benchmark'] if stage == 'benchmark_attack' else
+                                targets['remainder'] if by_id[inputs['source_run_ids'][0]]['seed'] == 8301
+                                else targets['all'])
+            if not _first_json_equal(inputs['target_ids'], expected_targets):
+                raise ValueError('Exact frozen bootstrap target matrix required; adaptive target selection forbidden')
         else:
             raise ValueError('Official/sealed or unrelated stage forbidden')
         charges = [{'method': method, 'seed': seed, 'partition': partition,
@@ -176,7 +226,9 @@ def _fresh_contract(witness):
     if (collections != {8301, 8302, 8303} or len(fits) != 1
             or set(trains) != {(m, s) for m in ('dqn', 'ppo', 'pqn') for s in (8101, 8102, 8103)}
             or any(len(v) != (1 if k[0] == 'pqn' else 4) for k, v in trains.items())
-            or validations != {(m, s) for m in _FRESH_METHODS for s in (8201, 8202, 8203)}):
+            or validations != {(m, s, step) for m in _FRESH_METHODS for s in (8201, 8202, 8203)
+                               for step in ([500, 1000, 1500, 2000, 2500, 3000]
+                                            if m in ('dqn', 'ppo', 'pqn') else [None])}):
         raise ValueError('Incomplete fresh seven-method matrix')
     return contract
 
@@ -187,24 +239,82 @@ def _fresh_history(witness, ledger):
     if (witness.get('historical_cloud_cost_usd', 'missing') is not None
             or witness.get('historical_cloud_cost_unknown_retained') is not True):
         raise ValueError('Historical cost unknown must remain unknown')
-    calls, totals, collected = set(), {}, 0
+    counter = _first_artifact(witness['counter_admission'])
+    exact = {'schema': 'fresh_scope_counter_v1', 'owner': witness['owner'],
+             'freeze_id': witness['freeze_id'], 'historical_unknown_retained': True,
+             'scoped_counters_verified': True, 'training_seeds': [8101, 8102, 8103],
+             'validation_seeds': [8201, 8202, 8203], 'collection_seeds': [8301, 8302, 8303]}
+    if any(not _first_json_equal(counter.get(k), v) for k, v in exact.items()):
+        raise ValueError('Exact fresh scope counter proof required')
+    exclusions = counter.get('excluded_historical_calls', [])
+    if type(exclusions) is not list or len({e['call_id'] for e in exclusions}) != len(exclusions):
+        raise ValueError('Unique historical scope exclusions required')
+    exclusions = {e['call_id']: e for e in exclusions}
+    scope = {(m, s, 'train') for m in ('dqn', 'ppo', 'pqn') for s in (8101, 8102, 8103)}
+    scope |= {(m, s, 'validation') for m in _FRESH_METHODS for s in (8201, 8202, 8203)}
+    scope |= {('round_robin', s, 'train') for s in (8301, 8302, 8303)}
+    calls, totals, collected, collection_seeds, apps = set(), {}, 0, set(), set()
     for row in ledger:
         if row['call_id'] in calls:
             raise ValueError('Duplicate historical budget call')
         calls.add(row['call_id'])
         amount = row.get('actual_interactions')
+        if row.get('experiment_id') != contract['experiment_id']:
+            exclusion = exclusions.get(row['call_id'])
+            if exclusion is None or exclusion.get('reason') != 'disjoint_method_seed_partition':
+                raise ValueError('Historical call requires verified ownership scope exclusion')
+            snapshot = _first_artifact(exclusion['spec_snapshot'])
+            snapshot = snapshot.get('spec', snapshot)
+            key = (snapshot['method'], snapshot['seed'], snapshot['config']['execution']['split'])
+            if (key in scope or type(snapshot['seed']) is not int
+                    or key != (row.get('method'), row.get('seed'), row.get('partition'))):
+                raise ValueError('Historical exclusion cannot rename or zero a matching scope')
+            continue
         if (type(amount) is not int or amount < 0 or row.get('consumption_verified') is not True
                 or row.get('state') not in ('completed', 'failed', 'cancelled', 'canceled', 'interrupted')):
             raise ValueError('Unreconciled historical consumption')
-        if row.get('experiment_id') != contract['experiment_id']:
-            # Old consumption is retained, but is never transferred into the fresh scope.
-            continue
         if row.get('owner') != witness['owner']:
             raise ValueError('Fresh ledger owner mismatch')
         if row.get('method') == 'round_robin':
             if (row.get('seed') not in (8301, 8302, 8303) or row.get('partition') != 'train'
+                    or row.get('seed') in collection_seeds
                     or row.get('state') != 'completed' or not 1 <= amount <= 30):
                 raise ValueError('Invalid fresh physical collection')
+            collection_seeds.add(row['seed'])
+            proof = _first_artifact(row['physical_collection_proof'])
+            manifest = _first_artifact(proof['completed_manifest'])
+            status = _first_artifact(proof['status'])
+            summary = _first_artifact(proof['summary'])
+            p = manifest.get('spec', {})
+            app = proof.get('app_id')
+            approved = next((r['spec'] for r in witness['runs']
+                             if r['spec']['run_id'] == p.get('run_id')), None)
+            candidate = deepcopy(p)
+            candidate.get('config', {}).get('native_acceptance', {}).pop('execution_admission', None)
+            candidate.get('provenance', {}).pop('source_contents', None)
+            if (approved is None or not _first_json_equal(candidate, approved)
+                    or manifest.get('state') != 'completed' or manifest.get('call_id') != row['call_id']
+                    or status.get('state') != 'completed' or status.get('run_id') != p.get('run_id')
+                    or summary.get('run_id') != p.get('run_id') or summary.get('stage') != 'collect'
+                    or type(summary.get('round')) is not int or summary['round'] != amount
+                    or p.get('stage') != 'collect' or p.get('seed') != row['seed']
+                    or type(app) is not str or not app or app in apps
+                    or proof.get('call_id') != row['call_id']):
+                raise ValueError('Verified exact completed fresh physical collection required')
+            apps.add(app)
+            evidence = _first_artifact(proof['interaction_evidence'])
+            csv_rows = _first_artifact(evidence['csv_snapshot'])
+            source_data = _first_artifact(evidence['source_data_snapshot'])
+            if (evidence.get('run_id') != p['run_id'] or evidence.get('call_id') != row['call_id']
+                    or evidence.get('app_id') != app or evidence.get('actual_interactions') != amount
+                    or evidence.get('source_data_verified') is not True
+                    or evidence.get('csv_rows_verified') != amount
+                    or evidence.get('audit_targets_verified') is not True
+                    or type(csv_rows) is not list or len(csv_rows) != amount
+                    or source_data.get('split_seed') != 8501 or source_data.get('partition_seed') != 8502
+                    or type(evidence.get('target_ids')) is not list
+                    or len(set(evidence['target_ids'])) != len(evidence['target_ids'])):
+                raise ValueError('Fresh CSV/source-data/target evidence required')
             allocations = [{'method': m, 'seed': s, 'partition': 'train',
                             'collection_interactions': amount}
                            for m in ('dqn', 'ppo', 'pqn') for s in (8101, 8102, 8103)]
@@ -1112,12 +1222,45 @@ def _fresh_reserve(spec, witness, run, ledger, log, rows, closed):
                     and r.get('method') == 'round_robin']
         if {r['seed'] for r in physical} != {8301, 8302, 8303}:
             raise ValueError('Verified shared physical collection allocations required before policy reservation')
+        risk_id = spec.inputs['risk_checkpoint'].split('/')[1]
+        fits = [r for r in ledger if r.get('experiment_id') == physical[0]['experiment_id']
+                and r.get('run_id') == risk_id and r.get('method') == 'risk_ensemble']
+        if len(fits) != 1:
+            raise ValueError('Verified completed fresh risk fit required before policy reservation')
+        fit = fits[0]
+        proof = _first_artifact(fit['completed_risk_proof'])
+        manifest = _first_artifact(proof['completed_manifest'])
+        header = _first_artifact(proof['risk_header'])
+        frozen = witness['runs']
+        approved_fit = next((r['spec'] for r in frozen if r['spec']['run_id'] == risk_id), None)
+        expected_risk = dict(spec.config['risk'], mode='learned', seed=8401)
+        if (fit.get('consumption_verified') is not True or fit.get('actual_interactions') != 0
+                or manifest.get('state') != 'completed' or manifest.get('call_id') != fit['call_id']
+                or manifest.get('spec') != approved_fit or approved_fit is None
+                or header.get('verified') is not True or header.get('risk_header_trained') is not True
+                or header.get('run_id') != risk_id or header.get('risk_version') != spec.risk_version
+                or header.get('risk_config') != expected_risk
+                or header.get('audit_run_ids') != approved_fit['inputs']['audit_run_ids']
+                or set(header.get('audit_source_run_ids', [])) != {r['run_id'] for r in physical}):
+            raise ValueError('Completed risk producer/header/source proof mismatch')
+    if spec.stage in ('audit', 'benchmark_attack'):
+        available = set()
+        for row in ledger:
+            if row.get('experiment_id') != _first_artifact(witness['freeze_manifest'])['fresh_contract']['experiment_id'] or row.get('method') != 'round_robin':
+                continue
+            proof = _first_artifact(row['physical_collection_proof'])
+            manifest = _first_artifact(proof['completed_manifest'])
+            if manifest['spec']['run_id'] in spec.inputs['source_run_ids']:
+                available.update(_first_artifact(proof['interaction_evidence'])['target_ids'])
+        if not set(spec.inputs['target_ids']) <= available:
+            raise ValueError('Actual completed collection must verify frozen targets before audit reservation')
     for charge in run['charges']:
         key = (charge['method'], charge['seed'], charge['partition'])
         totals[key] = totals.get(key, 0) + charge['actual_interactions']
         if charge['method'] == 'round_robin':
             collected += charge['actual_interactions']
-        if totals[key] > (3090 if key[2] == 'train' else 30):
+        if totals[key] > (3090 if key[2] == 'train' else
+                          180 if key[0] in ('dqn', 'ppo', 'pqn') else 30):
             raise ValueError('Fresh scoped 3090 interaction limit exceeded')
     if collected > 90:
         raise ValueError('Fresh physical shared collection exceeds 90')

@@ -98,7 +98,9 @@ def _settings(config):
 
 
 def train_agent(env, config: dict, previous: dict | None, on_checkpoint,
-                on_policy_snapshot=None) -> TrainingResult:
+                on_policy_snapshot=None, policy_snapshot_steps=()) -> TrainingResult:
+    requested_snapshots = frozenset(policy_snapshot_steps)
+    emitted_snapshots = set()
     stage_limit = config.get('stage_interaction_limit')
     if stage_limit is not None and (type(stage_limit) is not int or stage_limit <= 0):
         raise ValueError('Stage interaction limit must be a positive integer')
@@ -242,10 +244,13 @@ def train_agent(env, config: dict, previous: dict | None, on_checkpoint,
                                 **resource_diagnostics, **diagnostics})
         if (learned_steps + warmup_steps) % config['checkpoint_interval'] == 0:
             on_checkpoint(checkpoint())
-        if on_policy_snapshot is not None:
+        snapshot_step = learned_steps + warmup_steps
+        if (on_policy_snapshot is not None and snapshot_step in requested_snapshots
+                and snapshot_step not in emitted_snapshots):
             on_policy_snapshot({'agent': agent.checkpoint(), 'algorithm': config['algorithm'],
                                 'settings': _settings(config), 'risk_version': config['risk_version'],
                                 'environment_steps': learned_steps + warmup_steps,
                                 'learned_steps': learned_steps, 'warmup_steps': warmup_steps,
                                 'updates': updates})
+            emitted_snapshots.add(snapshot_step)
     return TrainingResult(agent, checkpoint())

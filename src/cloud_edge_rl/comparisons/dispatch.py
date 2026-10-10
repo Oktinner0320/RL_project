@@ -91,6 +91,21 @@ def make_attack(spec, root: Path, artifact_directory: Path):
             raise ValueError(f"Unknown attack implementation: {value}")
 
 
+def policy_snapshot_steps(spec):
+    """Validate fresh snapshot clocks before any data preparation or environment work."""
+    fresh = spec.config.get('native_acceptance', {}).get('fresh_benchmark', {})
+    if not fresh.get('policy_snapshots_enabled', False):
+        return ()
+    steps = fresh.get('checkpoint_steps', [])
+    total = (spec.config['comparisons']['pqn']['total_steps'] if spec.method == 'pqn'
+             else spec.config['rl']['total_steps'])
+    if (not isinstance(steps, list) or not steps
+            or any(type(step) is not int or not 1 <= step <= total for step in steps)
+            or steps != sorted(set(steps))):
+        raise ValueError('Policy snapshot steps must be sorted unique integers within total_steps')
+    return tuple(steps)
+
+
 def train_policy(spec, root: Path, env, previous, on_checkpoint, on_policy_snapshot=None):
     """第三方 PQN 与研究者 DQN/PPO 独立路由。 / Route reference PQN separately from researcher DQN/PPO."""
     common = {
@@ -99,15 +114,16 @@ def train_policy(spec, root: Path, env, previous, on_checkpoint, on_policy_snaps
         "risk_version": spec.risk_version,
         "warmup_actions": spec.config["execution"]["warmup_actions"],
     }
+    steps = policy_snapshot_steps(spec)
     if spec.method == "pqn":
         from .pqn import train_agent
 
         return train_agent(
             env, {**spec.config["comparisons"]["pqn"], **common}, previous, on_checkpoint,
-            on_policy_snapshot=on_policy_snapshot
+            on_policy_snapshot=on_policy_snapshot, policy_snapshot_steps=steps
         )
     return core.train_agent(env, {**spec.config["rl"], **common}, previous, on_checkpoint,
-                            on_policy_snapshot=on_policy_snapshot)
+                            on_policy_snapshot=on_policy_snapshot, policy_snapshot_steps=steps)
 
 
 def load_policy(spec, state: dict):

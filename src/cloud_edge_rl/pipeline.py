@@ -19,6 +19,7 @@ from .comparisons.dispatch import (
     make_attack,
     make_backend,
     make_risk,
+    policy_snapshot_steps,
     required_sources,
     train_policy,
 )
@@ -260,6 +261,8 @@ def _include_official_test(spec: RunSpec) -> bool:
 def run_experiment(spec: RunSpec, root: Path) -> dict:
     """统一的本地/Modal入口；所有输入来自 Notebook 快照。 / One local/Modal entry point."""
     root = Path(root)
+    if spec.stage == 'train_policy':
+        policy_snapshot_steps(spec)
     include_official_test = _include_official_test(spec)
     with RunStore(root, spec) as store:
         store.write_json("runtime.json", runtime_info())
@@ -433,12 +436,7 @@ def run_experiment(spec: RunSpec, root: Path) -> dict:
 
                     fresh = spec.config.get('native_acceptance', {}).get('fresh_benchmark', {})
                     snapshot_paths = []
-                    requested_steps = fresh.get('checkpoint_steps', [])
-                    if fresh.get('policy_snapshots_enabled', False):
-                        if (not isinstance(requested_steps, list) or not requested_steps
-                                or any(type(step) is not int or step <= 0 for step in requested_steps)
-                                or requested_steps != sorted(set(requested_steps))):
-                            raise ValueError('Policy snapshot steps must be sorted unique positive integers')
+                    requested_steps = policy_snapshot_steps(spec)
                     emitted_steps = set()
 
                     def same_snapshot(left, right):

@@ -97,21 +97,49 @@ def run_training_pipeline(specs: list[RunSpec], root: Path, directory: Path, *,
                           verify="cloud_edge_rl.training_pipeline:verify_training_artifacts",
                           worker=run_bounded, downloader=download_artifacts,
                           artifact_destination: Path | None = None,
-                          transport_limits: TransportLimits | None = None) -> dict:
+                          transport_limits: TransportLimits | None = None,
+                          local_only: bool = False) -> dict:
     directory = Path(directory).resolve()
     directory.mkdir(parents=True, exist_ok=True)
     with _controller_lock(directory):
         return _run_training_pipeline(specs, root, directory, verify=verify,
                                       worker=worker, downloader=downloader,
                                       artifact_destination=artifact_destination,
-                                      transport_limits=transport_limits)
+                                      transport_limits=transport_limits, local_only=local_only)
+
+
+def _validate_controller_specs(specs, root, verify):
+    """Only an exact admitted fresh scope widens the historical native route."""
+    from cloud_edge_rl.comparisons.acceptance import _first_artifact
+    purpose = 'fresh_seven_method_development_benchmark_v1'
+    markers = [spec.config.get('native_acceptance', {}).get('fresh_benchmark') for spec in specs]
+    if any(marker is not None for marker in markers):
+        if verify != 'cloud_edge_rl.fresh_benchmark:verify_fresh_artifacts':
+            raise ValueError('Fresh scope requires its original semantic verifier')
+        routes = {'collect': {'round_robin'}, 'benchmark_attack': {'gradient_matching'},
+                  'audit': {'gradient_matching'}, 'fit_risk': {'risk_ensemble'},
+                  'train_policy': {'dqn', 'ppo', 'pqn'},
+                  'validate': {'dqn', 'ppo', 'pqn', 'metacs', 'fixed', 'time_greedy', 'risk_greedy'}}
+        for spec, marker in zip(specs, markers):
+            descriptor = spec.config.get('native_acceptance', {}).get('execution_admission')
+            if (type(marker) is not dict or marker.get('schema') != purpose
+                    or descriptor is None or spec.method not in routes.get(spec.stage, set())):
+                raise ValueError('Registered fresh scope and mandatory admission required')
+            witness = _first_artifact(descriptor)
+            if witness.get('purpose') != purpose or witness.get('approved') is not True:
+                raise ValueError('Only exact approved fresh purpose can generalize controller')
+        from cloud_edge_rl.admission import check_admission
+        check_admission(specs, root)
+    elif any(spec.stage != 'train_policy' or spec.method not in ('dqn', 'ppo') for spec in specs):
+        raise ValueError('This controller accepts registered native DQN/PPO training jobs only')
 
 
 def _run_training_pipeline(specs: list[RunSpec], root: Path, directory: Path, *,
                           verify="cloud_edge_rl.training_pipeline:verify_training_artifacts",
                           worker=run_bounded, downloader=download_artifacts,
                           artifact_destination: Path | None = None,
-                          transport_limits: TransportLimits | None = None) -> dict:
+                           transport_limits: TransportLimits | None = None,
+                           local_only: bool = False) -> dict:
     """Run approved jobs serially. `verify` is a required, local semantic gate.
 
     Existing completed receipts survive cleanup/download failures. Unknown spawns remain
@@ -121,8 +149,9 @@ def _run_training_pipeline(specs: list[RunSpec], root: Path, directory: Path, *,
     if (not specs or len(specs) > 32 or type(verify) is not str
             or not verify.startswith("cloud_edge_rl.") or verify.count(":") != 1):
         raise ValueError("1..32 frozen jobs and an explicit semantic gate required")
-    if any(spec.stage != "train_policy" or spec.method not in ("dqn", "ppo") for spec in specs):
-        raise ValueError("This controller accepts registered native DQN/PPO training jobs only")
+    if type(local_only) is not bool:
+        raise ValueError('Explicit local-only mode must be boolean')
+    _validate_controller_specs(specs, root, verify)
     if len({spec.run_id for spec in specs}) != len(specs):
         raise ValueError("Duplicate registered run ID")
     if transport_limits is not None and type(transport_limits) is not TransportLimits:
@@ -136,12 +165,16 @@ def _run_training_pipeline(specs: list[RunSpec], root: Path, directory: Path, *,
                 "artifact_destination": str(artifacts_root), "verifier": verify,
                 "transport_override": None if transport_limits is None else asdict(transport_limits)}
     manifest_path = directory / "manifest.json"
+    if local_only and not manifest_path.exists():
+        raise ValueError('Local reverification requires original controller manifest')
     if manifest_path.exists():
         if not _same(read_json(manifest_path), manifest):
             raise ValueError("Training manifest cannot change on resume")
     else:
         write_json(manifest_path, manifest)
     state_path = directory / "state.json"
+    if local_only and not state_path.exists():
+        raise ValueError('Local reverification requires original controller state')
     state = read_json(state_path) if state_path.exists() else {"jobs": {}, "status": "ready"}
     if set(state["jobs"]) - set(manifest["run_ids"]):
         raise ValueError("Pipeline state contains an unregistered job")
@@ -156,6 +189,8 @@ def _run_training_pipeline(specs: list[RunSpec], root: Path, directory: Path, *,
         stage = directory / "jobs" / spec.run_id
         stage.mkdir(parents=True, exist_ok=True)
         frozen = stage / "spec.json"
+        if local_only and (not frozen.exists() or not (stage / 'transport.json').exists()):
+            raise ValueError('Local reverification requires original frozen spec and transport')
         if frozen.exists():
             if not _same(read_json(frozen), asdict(spec)):
                 raise ValueError("Frozen training spec changed on resume")
@@ -170,6 +205,8 @@ def _run_training_pipeline(specs: list[RunSpec], root: Path, directory: Path, *,
         if not (stage / "call.json").exists():
             fresh.append(spec)
     if fresh:
+        if local_only:
+            raise ValueError('Local reverification cannot submit or recover unknown compute')
         from cloud_edge_rl.admission import check_admission
         check_admission(fresh, root)
     try:
@@ -181,6 +218,12 @@ def _run_training_pipeline(specs: list[RunSpec], root: Path, directory: Path, *,
             common = [sys.executable, "-m", "cloud_edge_rl.training_pipeline",
                       "--root", str(root), "--stage", str(stage)]
             receipt = _compute_receipt(stage, spec)
+            if local_only and receipt is None:
+                raise ValueError('Local reverification requires a completed bound compute receipt')
+            if local_only:
+                from cloud_edge_rl.admission import bound_call
+                if bound_call(spec, root) != receipt['call_id']:
+                    raise ValueError('Local reverification paid journal binding mismatch')
             if receipt is None:
                 timeout = (spec.config["modal"]["timeout_seconds"]
                            + spec.config["modal"]["startup_timeout_seconds"]
@@ -204,6 +247,8 @@ def _run_training_pipeline(specs: list[RunSpec], root: Path, directory: Path, *,
             write_json(state_path, state, replace=True)
             shutdown = stage / "shutdown.json"
             if not shutdown.exists():
+                if local_only:
+                    raise ValueError('Local reverification requires retained exact shutdown proof')
                 worker([*common, "--action", "cleanup"], limits.cleanup_seconds + 10,
                        stage / f"cleanup-{uuid.uuid4().hex}.log")
             proof = read_json(shutdown)
@@ -212,8 +257,13 @@ def _run_training_pipeline(specs: list[RunSpec], root: Path, directory: Path, *,
                 raise ValueError("Exact app shutdown proof required before advancing")
             row.update(shutdown_verified=True, phase="download")
             write_json(state_path, state, replace=True)
-            artifacts = downloader(spec.config["modal"]["volume_name"], spec.run_id,
-                                   artifacts_root, limits=limits)
+            if local_only:
+                artifacts = Path(row.get('artifact_directory', artifacts_root / spec.run_id)).resolve()
+                if not artifacts.is_relative_to(artifacts_root.resolve()) or not artifacts.is_dir():
+                    raise ValueError('Local reverification requires confined cached artifacts')
+            else:
+                artifacts = downloader(spec.config["modal"]["volume_name"], spec.run_id,
+                                       artifacts_root, limits=limits)
             row["phase"] = "verify"
             write_json(state_path, state, replace=True)
             # Re-run the semantic gate on resumed files: a receipt is NOT integrity proof.

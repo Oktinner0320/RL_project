@@ -174,6 +174,7 @@ def _resume_settings(config: dict) -> dict:
 def train_agent(
     env, config: dict, previous: dict | None, on_checkpoint: Callable[[dict], None],
     on_policy_snapshot=None,
+    policy_snapshot_steps=(),
 ) -> TrainingResult:
     """训练第三方 PQN 对照，保存可精确续跑的状态。 / Train a separate PQN comparison with resumable state.
 
@@ -286,14 +287,20 @@ def train_agent(
     def consumed():
         return learned_steps + (warmup_steps if actual_budget else 0)
 
+    requested_snapshots = frozenset(policy_snapshot_steps)
+    emitted_snapshots = set()
+
     def policy_snapshot():
         # Evaluation only: a pending rollout is never advertised as resumable state.
-        if on_policy_snapshot is not None:
+        snapshot_step = learned_steps + warmup_steps
+        if (on_policy_snapshot is not None and snapshot_step in requested_snapshots
+                and snapshot_step not in emitted_snapshots):
             on_policy_snapshot({'agent': agent.checkpoint(), 'algorithm': 'pqn',
                                 'settings': _resume_settings(config), 'risk_version': config['risk_version'],
                                 'environment_steps': learned_steps + warmup_steps,
                                 'learned_steps': learned_steps, 'warmup_steps': warmup_steps,
                                 'updates': updates, 'gradient_steps': gradient_steps})
+            emitted_snapshots.add(snapshot_step)
 
     while consumed() < config["total_steps"]:
         fraction = min(learned_steps / config["epsilon_decay_steps"], 1.0)
