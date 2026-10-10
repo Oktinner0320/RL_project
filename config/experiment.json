@@ -897,12 +897,12 @@
       "node_timeout_seconds": 1800,
       "verification_timeout_seconds": 90,
       "controller_timeout_seconds": 300,
-      "prepare_enabled": false,
-      "submission_enabled": false,
+      "prepare_enabled": true,
+      "submission_enabled": true,
       "resume_enabled": false,
-      "refresh_enabled": false,
-      "collection_enabled": false,
-      "verification_enabled": false,
+      "refresh_enabled": true,
+      "collection_enabled": true,
+      "verification_enabled": true,
       "mode": "fresh",
       "graph_admission": null
     }
