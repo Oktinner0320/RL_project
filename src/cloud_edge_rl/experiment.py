@@ -11,7 +11,7 @@ import sys
 import uuid
 from pathlib import Path
 
-from .config import RunSpec, source_identity
+from .config import RunSpec, load_config, scientific_configuration, source_identity
 from .experiment_graph import (MAX_METADATA, expand, freeze_graph, run_graph,
                                validate_graph)
 from .transport import read_json, run_bounded, write_json
@@ -20,6 +20,7 @@ from .transport import read_json, run_bounded, write_json
 class Experiment:
     def __init__(self, directory, root):
         self.directory, self.root = Path(directory).resolve(), Path(root).resolve()
+        self._requested_controls = None
         path = self.directory / 'snapshot.json'
         if path.stat().st_size > MAX_METADATA:
             raise ValueError('Frozen graph exceeds metadata bound')
@@ -38,13 +39,14 @@ class Experiment:
         target = target.resolve()
         if (target / 'snapshot.json').exists():
             saved = cls(target, root)
-            if read_json(target / 'configuration.json') != config:
+            if scientific_configuration(read_json(target / 'configuration.json')) != scientific_configuration(config):
                 raise ValueError('Frozen configuration changed; reopen the original experiment')
             if specs is not None:
                 from dataclasses import asdict
                 actual = [expand(saved.graph['pool'], n['spec_ref']) for n in saved.graph['nodes']]
                 if actual != [asdict(s) for s in specs]:
                     raise ValueError('Frozen run specifications changed')
+            saved._requested_controls = dict(controls)
             return saved
         if (target / 'submission.json').exists():
             raise ValueError('Missing immutable snapshot after possible execution')
@@ -79,15 +81,24 @@ class Experiment:
         target.mkdir(parents=True, exist_ok=True)
         config_path = target / 'configuration.json'
         if config_path.exists():
-            if read_json(config_path) != config:
+            if scientific_configuration(read_json(config_path)) != scientific_configuration(config):
                 raise ValueError('Partial preparation configuration changed')
         else:
             write_json(config_path, config)
         write_json(target / 'snapshot.json', graph)
-        return cls(target, root)
+        prepared = cls(target, root)
+        prepared._requested_controls = dict(controls)
+        return prepared
 
     def _controls(self):
-        return read_json(self.directory / 'configuration.json')['workflow']['experiment']
+        frozen = read_json(self.directory / 'configuration.json')
+        live_path = self.root / 'config' / 'experiment.json'
+        if live_path.is_file():
+            live = load_config(live_path, root=self.root)
+            if scientific_configuration(live) != scientific_configuration(frozen):
+                raise ValueError('Scientific configuration changed since preparation')
+            return live['workflow']['experiment']
+        return self._requested_controls or frozen['workflow']['experiment']
 
     def _command(self, action, timeout):
         return run_bounded([sys.executable, '-m', 'cloud_edge_rl.experiment',
@@ -242,7 +253,7 @@ def _remote_state(experiment, submission):
             if receipt['attempt_id'] != submission['attempt_id']:
                 raise ValueError('Remote completion attempt mismatch')
             state = receipt['state']
-        except Exception as error:
+        except Exception:
             raise RuntimeError('Original call and durable completion unavailable; no resubmission') from original
     if (type(state) is not dict or state.get('experiment_id') != experiment.graph['experiment_id']
             or set(state.get('nodes', {})) != {node['run_id'] for node in experiment.graph['nodes']}
@@ -329,7 +340,6 @@ def cli():
                        {'attempt_id': submission['attempt_id'], 'call_id': submission['call_id'],
                         'shutdown': result, 'actual_interactions': None}, replace=True)
     else:
-        import modal
         try:
             state = _remote_state(experiment, submission)
             result = {'status': state['status'], 'call_completed': True,

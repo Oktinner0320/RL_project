@@ -4,7 +4,7 @@
 
 课程论文材料见 [paper/README.md](paper/README.md)：详细中文提纲、英文 Typst 骨架、ACM 风格课程适配模板，以及编译和版面核验说明。成稿正文预算为 20 页，当前骨架按实际内容分页。
 
-近期外部算法筛选与实测见 [reference_algorithms/REPORT.md](reference_algorithms/REPORT.md)，主项目接入结果见 [BASELINE_INTEGRATION_RESULTS.md](docs/BASELINE_INTEGRATION_RESULTS.md)。六个官方仓库、独立 UV 测试环境及原始结果均保存在 `reference_algorithms/`；测试参数仍只在 `experiment.ipynb` 的 CONFIG 单元设置。
+近期外部算法筛选与实测见 [reference_algorithms/REPORT.md](reference_algorithms/REPORT.md)，主项目接入结果见 [BASELINE_INTEGRATION_RESULTS.md](docs/BASELINE_INTEGRATION_RESULTS.md)。六个官方仓库、独立 UV 测试环境及原始结果均保存在 `reference_algorithms/`；当前唯一可编辑配置为 `config/experiment.json`。
 
 本项目研究：动态调度改变训练轨迹后，经验隐私风险代理是否出现系统性低估，以及不确定性和有限梯度反演审计能否提高决策可靠性。客户端选择与批量大小的联合调度是应用场景，模型效用、时间和能量是共同评价维度。
 
@@ -19,7 +19,7 @@
 - 独立共同面板的代理曝光加权 MAE 不超过冻结参考的 **1.10 倍**；相对未经校准代理的配对消融须降低平均低估至少 **5%**，且该误差增幅不超过 **10%**。
 - 保留 30 轮含 12 轮预热、每方法/种子/划分最多 3,000 次实际交互、真值隔离、完整轨迹审计和独立确认要求；不得重置已耗尽预算。
 
-五种子、双划分、双资源场景及更严格的 95% 参考目标保留为后续研究，不作为首版全部必须通过的门槛。**当前尚未通过首版验收；本次仅更新文档，Notebook CONFIG 与自动判定仍待同步，不能直接按新标准启动实验或重算旧开发结果为最终通过。** 所有可执行参数仍只在 `experiment.ipynb` 的唯一 CONFIG 单元登记。
+五种子、双划分、双资源场景及更严格的 95% 参考目标保留为后续研究，不作为首版全部必须通过的门槛。**当前尚未通过首版验收；管线修复和历史开发结果不等于独立正式确认。** 所有可执行参数在 `config/experiment.json` 登记。
 
 ## 安装与入口
 
@@ -30,9 +30,11 @@ uv sync --locked --extra comparisons
 uv run --extra comparisons jupyter lab
 ```
 
-打开 [experiment.ipynb](experiment.ipynb)。所有全局实验参数、阶段开关、运行输入和 Modal 资源都在 Notebook 的唯一 `CONFIG` 单元格中调整。Python 和 UV 版本由 `.python-version`、`pyproject.toml` 指定，依赖解析以 `uv.lock` 为准。本机使用 CPU PyTorch 做调试和分析，Modal Linux 镜像使用锁定的 CUDA wheel。
+编辑 [config/experiment.json](config/experiment.json)，再打开 [experiment.ipynb](experiment.ipynb)。Notebook 只负责加载配置、准备、提交/恢复、查询、回传和核验。Python 和 UV 版本由 `.python-version`、`pyproject.toml` 指定，依赖解析以 `uv.lock` 为准。本机使用 CPU PyTorch 做调试和分析，Modal Linux 镜像使用锁定的 CUDA wheel。
 
-Notebook 的默认执行只检查本地运行环境并准备 Adult 数据；研究训练与云任务通过唯一配置单元格中的 `CONFIG.workflow.jobs` 阶段开关显式启用。首次数据准备需要访问官方数据源。不要在模块、第二份配置文件、命令行超参数或 Notebook 的其他单元格中建立另一套调参入口。
+默认所有 `workflow.experiment` 操作开关关闭，Run All 只加载配置并读取已有本地状态。新执行统一通过 `Experiment` 生命周期；当前全链路为 `fresh` 七方法开发实验，自动绑定采集、攻击、审计、风险拟合、分段训练和验证依赖。正式测试仍需单独满足冻结与隔离准入。
+
+`prepare_enabled` 生成不可变任务图；`submission_enabled` 允许提交；`resume_enabled` 显式选择恢复；`refresh_enabled` 查询云端；`collection_enabled` 和 `verification_enabled` 分别启用回传与本地核验。研究参数冻结后，只有这六个操作开关可变。`graph_admission` 指向既有预算、历史交互、源码与隔离审批的绑定产物，不是另一份算法配置。使用与状态说明见 [训练管线](docs/训练管线.md)。
 
 检查框架：
 
@@ -49,9 +51,9 @@ uv run --extra comparisons ruff check .
 
 PQN 从官方 JAX 实现移植为 PyTorch，串行调用真实 Gymnasium/FedSGD 环境。MetaCS 调用官方目标与历史公平性函数，对共同 12 个动作精确枚举；该适配没有执行原版 LNS 搜索。
 
-Notebook 最后一节通过 `CONFIG.comparisons.workflow.enabled` 运行完整基线闭环，默认关闭。该流程按配置的阶段顺序连接真实产物：采集 → 攻击预算测量 → 审计 → MLP/TabM 风险拟合 → PQN 训练 → 独立验证/测试审计 → 风险与六种调度对照 → 各调度轨迹的独立审计 → 校准。六种调度各自使用相同攻击预算；最终审计标签不回流拟合、训练或校准。当前周期取样比较的是已审计子集：固定双客户端策略可能只覆盖其中一个客户端，不能据此判断全客户端或最坏客户端风险。产物 ID 自动传递，配置快照与源码版本随每个运行保存。训练默认使用 Modal；本机 CPU 仅用于工程测试和显式调试。
+历史 `comparisons.workflow` 基线闭环和原调用记录保留用于兼容恢复；当前 Notebook 不再启用第二套提交、下载控制器。各算法与比较规划仍可复用。周期取样比较的是已审计子集，不能据此判断全客户端或最坏客户端风险；最终审计标签不得回流拟合、训练或校准。
 
-2026-10-05 基线预实验的 64 步 PQN 和 2 个 OCP arms 是历史小规模可行性设置，不能作为充分调参或首版确认实验。新比较按首版标准在同一 CONFIG 单元登记配对种子、训练与攻击预算；OCP 原生协议要求足够多的真实审计条目，不会复制数据满足长度条件。其覆盖率仅针对已审计序列，信息揭示次数不等于节省实际攻击次数。
+2026-10-05 基线预实验的 64 步 PQN 和 2 个 OCP arms 是历史小规模可行性设置，不能作为充分调参或首版确认实验。新比较在唯一 JSON 配置登记配对种子、训练与攻击预算；OCP 原生协议要求足够多的真实审计条目，不会复制数据满足长度条件。其覆盖率仅针对已审计序列，信息揭示次数不等于节省实际攻击次数。
 
 上述历史基线的 24 个风险拟合标签各来自两条运行的 12 次审计，均处于预热轮次；不能据此声称覆盖了完整训练阶段。固定策略留出审计包含预热后上传。风险 MAE 较低也不等于低估更少或调度更安全，应同时检查低估量和真实攻击标签。OCP 上游损失常数固定为 40，传入的 `C` 不是有效调参项；接入保持原生规则。
 
@@ -61,7 +63,10 @@ Notebook 最后一节通过 `CONFIG.comparisons.workflow.enabled` 运行完整�
 
 | 入口 | 用途 |
 |---|---|
-| `experiment.ipynb` | 配置、提交、查询、下载与结果分析的唯一入口 |
+| `config/experiment.json` | 唯一可编辑实验配置 |
+| `experiment.ipynb` | 提交、恢复、查询、下载与结果查看前端 |
+| `experiment.py`、`experiment_graph.py` | 统一生命周期、云端依赖图和持久化状态 |
+| `experiment_admission.py`、`experiment_transfer.py` | 历史额度准入、依赖闭包整批回传 |
 | `src/cloud_edge_rl/core.py`、`algorithms/` | 原生算法公开入口及 FedSGD、攻击、风险、DQN/PPO 的实际实现 |
 | `data.py`、`metrics.py` | 官方数据处理、原字段重构评价和风险误差指标 |
 | `environment.py`、`resources.py` | Gymnasium 交互、联合动作、资源计量、预算和公开状态 |
@@ -103,13 +108,13 @@ Notebook 最后一节通过 `CONFIG.comparisons.workflow.enabled` 运行完整�
 
 ## Modal 与恢复
 
-Notebook 调用 `modal_runner` 提交配置快照。Modal 使用同一源码和 `uv.lock` 构建镜像，在一个逻辑训练任务中模拟三个客户端；这不是三台真实边缘机器的网络部署。L4 等 GPU 类型及 CPU、内存、超时、并发和 Volume 名均从 Notebook 读取，不在 Python 模块硬编码实验资源。
+Notebook 调用 `Experiment` 提交独立于本机连接的 Modal 任务图。Modal 使用冻结源码与 `uv.lock` 构建镜像，在一个逻辑任务中模拟三个客户端。GPU、CPU、内存、时限和 Volume 来自唯一 JSON 配置；各计算子进程有显式时限与进程树看门狗。
 
-初次使用请按 [Modal 官方认证说明](https://modal.com/docs/guide) 完成本机认证。提交、等待、读取结果和下载产物分别由 `submit_runs`、`wait_runs` / `get_run`、`download_run` 提供；具体阶段入口以 Notebook 为准。Volume 保存数据缓存、配置、指标、攻击输入、审计标签和检查点，远程任务在成功或失败时提交持久化日志。
+初次使用请按 [Modal 官方认证说明](https://modal.com/docs/guide) 完成本机认证。云端按依赖执行并核验，逐阶段提交 Volume；任务结束后统一回传完整依赖闭包，再做本地语义核验。Notebook 关闭不会触发重训，下载失败只恢复传输。
 
-`runs/<run_id>/` 保存每次运行的输入和结果。相同源码与实验输入产生稳定身份，已有运行不会被静默覆盖。`workflow.reuse_completed` 启用时，重复执行会读取已完成摘要；相同身份的失败或未完成运行仍会报错。恢复操作在唯一配置单元格中更改 `experiment.tag`，并将旧检查点设为新运行的显式输入。
+`runs/<run_id>/` 保存每次运行的输入和结果。任务图首次准备时生成并冻结非内容派生的运行 ID；重开同一控制目录沿用这些 ID。计算、云端核验、回传和本地闭合分别记录。未知提交不会自动重发，历史失败和未知消费不会清零。
 
-比较闭环的 Notebook 控制器中断时，先确认旧控制器已停止，再在唯一 CONFIG 单元中设置新的 `comparisons.workflow.tag` 和旧 Manifest 路径 `comparisons.workflow.resume_manifest`。最后一节会保留旧 Manifest，只读接回已保存的 Modal 调用 ID，并将完成阶段记入新的独占日志；不会重新提交这些训练。算法、种子、资源与预算必须匹配。原有任务保留原来源记录，新阶段记录实际使用的新源码身份。远程算法失败仍明确报错，不能通过恢复绕过失败。
+恢复使用同一控制目录。已知原调用先挂接；只有确认其安全暂停或仅核验失败，才允许显式继续。已经计算的节点只重新核验，计算失败/状态不明须先对账。每次继续使用独立回传目录，避免旧清单覆盖新状态。旧实验记录保留，不能自动冒充新源码下的已完成节点。
 
 同一风险版本下的完整恢复，需要用户保存并恢复策略、优化器、随机状态、回放缓冲区及包装环境的 `snapshot()`；恢复使用 `load_snapshot()`，不要再 `reset` 或重复预热。切换风险版本时保留策略权重、清空旧版本 replay 并开始新阶段。这些算法状态迁移由 `core.py` 的实现负责，框架不会暗中替您决定。
 
