@@ -74,6 +74,7 @@ def _inventory(value, experiment_id, limits):
             or type(value.get('bytes')) is not int):
         raise ValueError('Invalid bounded experiment inventory')
     seen, folded, total, files = set(), set(), 0, []
+    prefixes = {}
     for row in value['files']:
         if (type(row) is not dict or set(row) != {'path', 'bytes'}
                 or type(row['bytes']) is not int or not 0 <= row['bytes'] <= limits.max_file_bytes):
@@ -93,6 +94,10 @@ def _inventory(value, experiment_id, limits):
             raise ValueError('Inventory outside experiment/run roots')
         if row['path'] in seen or row['path'].casefold() in folded:
             raise ValueError('Duplicate/colliding experiment artifact path')
+        for length in range(1, len(parts) + 1):
+            prefix = '/'.join(parts[:length])
+            if prefixes.setdefault(prefix.casefold(), prefix) != prefix:
+                raise ValueError('Case-colliding experiment artifact directory')
         seen.add(row['path'])
         folded.add(row['path'].casefold())
         total += row['bytes']
@@ -132,7 +137,8 @@ def _snapshot_ids(snapshot, experiment_id):
             raise ValueError('Snapshot node must bind a run spec')
         run_id = spec.get('run_id')
         safe_run_id(run_id)
-        if node_id in node_ids or run_id in run_ids:
+        if (node_id.casefold() in {value.casefold() for value in node_ids}
+                or run_id.casefold() in {value.casefold() for value in run_ids}):
             raise ValueError('Duplicate snapshot node/run identity')
         node_ids.add(node_id)
         run_ids.add(run_id)

@@ -890,6 +890,19 @@
     "training_pipeline": {
       "registered_spec_paths": [],
       "output_directory": "output/training-pipeline"
+    },
+    "experiment": {
+      "directory": "output/unified-experiment-v1",
+      "graph_timeout_seconds": 86400,
+      "node_timeout_seconds": 1800,
+      "verification_timeout_seconds": 90,
+      "controller_timeout_seconds": 300,
+      "prepare_enabled": false,
+      "submission_enabled": false,
+      "refresh_enabled": false,
+      "collection_enabled": false,
+      "verification_enabled": false,
+      "mode": "fresh"
     }
   },
   "reference_benchmarks": {

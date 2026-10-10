@@ -106,13 +106,19 @@ def _run_remote(spec_data: dict[str, Any], volume_name: str) -> dict[str, Any]:
 
 
 def create_app(
-    project_root: Path, modal_config: dict[str, Any], specs: list[RunSpec] | None = None
+    project_root: Path, modal_config: dict[str, Any], specs: list[RunSpec] | None = None,
+    *, graph_timeout_seconds: int | None = None,
 ) -> tuple[modal.App, modal.Function, modal.Volume]:
     """从锁文件和运行快照组装任务。 / Build from the lockfile and run snapshots.
 
     specs 可传整个工作流，提前构建同一源码并集镜像。 / Pass a complete workflow to build one union image.
     """
     project_root = Path(project_root).resolve()
+    if graph_timeout_seconds is not None and (
+        type(graph_timeout_seconds) is not int or not 60 <= graph_timeout_seconds <= 86400
+        or modal_config['max_containers'] != 1 or modal_config['retries'] != 0
+    ):
+        raise ValueError('Detached graph requires bounded time, one container and no retries')
     check_admission(specs, project_root)
     from cloud_edge_rl.comparisons.acceptance import _first_json_equal
     if any(not _first_json_equal(modal_config, spec.config['modal']) for spec in specs):
@@ -144,20 +150,25 @@ def create_app(
         image = image.add_local_file(file, remote.as_posix())
     app = modal.App(modal_config["app_name"])
     volume = modal.Volume.from_name(modal_config["volume_name"], create_if_missing=True)
+    if graph_timeout_seconds is not None:
+        from .experiment import run_remote_graph
+        entrypoint = run_remote_graph
+    else:
+        entrypoint = _run_remote
     base_function = app.function(
-        name="run_experiment",
+        name="run_experiment_graph" if graph_timeout_seconds is not None else "run_experiment",
         image=image,
         volumes={"/workspace": volume},
         min_containers=0,
         buffer_containers=0,
         startup_timeout=modal_config.get("startup_timeout_seconds"),
         retries=0,
-    )(_run_remote)
+    )(entrypoint)
     function = base_function.with_options(
         gpu=modal_config["gpu"],
         cpu=modal_config["cpu"],
         memory=modal_config["memory_mb"],
-        timeout=modal_config["timeout_seconds"],
+        timeout=graph_timeout_seconds if graph_timeout_seconds is not None else modal_config["timeout_seconds"],
         max_containers=modal_config["max_containers"],
         scaledown_window=modal_config["scaledown_window"],
     )
