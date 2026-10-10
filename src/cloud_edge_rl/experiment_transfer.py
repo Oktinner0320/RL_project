@@ -25,7 +25,7 @@ from .transport import (
 class GraphTransferLimits:
     listing_seconds: int = 45
     file_seconds: int = 90
-    download_seconds: int = 600
+    download_seconds: int = 7200
     max_entries: int = 20000
     max_file_bytes: int = 128 * 1024 * 1024
     max_total_bytes: int = 8 * 1024 * 1024 * 1024
