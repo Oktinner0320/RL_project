@@ -196,7 +196,7 @@ class Experiment:
         if (remote.get('status') == 'blocked'
                 and remote.get('error', {}).get('phase') == 'export'):
             # Recovery only packages existing verified artifacts. It never resumes compute.
-            self._command('repair-export', 2100)
+            self._command('repair-export', 2400)
         destination = self.directory / 'artifacts' / submission['attempt_id']
         result = collect_experiment(submission['volume_name'], self.graph['experiment_id'],
                                     destination, environment=submission['environment'])
@@ -400,7 +400,8 @@ def _repair_export(experiment):
             raise ValueError('Original app shutdown required before export recovery')
         binding = {key: submission[key] for key in
                    ('experiment_id', 'attempt_id', 'call_id', 'app_id', 'volume_name', 'environment')}
-        if path.exists():
+        existing = path.exists()
+        if existing:
             record = read_json(path)
             if record.get('binding') != binding:
                 raise ValueError('Export recovery belongs to another original submission')
@@ -412,28 +413,33 @@ def _repair_export(experiment):
                       'new_real_interactions': 0, 'gpu': None, 'cpu': 2, 'memory_mb': 2048,
                       'timeout_seconds': 1800, 'automatic_retries': 0}
             write_json(path, record)
-            app, function = create_export_recovery_app(binding['volume_name'], binding['environment'])
-            with modal.enable_output(), app.run(detach=True, environment_name=binding['environment']):
-                record.update(status='submitting', app_id=app.app_id)
-                write_json(path, record, replace=True)
-                call = function.spawn(experiment.graph, binding['volume_name'], binding, record['recovery_id'])
-                record.update(status='submitted', call_id=call.object_id)
-                write_json(path, record, replace=True)
+        app = None
         try:
+            if not existing:
+                app, function = create_export_recovery_app(binding['volume_name'], binding['environment'])
+                with modal.enable_output(), app.run(detach=True, environment_name=binding['environment']):
+                    record.update(status='submitting', app_id=app.app_id)
+                    write_json(path, record, replace=True)
+                    call = function.spawn(experiment.graph, binding['volume_name'], binding, record['recovery_id'])
+                    record.update(status='submitted', call_id=call.object_id)
+                    write_json(path, record, replace=True)
             result = _export_recovery_result(record, timeout=1950)
             record.update(status='export_complete', result=result)
             write_json(path, record, replace=True)
         except TimeoutError:
-            modal.FunctionCall.from_id(record['call_id']).cancel(terminate_containers=True)
+            if record.get('call_id'):
+                modal.FunctionCall.from_id(record['call_id']).cancel(terminate_containers=True)
             record.update(status='timed_out')
             write_json(path, record, replace=True)
             raise
         finally:
-            stopped = stop_and_verify(record['app_id'], environment=binding['environment'])
-            write_json(experiment.directory / f"export-shutdown-{record['recovery_id']}.json",
-                       stopped, replace=True)
-            if stopped.get('stopped') is not True or stopped.get('app_id') != record['app_id']:
-                raise ValueError('Exact export recovery app shutdown not verified')
+            app_id = record.get('app_id') or (getattr(app, 'app_id', None) if app is not None else None)
+            if app_id is not None:
+                stopped = stop_and_verify(app_id, environment=binding['environment'])
+                write_json(experiment.directory / f"export-shutdown-{record['recovery_id']}.json",
+                           stopped, replace=True)
+                if stopped.get('stopped') is not True or stopped.get('app_id') != app_id:
+                    raise ValueError('Exact export recovery app shutdown not verified')
         if read_json(experiment.directory / 'submission.json') != submission:
             raise ValueError('Original submission changed during export recovery')
         return result
