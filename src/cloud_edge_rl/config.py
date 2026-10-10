@@ -23,7 +23,7 @@ _CORE_FIELDS = {
     'audit': {'policy': str, 'max_calls': int, 'max_seconds': float, 'period': int, 'device': str},
     'execution': {'split': str, 'save_updates': bool, 'warmup_actions': list},
     'modal': {'app_name': str, 'volume_name': str, 'gpu': str, 'cpu': float, 'memory_mb': int, 'timeout_seconds': int, 'max_containers': int, 'retries': int},
-    'workflow': {'reuse_completed': bool, 'jobs': dict, 'training_pipeline': dict},
+    'workflow': {'reuse_completed': bool, 'jobs': dict, 'training_pipeline': dict, 'experiment': dict},
     'components': {'backend': str, 'risk': str, 'attack': str},
 }
 _EXTRA_FIELDS = {
@@ -48,6 +48,35 @@ def _config_pairs(pairs):
 
 def _config_constant(value):
     raise ValueError(f'Nonfinite configuration number: {value}')
+
+
+def _validate_experiment_controls(controls):
+    guards = {'prepare_enabled', 'submission_enabled', 'refresh_enabled', 'collection_enabled', 'verification_enabled'}
+    limits = {'graph_timeout_seconds': 86400, 'node_timeout_seconds': 7200,
+              'verification_timeout_seconds': 7200, 'controller_timeout_seconds': 7200}
+    required = guards | set(limits) | {'directory', 'mode'}
+    optional = {'graph_admission', 'max_nodes'}
+    if type(controls) is not dict or not required <= controls.keys() or controls.keys() - required - optional:
+        raise ValueError('workflow.experiment contains missing or unknown schema fields')
+    for key in guards:
+        if type(controls[key]) is not bool:
+            raise ValueError(f'workflow.experiment.{key} requires bool')
+    for key, maximum in limits.items():
+        if type(controls[key]) is not int or not 1 <= controls[key] <= maximum:
+            raise ValueError(f'workflow.experiment.{key} requires an integer in [1, {maximum}]')
+    if controls['node_timeout_seconds'] + controls['verification_timeout_seconds'] + 60 > controls['graph_timeout_seconds']:
+        raise ValueError('workflow.experiment graph deadline cannot contain one bounded node')
+    max_nodes = controls.get('max_nodes', 256)
+    if type(max_nodes) is not int or not 1 <= max_nodes <= 256:
+        raise ValueError('workflow.experiment.max_nodes requires an integer in [1, 256]')
+    if type(controls['mode']) is not str or controls['mode'] not in ('fresh', 'selection', 'comparisons'):
+        raise ValueError('workflow.experiment.mode requires a registered planning mode')
+    for key in ('directory', 'graph_admission'):
+        value = controls.get(key)
+        if key == 'graph_admission' and value is None:
+            continue
+        if type(value) is not str or not value.strip() or '\x00' in value:
+            raise ValueError(f'workflow.experiment.{key} requires a nonempty artifact path')
 
 
 def _validate_config(config):
@@ -112,6 +141,7 @@ def _validate_config(config):
         elif type(value) not in (str, int, float, bool, type(None)) or (type(value) is float and not math.isfinite(value)):
             raise ValueError(f'{path} is not strict JSON')
 
+    _validate_experiment_controls(config['workflow']['experiment'])
     visit(config, 'config')
     for group, seeds in config['seeds'].items():
         if type(seeds) is not list or not seeds or any(type(seed) is not int for seed in seeds) or len(set(seeds)) != len(seeds):

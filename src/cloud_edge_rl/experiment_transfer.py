@@ -117,6 +117,21 @@ def _inventory(value, experiment_id, limits):
 def _snapshot_ids(snapshot, experiment_id):
     if type(snapshot) is not dict or snapshot.get('experiment_id') != experiment_id:
         raise ValueError('Experiment snapshot identity mismatch')
+    if snapshot.get('schema') == 'experiment_graph_v1':
+        from .experiment_graph import expand, validate_graph
+        validate_graph(snapshot)
+        node_ids, run_ids = set(), set()
+        folded = set()
+        for node in snapshot['nodes']:
+            run_id = node['run_id']
+            spec = expand(snapshot['pool'], node['spec_ref'])
+            if spec['run_id'] != run_id or run_id.casefold() in folded:
+                raise ValueError('Graph snapshot pooled run identity mismatch/collision')
+            safe_run_id(run_id)
+            folded.add(run_id.casefold())
+            node_ids.add(run_id)
+            run_ids.add(run_id)
+        return node_ids, run_ids
     nodes = snapshot.get('nodes')
     if type(nodes) is dict:
         items = list(nodes.items())
@@ -234,7 +249,7 @@ def collect_experiment(volume_name, experiment_id, destination, *, limits=None,
         raise ValueError('Experiment state identity mismatch')
     # A failed graph may legitimately lack results for unstarted/failed nodes.
     # A globally completed graph must retain every result and native gate receipt.
-    if state.get('status', state.get('state')) == 'completed':
+    if state.get('status', state.get('state')) in ('completed', 'cloud_verified'):
         paths = {row['path'] for row in files}
         for node_id in node_ids:
             prefix = f'experiments/{experiment_id}/nodes/{node_id}'
@@ -248,6 +263,7 @@ def collect_experiment(volume_name, experiment_id, destination, *, limits=None,
     else:
         write_json(exported_inventory, inventory)
     result = {'experiment_id': experiment_id, 'transport_complete': True,
+              'status': 'transport_complete', 'graph_status': state.get('status', state.get('state')),
               'semantic_verified': False, 'files': completed, 'bytes': completed_bytes,
               'destination': str(root), 'inventory': str(exported_inventory),
               'elapsed_seconds': time.monotonic() - started}
