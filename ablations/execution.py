@@ -59,7 +59,7 @@ def _guard(spec, workspace):
             continue
         if key != 'risk_checkpoint':
             parts = Path(value).parts
-            expected = 'training.pt' if key == 'previous_training_checkpoint' else 'agent.pt'
+            expected = 'training.pt'
             if len(parts) != 3 or parts[0] != 'runs' or parts[-1] != expected or parts[1] == spec.run_id:
                 raise ValueError('Policy input must be a prior workspace run artifact')
         if not _inside(root, value).is_file():
@@ -134,11 +134,12 @@ def execute_stage(spec: RunSpec, workspace: Path) -> dict:
             else:
                 saved = _load(_inside(root, spec.inputs['agent_checkpoint']))
                 seed = spec.config['rl']['seed']
-                if (saved.get('training_seed') != seed or saved.get('risk_version') != spec.risk_version
-                        or saved.get('n_step') != spec.config['rl']['n_step']
-                        or saved.get('ablation_experiment_id') != experiment):
-                    raise ValueError('Validation agent binding mismatch')
-                policy = load_agent(saved['agent'], _config(spec, seed))
+                from dataclasses import replace
+
+                state = _training(saved, replace(spec, seed=seed), experiment)
+                if state['environment_steps'] != 1200:
+                    raise ValueError('Validation requires the completed training budget')
+                policy = load_agent(state['agent'], _config(spec, seed))
                 if policy.observation_space != env.observation_space or policy.action_count != env.action_space.n:
                     raise ValueError('Validation environment space mismatch')
                 result = pipeline._run_episode(env, policy, spec.seed)
@@ -163,7 +164,21 @@ def verify_stage(spec: RunSpec, workspace: Path, result: dict) -> dict:
     if not rows or result.get('risk_measurement') != 'predicted_risk':
         raise ValueError('Missing actual metrics or predicted-risk labeling')
     if spec.stage == 'train_policy':
-        state = _training(_load(_inside(root, f'runs/{spec.run_id}/training.pt')), spec, experiment)
+        envelope = _load(_inside(root, f'runs/{spec.run_id}/training.pt'))
+        state = _training(envelope, spec, experiment)
+        from ablations.variants.dqn_nstep import _validate
+
+        _validate(_config(spec), envelope)
+        agent = _load(_inside(root, f'runs/{spec.run_id}/agent.pt'))
+        if (agent.get('risk_version') != spec.risk_version or agent.get('training_seed') != spec.seed
+                or agent.get('n_step') != spec.config['rl']['n_step']
+                or agent.get('ablation_experiment_id') != experiment):
+            raise ValueError('Exported agent binding mismatch')
+        exported = load_agent(agent['agent'], _config(spec))
+        actual = load_agent(state['agent'], _config(spec))
+        if any(not torch.equal(value, exported.network.state_dict()[key])
+               for key, value in actual.network.state_dict().items()):
+            raise ValueError('Exported agent differs from trained checkpoint')
         prior_path = spec.inputs['previous_training_checkpoint']
         before = _training(_load(_inside(root, prior_path)), spec, experiment)['environment_steps'] if prior_path else 0
         target = min(1200, before + spec.config['rl']['stage_interaction_limit'])
