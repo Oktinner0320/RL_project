@@ -1,0 +1,98 @@
+{
+  "status": "report_numbers_cross_checked",
+  "stage_interactions": {
+    "collect": 90,
+    "benchmark_attack": 0,
+    "audit": 0,
+    "fit_risk": 0,
+    "train_policy": 27000,
+    "validate": 1944
+  },
+  "training_interactions": {
+    "('dqn', 8101)": 3000,
+    "('dqn', 8102)": 3000,
+    "('dqn', 8103)": 3000,
+    "('ppo', 8101)": 3000,
+    "('ppo', 8102)": 3000,
+    "('ppo', 8103)": 3000,
+    "('pqn', 8101)": 3000,
+    "('pqn', 8102)": 3000,
+    "('pqn', 8103)": 3000
+  },
+  "early_terminations": [
+    {
+      "run_id": "validate-109a6b97808c466889b8b746b8f01bc9",
+      "method": "dqn",
+      "seed": 8201,
+      "interactions": 26,
+      "checkpoint": "runs/train_policy-4d24ce0c1f1141c684df607b8d84324f/agent-step01500.pt"
+    },
+    {
+      "run_id": "validate-16c3e24423094dee8b74c071645664fe",
+      "method": "dqn",
+      "seed": 8201,
+      "interactions": 29,
+      "checkpoint": "runs/train_policy-006a5fc159aa4f689620faafc74dc218/agent-step02000.pt"
+    },
+    {
+      "run_id": "validate-8ea680ab5f494ef5994156344dd1ef67",
+      "method": "dqn",
+      "seed": 8202,
+      "interactions": 23,
+      "checkpoint": "runs/train_policy-358f3d39d23b4db9a51651f1ed0fc307/agent-step00500.pt"
+    },
+    {
+      "run_id": "validate-9e41a0f12bba45a78fa59b82fc28a4e7",
+      "method": "dqn",
+      "seed": 8202,
+      "interactions": 23,
+      "checkpoint": "runs/train_policy-c9f36ee25d7e4c2eb479cec37ab70277/agent-step01000.pt"
+    },
+    {
+      "run_id": "validate-d5021367f3cb42b6a7acba463b1a5b18",
+      "method": "dqn",
+      "seed": 8202,
+      "interactions": 23,
+      "checkpoint": "runs/train_policy-c9f36ee25d7e4c2eb479cec37ab70277/agent-step01500.pt"
+    },
+    {
+      "run_id": "validate-e3fc704ec69541fea3bfbb0211184e77",
+      "method": "dqn",
+      "seed": 8202,
+      "interactions": 28,
+      "checkpoint": "runs/train_policy-56e8ae9019ba4875b11c78fcea1d297b/agent-step02500.pt"
+    },
+    {
+      "run_id": "validate-abb0ad077332467793874c72e916fa2d",
+      "method": "dqn",
+      "seed": 8203,
+      "interactions": 29,
+      "checkpoint": "runs/train_policy-da15a0b9fabe4afba87dcf56c7f0b898/agent-step02000.pt"
+    },
+    {
+      "run_id": "validate-b13b62a463704132bd75b54f7f59c683",
+      "method": "ppo",
+      "seed": 8203,
+      "interactions": 29,
+      "checkpoint": "runs/train_policy-53ad1fc4283d419999b0fcb3691a18b0/agent-step00500.pt"
+    },
+    {
+      "run_id": "validate-08f55d2d8dc341f18c76e44f8ee26ee6",
+      "method": "ppo",
+      "seed": 8203,
+      "interactions": 29,
+      "checkpoint": "runs/train_policy-070841ee84f24e7dad245a02452aaca4/agent-step01000.pt"
+    },
+    {
+      "run_id": "validate-d216154950b24dfa8512e45d4f23a2d4",
+      "method": "pqn",
+      "seed": 8203,
+      "interactions": 25,
+      "checkpoint": "runs/train_policy-30eacb269a3a48c58388102c9bef495f/agent-step02500.pt"
+    }
+  ],
+  "final_csv_rows": 21,
+  "all_summary_means_and_standard_deviations_reproduced": true,
+  "new_cloud_calls": 0,
+  "new_real_interactions": 0
+}

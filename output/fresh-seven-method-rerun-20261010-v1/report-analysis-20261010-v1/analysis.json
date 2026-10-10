@@ -1,0 +1,2212 @@
+{
+  "status": "descriptive_latest_validation_summaries_only",
+  "experiment_id": "experiment-07a6fb8d045b4b778c80b5fc4dba97de",
+  "attempt_id": "121196f0242940a69c558b34a98ba2e3",
+  "nodes": 101,
+  "phase_counts": {
+    "collect": 3,
+    "benchmark_attack": 1,
+    "audit": 3,
+    "fit_risk": 1,
+    "train_policy": 27,
+    "validate": 66
+  },
+  "returned_raw_runs": 9,
+  "node_receipts_verified": 101,
+  "whole_transfer_complete": false,
+  "local_semantic_verified": false,
+  "formal_acceptance": "not_evaluated",
+  "evaluation_rows": 66,
+  "final_rows": 21,
+  "final_summary": [
+    {
+      "method": "dqn",
+      "checkpoint_step": 3000,
+      "n": 3,
+      "evaluation_seeds": [
+        8201,
+        8202,
+        8203
+      ],
+      "training_seeds": [
+        8101,
+        8102,
+        8103
+      ],
+      "validation_accuracy": {
+        "mean": 0.7577805077805078,
+        "sample_sd": 0.004493730600673327,
+        "min": 0.753992628992629,
+        "max": 0.7627457002457002
+      },
+      "elapsed_seconds": {
+        "mean": 5.909188324084389,
+        "sample_sd": 0.38288321442821016,
+        "min": 5.595642228328686,
+        "max": 6.335898754086587
+      },
+      "energy_joules": {
+        "mean": 49.71162032935232,
+        "sample_sd": 8.403615469820785,
+        "min": 43.85852374631784,
+        "max": 59.34090673725631
+      },
+      "predicted_exposure_risk": {
+        "mean": 0.44522897844755327,
+        "sample_sd": 0.0066456887975317675,
+        "min": 0.43841425830223524,
+        "max": 0.4516916407310233
+      },
+      "risk_exposures": {
+        "mean": 1557.3333333333333,
+        "sample_sd": 400.10665244823576,
+        "min": 1152,
+        "max": 1952
+      },
+      "processed_samples": {
+        "mean": 2493.3333333333335,
+        "sample_sd": 400.10665244823576,
+        "min": 2088,
+        "max": 2888
+      },
+      "upload_bytes": {
+        "mean": 3321108,
+        "sample_sd": 459150.0164260043,
+        "min": 3032316,
+        "max": 3850560
+      },
+      "total_reward": {
+        "mean": -0.21672997167812422,
+        "sample_sd": 0.07210608365240098,
+        "min": -0.27825389423444424,
+        "max": -0.13738413946886197
+      }
+    },
+    {
+      "method": "fixed",
+      "checkpoint_step": null,
+      "n": 3,
+      "evaluation_seeds": [
+        8201,
+        8202,
+        8203
+      ],
+      "training_seeds": [
+        null
+      ],
+      "validation_accuracy": {
+        "mean": 0.7577805077805078,
+        "sample_sd": 0.00460004953699039,
+        "min": 0.753992628992629,
+        "max": 0.7628992628992629
+      },
+      "elapsed_seconds": {
+        "mean": 6.0664264061838,
+        "sample_sd": 0.3053519801893317,
+        "min": 5.870348896157864,
+        "max": 6.418246640726043
+      },
+      "energy_joules": {
+        "mean": 44.216509505162016,
+        "sample_sd": 1.4993738177228284,
+        "min": 43.10002890623642,
+        "max": 45.920710165824005
+      },
+      "predicted_exposure_risk": {
+        "mean": 0.44465556768355546,
+        "sample_sd": 0.0022720153493046786,
+        "min": 0.4432409322924084,
+        "max": 0.4472763008541531
+      },
+      "risk_exposures": {
+        "mean": 1152,
+        "sample_sd": 0.0,
+        "min": 1152,
+        "max": 1152
+      },
+      "processed_samples": {
+        "mean": 2088,
+        "sample_sd": 0.0,
+        "min": 2088,
+        "max": 2088
+      },
+      "upload_bytes": {
+        "mean": 3032316,
+        "sample_sd": 0.0,
+        "min": 3032316,
+        "max": 3032316
+      },
+      "total_reward": {
+        "mean": -0.21903942388250464,
+        "sample_sd": 0.03619114369564306,
+        "min": -0.2419172533722388,
+        "max": -0.17731433126096133
+      }
+    },
+    {
+      "method": "metacs",
+      "checkpoint_step": null,
+      "n": 3,
+      "evaluation_seeds": [
+        8201,
+        8202,
+        8203
+      ],
+      "training_seeds": [
+        null
+      ],
+      "validation_accuracy": {
+        "mean": 0.7571150696150696,
+        "sample_sd": 0.0052399153801128235,
+        "min": 0.7521498771498771,
+        "max": 0.7625921375921376
+      },
+      "elapsed_seconds": {
+        "mean": 3.7209674439986555,
+        "sample_sd": 0.36634587985440453,
+        "min": 3.3870866516304172,
+        "max": 4.11285675894427
+      },
+      "energy_joules": {
+        "mean": 30.112958347778775,
+        "sample_sd": 5.159617588978531,
+        "min": 24.39152620071603,
+        "max": 34.41261997428092
+      },
+      "predicted_exposure_risk": {
+        "mean": 0.5007167622902927,
+        "sample_sd": 0.04363432832403036,
+        "min": 0.4503743015769599,
+        "max": 0.5276718354887433
+      },
+      "risk_exposures": {
+        "mean": 560,
+        "sample_sd": 471.1178196587346,
+        "min": 288,
+        "max": 1104
+      },
+      "processed_samples": {
+        "mean": 1496,
+        "sample_sd": 471.1178196587346,
+        "min": 1224,
+        "max": 2040
+      },
+      "upload_bytes": {
+        "mean": 3032316,
+        "sample_sd": 0.0,
+        "min": 3032316,
+        "max": 3032316
+      },
+      "total_reward": {
+        "mean": -0.09393448224197601,
+        "sample_sd": 0.056282469276373,
+        "min": -0.1439986921533818,
+        "max": -0.03301508827880007
+      }
+    },
+    {
+      "method": "ppo",
+      "checkpoint_step": 3000,
+      "n": 3,
+      "evaluation_seeds": [
+        8201,
+        8202,
+        8203
+      ],
+      "training_seeds": [
+        8101,
+        8102,
+        8103
+      ],
+      "validation_accuracy": {
+        "mean": 0.758087633087633,
+        "sample_sd": 0.004440944149619973,
+        "min": 0.7541461916461917,
+        "max": 0.7628992628992629
+      },
+      "elapsed_seconds": {
+        "mean": 4.891809872702019,
+        "sample_sd": 0.8902729538821957,
+        "min": 4.264017345339458,
+        "max": 5.910683681667493
+      },
+      "energy_joules": {
+        "mean": 40.04814003257913,
+        "sample_sd": 13.043439290880125,
+        "min": 30.1676252542117,
+        "max": 54.83283134762788
+      },
+      "predicted_exposure_risk": {
+        "mean": 0.49363503246395674,
+        "sample_sd": 0.04335882846317689,
+        "min": 0.4435832020309236,
+        "max": 0.519709140614227
+      },
+      "risk_exposures": {
+        "mean": 864,
+        "sample_sd": 748.245948869755,
+        "min": 432,
+        "max": 1728
+      },
+      "processed_samples": {
+        "mean": 1800,
+        "sample_sd": 748.245948869755,
+        "min": 1368,
+        "max": 2664
+      },
+      "upload_bytes": {
+        "mean": 3898692,
+        "sample_sd": 0.0,
+        "min": 3898692,
+        "max": 3898692
+      },
+      "total_reward": {
+        "mean": -0.16073104890674755,
+        "sample_sd": 0.09442598349192845,
+        "min": -0.2523877089824793,
+        "max": -0.06376018416205215
+      }
+    },
+    {
+      "method": "pqn",
+      "checkpoint_step": 3000,
+      "n": 3,
+      "evaluation_seeds": [
+        8201,
+        8202,
+        8203
+      ],
+      "training_seeds": [
+        8101,
+        8102,
+        8103
+      ],
+      "validation_accuracy": {
+        "mean": 0.7575245700245701,
+        "sample_sd": 0.00442942417133165,
+        "min": 0.7538390663390664,
+        "max": 0.7624385749385749
+      },
+      "elapsed_seconds": {
+        "mean": 4.144694577882696,
+        "sample_sd": 0.4450334266995623,
+        "min": 3.645765454091737,
+        "max": 4.500728591099107
+      },
+      "energy_joules": {
+        "mean": 31.08972376656774,
+        "sample_sd": 1.7420920924787824,
+        "min": 29.329036156825175,
+        "max": 32.81260493817795
+      },
+      "predicted_exposure_risk": {
+        "mean": 0.49667143778550243,
+        "sample_sd": 0.023095925158698467,
+        "min": 0.4715535558227982,
+        "max": 0.5169918710986773
+      },
+      "risk_exposures": {
+        "mean": 554.6666666666666,
+        "sample_sd": 310.80111539911394,
+        "min": 288,
+        "max": 896
+      },
+      "processed_samples": {
+        "mean": 1490.6666666666667,
+        "sample_sd": 310.80111539911394,
+        "min": 1224,
+        "max": 1832
+      },
+      "upload_bytes": {
+        "mean": 3064404,
+        "sample_sd": 27789.023156635067,
+        "min": 3032316,
+        "max": 3080448
+      },
+      "total_reward": {
+        "mean": -0.11528357149498751,
+        "sample_sd": 0.07317607153880698,
+        "min": -0.16242741988039727,
+        "max": -0.03098413611161452
+      }
+    },
+    {
+      "method": "risk_greedy",
+      "checkpoint_step": null,
+      "n": 3,
+      "evaluation_seeds": [
+        8201,
+        8202,
+        8203
+      ],
+      "training_seeds": [
+        null
+      ],
+      "validation_accuracy": {
+        "mean": 0.7568079443079443,
+        "sample_sd": 0.005546000504005648,
+        "min": 0.7533783783783784,
+        "max": 0.7632063882063882
+      },
+      "elapsed_seconds": {
+        "mean": 3.416803433535146,
+        "sample_sd": 0.29103089561925805,
+        "min": 3.0848799534556526,
+        "max": 3.6282523666503743
+      },
+      "energy_joules": {
+        "mean": 30.480447915741124,
+        "sample_sd": 5.28148119114438,
+        "min": 24.59606919341909,
+        "max": 34.8099400058062
+      },
+      "predicted_exposure_risk": {
+        "mean": 0.49056406118093976,
+        "sample_sd": 0.03756581381625625,
+        "min": 0.4472237452864647,
+        "max": 0.5137844227609181
+      },
+      "risk_exposures": {
+        "mean": 608,
+        "sample_sd": 471.1178196587346,
+        "min": 336,
+        "max": 1152
+      },
+      "processed_samples": {
+        "mean": 1544,
+        "sample_sd": 471.1178196587346,
+        "min": 1272,
+        "max": 2088
+      },
+      "upload_bytes": {
+        "mean": 3032316,
+        "sample_sd": 0.0,
+        "min": 3032316,
+        "max": 3032316
+      },
+      "total_reward": {
+        "mean": -0.07838562648295286,
+        "sample_sd": 0.04360261550753375,
+        "min": -0.11376409486557316,
+        "max": -0.029672835753541307
+      }
+    },
+    {
+      "method": "time_greedy",
+      "checkpoint_step": null,
+      "n": 3,
+      "evaluation_seeds": [
+        8201,
+        8202,
+        8203
+      ],
+      "training_seeds": [
+        null
+      ],
+      "validation_accuracy": {
+        "mean": 0.7556818181818182,
+        "sample_sd": 0.00603210053482875,
+        "min": 0.750460687960688,
+        "max": 0.7622850122850123
+      },
+      "elapsed_seconds": {
+        "mean": 3.1903974976935148,
+        "sample_sd": 0.24120082303630308,
+        "min": 3.047041377324344,
+        "max": 3.4688716025644406
+      },
+      "energy_joules": {
+        "mean": 26.840867982015443,
+        "sample_sd": 3.7829830794803265,
+        "min": 23.87822236758168,
+        "max": 31.102120500950186
+      },
+      "predicted_exposure_risk": {
+        "mean": 0.5199565931602761,
+        "sample_sd": 0.0032496989481062065,
+        "min": 0.5171121483047804,
+        "max": 0.5234983422689967
+      },
+      "risk_exposures": {
+        "mean": 288,
+        "sample_sd": 0.0,
+        "min": 288,
+        "max": 288
+      },
+      "processed_samples": {
+        "mean": 1224,
+        "sample_sd": 0.0,
+        "min": 1224,
+        "max": 1224
+      },
+      "upload_bytes": {
+        "mean": 3032316,
+        "sample_sd": 0.0,
+        "min": 3032316,
+        "max": 3032316
+      },
+      "total_reward": {
+        "mean": -0.06749112908120539,
+        "sample_sd": 0.057671436769444175,
+        "min": -0.11118946518431412,
+        "max": -0.002123732832528774
+      }
+    }
+  ],
+  "comparisons": [
+    {
+      "method": "dqn",
+      "reference": "pqn",
+      "accuracy_delta_pp": 0.02559377559376852,
+      "time_ratio": 1.4257234672049295,
+      "energy_ratio": 1.598972724962246,
+      "proxy_risk_ratio": 0.8964255734790901,
+      "ATE_feasible_seeds": 0,
+      "pairs": [
+        {
+          "evaluation_seed": 8201,
+          "accuracy_delta_pp": 0.030712530712528885,
+          "time_ratio": 1.2877968250074967,
+          "energy_ratio": 1.4757171610597872,
+          "proxy_risk_ratio": 0.8618724224086571,
+          "ATE_feasible": false
+        },
+        {
+          "evaluation_seed": 8202,
+          "accuracy_delta_pp": 0.030712530712528885,
+          "time_ratio": 1.4777297303292953,
+          "energy_ratio": 2.023281856926862,
+          "proxy_risk_ratio": 0.8742601388870699,
+          "ATE_feasible": false
+        },
+        {
+          "evaluation_seed": 8203,
+          "accuracy_delta_pp": 0.015356265356258891,
+          "time_ratio": 1.5348333014809146,
+          "energy_ratio": 1.3366364489790266,
+          "proxy_risk_ratio": 0.9578798317889503,
+          "ATE_feasible": false
+        }
+      ],
+      "formal_reference_frozen": false,
+      "true_risk_comparison": null
+    },
+    {
+      "method": "dqn",
+      "reference": "metacs",
+      "accuracy_delta_pp": 0.06654381654381814,
+      "time_ratio": 1.5880784804003043,
+      "energy_ratio": 1.6508381459976749,
+      "proxy_risk_ratio": 0.8891832907911117,
+      "ATE_feasible_seeds": 0,
+      "pairs": [
+        {
+          "evaluation_seed": 8201,
+          "accuracy_delta_pp": 0.015356265356258891,
+          "time_ratio": 1.409245283642136,
+          "energy_ratio": 1.4566616601102802,
+          "proxy_risk_ratio": 0.8501765087626895,
+          "ATE_feasible": false
+        },
+        {
+          "evaluation_seed": 8202,
+          "accuracy_delta_pp": 0.0,
+          "time_ratio": 1.8706042702027483,
+          "energy_ratio": 2.432849271051941,
+          "proxy_risk_ratio": 0.8308464254040859,
+          "ATE_feasible": false
+        },
+        {
+          "evaluation_seed": 8203,
+          "accuracy_delta_pp": 0.1842751842751844,
+          "time_ratio": 1.5276289874846587,
+          "energy_ratio": 1.2744895267810628,
+          "proxy_risk_ratio": 1.0029249873925994,
+          "ATE_feasible": false
+        }
+      ],
+      "formal_reference_frozen": false,
+      "true_risk_comparison": null
+    },
+    {
+      "method": "dqn",
+      "reference": "fixed",
+      "accuracy_delta_pp": 0.0,
+      "time_ratio": 0.9740806083233564,
+      "energy_ratio": 1.124277354447184,
+      "proxy_risk_ratio": 1.0012895616420256,
+      "ATE_feasible_seeds": 2,
+      "pairs": [
+        {
+          "evaluation_seed": 8201,
+          "accuracy_delta_pp": -0.015356265356269994,
+          "time_ratio": 0.9873389286335919,
+          "energy_ratio": 1.0003205599087133,
+          "proxy_risk_ratio": 1.004806785327215,
+          "ATE_feasible": true
+        },
+        {
+          "evaluation_seed": 8202,
+          "accuracy_delta_pp": 0.015356265356269994,
+          "time_ratio": 1.0719400826232566,
+          "energy_ratio": 1.3601318646304623,
+          "proxy_risk_ratio": 0.9891104958082053,
+          "ATE_feasible": false
+        },
+        {
+          "evaluation_seed": 8203,
+          "accuracy_delta_pp": 0.0,
+          "time_ratio": 0.8718334681659566,
+          "energy_ratio": 1.0175984763660257,
+          "proxy_risk_ratio": 1.009871615975267,
+          "ATE_feasible": true
+        }
+      ],
+      "formal_reference_frozen": false,
+      "true_risk_comparison": null
+    },
+    {
+      "method": "dqn",
+      "reference": "time_greedy",
+      "accuracy_delta_pp": 0.20986895986895293,
+      "time_ratio": 1.852179337639405,
+      "energy_ratio": 1.8520869132347466,
+      "proxy_risk_ratio": 0.8562810517344702,
+      "ATE_feasible_seeds": 0,
+      "pairs": [
+        {
+          "evaluation_seed": 8201,
+          "accuracy_delta_pp": 0.046068796068787776,
+          "time_ratio": 1.670867259991132,
+          "energy_ratio": 1.4769227874054265,
+          "proxy_risk_ratio": 0.8581089367650417,
+          "ATE_feasible": false
+        },
+        {
+          "evaluation_seed": 8202,
+          "accuracy_delta_pp": 0.2303439803439833,
+          "time_ratio": 2.0793609175239496,
+          "energy_ratio": 2.4851475886170076,
+          "proxy_risk_ratio": 0.8374701940831715,
+          "ATE_feasible": false
+        },
+        {
+          "evaluation_seed": 8203,
+          "accuracy_delta_pp": 0.35319410319409883,
+          "time_ratio": 1.831466549678489,
+          "energy_ratio": 1.7170963687677472,
+          "proxy_risk_ratio": 0.8734887436154393,
+          "ATE_feasible": false
+        }
+      ],
+      "formal_reference_frozen": false,
+      "true_risk_comparison": null
+    },
+    {
+      "method": "dqn",
+      "reference": "risk_greedy",
+      "accuracy_delta_pp": 0.09725634725634702,
+      "time_ratio": 1.7294493051859683,
+      "energy_ratio": 1.6309347049877039,
+      "proxy_risk_ratio": 0.9075858051561077,
+      "ATE_feasible_seeds": 0,
+      "pairs": [
+        {
+          "evaluation_seed": 8201,
+          "accuracy_delta_pp": -0.04606879606879888,
+          "time_ratio": 1.6385548497434128,
+          "energy_ratio": 1.4338988854840398,
+          "proxy_risk_ratio": 0.8725180792610552,
+          "ATE_feasible": false
+        },
+        {
+          "evaluation_seed": 8202,
+          "accuracy_delta_pp": 0.32248157248156994,
+          "time_ratio": 2.0538558549058528,
+          "energy_ratio": 2.412617490649015,
+          "proxy_risk_ratio": 0.853303912847986,
+          "ATE_feasible": false
+        },
+        {
+          "evaluation_seed": 8203,
+          "accuracy_delta_pp": 0.015356265356258891,
+          "time_ratio": 1.5422417359282588,
+          "energy_ratio": 1.2599425261578263,
+          "proxy_risk_ratio": 1.0099902911946161,
+          "ATE_feasible": false
+        }
+      ],
+      "formal_reference_frozen": false,
+      "true_risk_comparison": null
+    },
+    {
+      "method": "ppo",
+      "reference": "pqn",
+      "accuracy_delta_pp": 0.056306306306297405,
+      "time_ratio": 1.1802582266992965,
+      "energy_ratio": 1.288147181148158,
+      "proxy_risk_ratio": 0.9938864909665753,
+      "ATE_feasible_seeds": 1,
+      "pairs": [
+        {
+          "evaluation_seed": 8201,
+          "accuracy_delta_pp": 0.04606879606879888,
+          "time_ratio": 1.0,
+          "energy_ratio": 1.1290315442563201,
+          "proxy_risk_ratio": 1.0012009543723055,
+          "ATE_feasible": true
+        },
+        {
+          "evaluation_seed": 8202,
+          "accuracy_delta_pp": 0.09213759213758665,
+          "time_ratio": 1.3785562778033156,
+          "energy_ratio": 1.8695749514041806,
+          "proxy_risk_ratio": 0.8845677449390319,
+          "ATE_feasible": false
+        },
+        {
+          "evaluation_seed": 8203,
+          "accuracy_delta_pp": 0.030712530712528885,
+          "time_ratio": 1.1695808189069983,
+          "energy_ratio": 0.9193913531415857,
+          "proxy_risk_ratio": 1.1021211359702372,
+          "ATE_feasible": false
+        }
+      ],
+      "formal_reference_frozen": false,
+      "true_risk_comparison": null
+    },
+    {
+      "method": "ppo",
+      "reference": "metacs",
+      "accuracy_delta_pp": 0.09725634725634702,
+      "time_ratio": 1.3146607559256536,
+      "energy_ratio": 1.3299304429029373,
+      "proxy_risk_ratio": 0.985856814950744,
+      "ATE_feasible_seeds": 1,
+      "pairs": [
+        {
+          "evaluation_seed": 8201,
+          "accuracy_delta_pp": 0.030712530712528885,
+          "time_ratio": 1.0943071579897181,
+          "energy_ratio": 1.114452692541843,
+          "proxy_risk_ratio": 0.9876143032623033,
+          "ATE_feasible": true
+        },
+        {
+          "evaluation_seed": 8202,
+          "accuracy_delta_pp": 0.06142506142505777,
+          "time_ratio": 1.7450642069704092,
+          "energy_ratio": 2.2480278969184893,
+          "proxy_risk_ratio": 0.840642179850409,
+          "ATE_feasible": false
+        },
+        {
+          "evaluation_seed": 8203,
+          "accuracy_delta_pp": 0.1996314496314544,
+          "time_ratio": 1.1640909540107427,
+          "energy_ratio": 0.8766442449531068,
+          "proxy_risk_ratio": 1.1539493678802168,
+          "ATE_feasible": false
+        }
+      ],
+      "formal_reference_frozen": false,
+      "true_risk_comparison": null
+    },
+    {
+      "method": "ppo",
+      "reference": "fixed",
+      "accuracy_delta_pp": 0.030712530712528885,
+      "time_ratio": 0.8063742218508679,
+      "energy_ratio": 0.905728210588485,
+      "proxy_risk_ratio": 1.1101514708014588,
+      "ATE_feasible_seeds": 2,
+      "pairs": [
+        {
+          "evaluation_seed": 8201,
+          "accuracy_delta_pp": 0.0,
+          "time_ratio": 0.7666884321040659,
+          "energy_ratio": 0.7653183796371973,
+          "proxy_risk_ratio": 1.1672417938816173,
+          "ATE_feasible": true
+        },
+        {
+          "evaluation_seed": 8202,
+          "accuracy_delta_pp": 0.07678132678132776,
+          "time_ratio": 1.0,
+          "energy_ratio": 1.2568038684348732,
+          "proxy_risk_ratio": 1.000772197948292,
+          "ATE_feasible": false
+        },
+        {
+          "evaluation_seed": 8203,
+          "accuracy_delta_pp": 0.015356265356269994,
+          "time_ratio": 0.6643585988551393,
+          "energy_ratio": 0.6999444320522614,
+          "proxy_risk_ratio": 1.1619420470562616,
+          "ATE_feasible": true
+        }
+      ],
+      "formal_reference_frozen": false,
+      "true_risk_comparison": null
+    },
+    {
+      "method": "ppo",
+      "reference": "time_greedy",
+      "accuracy_delta_pp": 0.24058149058148182,
+      "time_ratio": 1.5332916591862091,
+      "energy_ratio": 1.4920583067363222,
+      "proxy_risk_ratio": 0.9493773883386343,
+      "ATE_feasible_seeds": 0,
+      "pairs": [
+        {
+          "evaluation_seed": 8201,
+          "accuracy_delta_pp": 0.06142506142505777,
+          "time_ratio": 1.297461856983073,
+          "energy_ratio": 1.129953936575615,
+          "proxy_risk_ratio": 0.9968290713416084,
+          "ATE_feasible": false
+        },
+        {
+          "evaluation_seed": 8202,
+          "accuracy_delta_pp": 0.29176904176904106,
+          "time_ratio": 1.9398107704260188,
+          "energy_ratio": 2.296353158268255,
+          "proxy_risk_ratio": 0.8473440433608687,
+          "ATE_feasible": false
+        },
+        {
+          "evaluation_seed": 8203,
+          "accuracy_delta_pp": 0.3685503685503688,
+          "time_ratio": 1.3956226678864367,
+          "energy_ratio": 1.1810867159591079,
+          "proxy_risk_ratio": 1.005022106554565,
+          "ATE_feasible": false
+        }
+      ],
+      "formal_reference_frozen": false,
+      "true_risk_comparison": null
+    },
+    {
+      "method": "ppo",
+      "reference": "risk_greedy",
+      "accuracy_delta_pp": 0.1279688779688759,
+      "time_ratio": 1.4316919213701385,
+      "energy_ratio": 1.313896047173799,
+      "proxy_risk_ratio": 1.0062600820688417,
+      "ATE_feasible_seeds": 0,
+      "pairs": [
+        {
+          "evaluation_seed": 8201,
+          "accuracy_delta_pp": -0.030712530712528885,
+          "time_ratio": 1.2723706239405226,
+          "energy_ratio": 1.0970375053596555,
+          "proxy_risk_ratio": 1.0135675663248658,
+          "ATE_feasible": false
+        },
+        {
+          "evaluation_seed": 8202,
+          "accuracy_delta_pp": 0.3839066339066277,
+          "time_ratio": 1.916017404517282,
+          "energy_ratio": 2.2293331067022253,
+          "proxy_risk_ratio": 0.8633644431009511,
+          "ATE_feasible": false
+        },
+        {
+          "evaluation_seed": 8203,
+          "accuracy_delta_pp": 0.030712530712528885,
+          "time_ratio": 1.1752262286198207,
+          "energy_ratio": 0.8666382432483316,
+          "proxy_risk_ratio": 1.1620785928558703,
+          "ATE_feasible": false
+        }
+      ],
+      "formal_reference_frozen": false,
+      "true_risk_comparison": null
+    }
+  ],
+  "learning_curve": [
+    {
+      "method": "dqn",
+      "checkpoint_step": 500,
+      "n": 3,
+      "evaluation_seeds": [
+        8201,
+        8202,
+        8203
+      ],
+      "training_seeds": [
+        8101,
+        8102,
+        8103
+      ],
+      "validation_accuracy": {
+        "mean": 0.7561425061425061,
+        "sample_sd": 0.004968885039116544,
+        "min": 0.7526105651105651,
+        "max": 0.7618243243243243
+      },
+      "elapsed_seconds": {
+        "mean": 5.977067636499848,
+        "sample_sd": 1.6163252238949526,
+        "min": 4.473171861750349,
+        "max": 7.686214747347445
+      },
+      "energy_joules": {
+        "mean": 50.14472127452617,
+        "sample_sd": 12.587336167264796,
+        "min": 35.90824130291978,
+        "max": 59.799299230961424
+      },
+      "predicted_exposure_risk": {
+        "mean": 0.4545374722953773,
+        "sample_sd": 0.03731429026812507,
+        "min": 0.43015913317600885,
+        "max": 0.497493973467499
+      },
+      "risk_exposures": {
+        "mean": 1514.6666666666667,
+        "sample_sd": 873.6253964562462,
+        "min": 512,
+        "max": 2112
+      },
+      "processed_samples": {
+        "mean": 2450.6666666666665,
+        "sample_sd": 873.6253964562462,
+        "min": 1448,
+        "max": 3048
+      },
+      "upload_bytes": {
+        "mean": 2984184,
+        "sample_sd": 83367.0694699052,
+        "min": 2887920,
+        "max": 3032316
+      },
+      "total_reward": {
+        "mean": -0.22312588926685506,
+        "sample_sd": 0.050808438472775885,
+        "min": -0.2542552982305754,
+        "max": -0.16449475536231187
+      }
+    },
+    {
+      "method": "dqn",
+      "checkpoint_step": 1000,
+      "n": 3,
+      "evaluation_seeds": [
+        8201,
+        8202,
+        8203
+      ],
+      "training_seeds": [
+        8101,
+        8102,
+        8103
+      ],
+      "validation_accuracy": {
+        "mean": 0.7560913185913186,
+        "sample_sd": 0.006162309396046866,
+        "min": 0.7524570024570024,
+        "max": 0.7632063882063882
+      },
+      "elapsed_seconds": {
+        "mean": 5.825759142718976,
+        "sample_sd": 0.347152799229139,
+        "min": 5.508735370110755,
+        "max": 6.196725757644422
+      },
+      "energy_joules": {
+        "mean": 50.07034470227092,
+        "sample_sd": 10.769280179303978,
+        "min": 38.49855960136755,
+        "max": 59.799299230961424
+      },
+      "predicted_exposure_risk": {
+        "mean": 0.4511280970406149,
+        "sample_sd": 0.018950083084160983,
+        "min": 0.435959310242624,
+        "max": 0.4723703299175229
+      },
+      "risk_exposures": {
+        "mean": 1493.3333333333333,
+        "sample_sd": 600.8704796654046,
+        "min": 912,
+        "max": 2112
+      },
+      "processed_samples": {
+        "mean": 2429.3333333333335,
+        "sample_sd": 600.8704796654046,
+        "min": 1848,
+        "max": 3048
+      },
+      "upload_bytes": {
+        "mean": 3048360,
+        "sample_sd": 147045.688899743,
+        "min": 2887920,
+        "max": 3176712
+      },
+      "total_reward": {
+        "mean": -0.21519633803126753,
+        "sample_sd": 0.07272942657887459,
+        "min": -0.2600513879959355,
+        "max": -0.1312823278672917
+      }
+    },
+    {
+      "method": "dqn",
+      "checkpoint_step": 1500,
+      "n": 3,
+      "evaluation_seeds": [
+        8201,
+        8202,
+        8203
+      ],
+      "training_seeds": [
+        8101,
+        8102,
+        8103
+      ],
+      "validation_accuracy": {
+        "mean": 0.7561425061425061,
+        "sample_sd": 0.005853537638988308,
+        "min": 0.7526105651105651,
+        "max": 0.7628992628992629
+      },
+      "elapsed_seconds": {
+        "mean": 5.042256324544322,
+        "sample_sd": 1.0916878034616746,
+        "min": 3.787201692785314,
+        "max": 5.771816300401752
+      },
+      "energy_joules": {
+        "mean": 50.119143895197126,
+        "sample_sd": 20.382112826090065,
+        "min": 26.700813678647474,
+        "max": 63.857318775982485
+      },
+      "predicted_exposure_risk": {
+        "mean": 0.46060616159278533,
+        "sample_sd": 0.05126920718479211,
+        "min": 0.4263148777412646,
+        "max": 0.5195442967944675
+      },
+      "risk_exposures": {
+        "mean": 1504,
+        "sample_sd": 1053.0868910018773,
+        "min": 288,
+        "max": 2112
+      },
+      "processed_samples": {
+        "mean": 2440,
+        "sample_sd": 1053.0868910018773,
+        "min": 1224,
+        "max": 3048
+      },
+      "upload_bytes": {
+        "mean": 2936052,
+        "sample_sd": 83367.0694699052,
+        "min": 2887920,
+        "max": 3032316
+      },
+      "total_reward": {
+        "mean": -0.17696661521949053,
+        "sample_sd": 0.12088060762042074,
+        "min": -0.2542552982305754,
+        "max": -0.03766460680530596
+      }
+    },
+    {
+      "method": "dqn",
+      "checkpoint_step": 2000,
+      "n": 3,
+      "evaluation_seeds": [
+        8201,
+        8202,
+        8203
+      ],
+      "training_seeds": [
+        8101,
+        8102,
+        8103
+      ],
+      "validation_accuracy": {
+        "mean": 0.7575757575757576,
+        "sample_sd": 0.005239915380112765,
+        "min": 0.7526105651105651,
+        "max": 0.7630528255528255
+      },
+      "elapsed_seconds": {
+        "mean": 7.126449628027281,
+        "sample_sd": 0.41170567141627357,
+        "min": 6.702853915448608,
+        "max": 7.525133984872568
+      },
+      "energy_joules": {
+        "mean": 58.301498588344494,
+        "sample_sd": 4.232578077080574,
+        "min": 54.46919106462364,
+        "max": 62.844395859059084
+      },
+      "predicted_exposure_risk": {
+        "mean": 0.4268342587488882,
+        "sample_sd": 0.019912648658886884,
+        "min": 0.4038565921432832,
+        "max": 0.4390536429626601
+      },
+      "risk_exposures": {
+        "mean": 2032,
+        "sample_sd": 209.22714928995234,
+        "min": 1792,
+        "max": 2176
+      },
+      "processed_samples": {
+        "mean": 2968,
+        "sample_sd": 209.22714928995234,
+        "min": 2728,
+        "max": 3112
+      },
+      "upload_bytes": {
+        "mean": 3144624,
+        "sample_sd": 182224.8110000392,
+        "min": 2936052,
+        "max": 3272976
+      },
+      "total_reward": {
+        "mean": -0.2845481933691447,
+        "sample_sd": 0.05261025047521525,
+        "min": -0.3334367767136395,
+        "max": -0.22887461625852754
+      }
+    },
+    {
+      "method": "dqn",
+      "checkpoint_step": 2500,
+      "n": 3,
+      "evaluation_seeds": [
+        8201,
+        8202,
+        8203
+      ],
+      "training_seeds": [
+        8101,
+        8102,
+        8103
+      ],
+      "validation_accuracy": {
+        "mean": 0.7574221949221949,
+        "sample_sd": 0.005038009745589306,
+        "min": 0.753992628992629,
+        "max": 0.7632063882063882
+      },
+      "elapsed_seconds": {
+        "mean": 5.931287742899842,
+        "sample_sd": 0.4627225327770708,
+        "min": 5.4118745734158535,
+        "max": 6.299482169654548
+      },
+      "energy_joules": {
+        "mean": 53.79769879692256,
+        "sample_sd": 9.156883115585103,
+        "min": 43.246236716623045,
+        "max": 59.663763953051216
+      },
+      "predicted_exposure_risk": {
+        "mean": 0.44277857317694824,
+        "sample_sd": 0.02711400691982787,
+        "min": 0.4152803009047228,
+        "max": 0.46949124038219453
+      },
+      "risk_exposures": {
+        "mean": 1738.6666666666667,
+        "sample_sd": 495.82792714139583,
+        "min": 1200,
+        "max": 2176
+      },
+      "processed_samples": {
+        "mean": 2674.6666666666665,
+        "sample_sd": 495.82792714139583,
+        "min": 2136,
+        "max": 3112
+      },
+      "upload_bytes": {
+        "mean": 3144624,
+        "sample_sd": 217039.20910287154,
+        "min": 2936052,
+        "max": 3369240
+      },
+      "total_reward": {
+        "mean": -0.22203429341771957,
+        "sample_sd": 0.05498487052723256,
+        "min": -0.2716100817712745,
+        "max": -0.16289502526930635
+      }
+    },
+    {
+      "method": "dqn",
+      "checkpoint_step": 3000,
+      "n": 3,
+      "evaluation_seeds": [
+        8201,
+        8202,
+        8203
+      ],
+      "training_seeds": [
+        8101,
+        8102,
+        8103
+      ],
+      "validation_accuracy": {
+        "mean": 0.7577805077805078,
+        "sample_sd": 0.004493730600673327,
+        "min": 0.753992628992629,
+        "max": 0.7627457002457002
+      },
+      "elapsed_seconds": {
+        "mean": 5.909188324084389,
+        "sample_sd": 0.38288321442821016,
+        "min": 5.595642228328686,
+        "max": 6.335898754086587
+      },
+      "energy_joules": {
+        "mean": 49.71162032935232,
+        "sample_sd": 8.403615469820785,
+        "min": 43.85852374631784,
+        "max": 59.34090673725631
+      },
+      "predicted_exposure_risk": {
+        "mean": 0.44522897844755327,
+        "sample_sd": 0.0066456887975317675,
+        "min": 0.43841425830223524,
+        "max": 0.4516916407310233
+      },
+      "risk_exposures": {
+        "mean": 1557.3333333333333,
+        "sample_sd": 400.10665244823576,
+        "min": 1152,
+        "max": 1952
+      },
+      "processed_samples": {
+        "mean": 2493.3333333333335,
+        "sample_sd": 400.10665244823576,
+        "min": 2088,
+        "max": 2888
+      },
+      "upload_bytes": {
+        "mean": 3321108,
+        "sample_sd": 459150.0164260043,
+        "min": 3032316,
+        "max": 3850560
+      },
+      "total_reward": {
+        "mean": -0.21672997167812422,
+        "sample_sd": 0.07210608365240098,
+        "min": -0.27825389423444424,
+        "max": -0.13738413946886197
+      }
+    },
+    {
+      "method": "fixed",
+      "checkpoint_step": null,
+      "n": 3,
+      "evaluation_seeds": [
+        8201,
+        8202,
+        8203
+      ],
+      "training_seeds": [
+        null
+      ],
+      "validation_accuracy": {
+        "mean": 0.7577805077805078,
+        "sample_sd": 0.00460004953699039,
+        "min": 0.753992628992629,
+        "max": 0.7628992628992629
+      },
+      "elapsed_seconds": {
+        "mean": 6.0664264061838,
+        "sample_sd": 0.3053519801893317,
+        "min": 5.870348896157864,
+        "max": 6.418246640726043
+      },
+      "energy_joules": {
+        "mean": 44.216509505162016,
+        "sample_sd": 1.4993738177228284,
+        "min": 43.10002890623642,
+        "max": 45.920710165824005
+      },
+      "predicted_exposure_risk": {
+        "mean": 0.44465556768355546,
+        "sample_sd": 0.0022720153493046786,
+        "min": 0.4432409322924084,
+        "max": 0.4472763008541531
+      },
+      "risk_exposures": {
+        "mean": 1152,
+        "sample_sd": 0.0,
+        "min": 1152,
+        "max": 1152
+      },
+      "processed_samples": {
+        "mean": 2088,
+        "sample_sd": 0.0,
+        "min": 2088,
+        "max": 2088
+      },
+      "upload_bytes": {
+        "mean": 3032316,
+        "sample_sd": 0.0,
+        "min": 3032316,
+        "max": 3032316
+      },
+      "total_reward": {
+        "mean": -0.21903942388250464,
+        "sample_sd": 0.03619114369564306,
+        "min": -0.2419172533722388,
+        "max": -0.17731433126096133
+      }
+    },
+    {
+      "method": "metacs",
+      "checkpoint_step": null,
+      "n": 3,
+      "evaluation_seeds": [
+        8201,
+        8202,
+        8203
+      ],
+      "training_seeds": [
+        null
+      ],
+      "validation_accuracy": {
+        "mean": 0.7571150696150696,
+        "sample_sd": 0.0052399153801128235,
+        "min": 0.7521498771498771,
+        "max": 0.7625921375921376
+      },
+      "elapsed_seconds": {
+        "mean": 3.7209674439986555,
+        "sample_sd": 0.36634587985440453,
+        "min": 3.3870866516304172,
+        "max": 4.11285675894427
+      },
+      "energy_joules": {
+        "mean": 30.112958347778775,
+        "sample_sd": 5.159617588978531,
+        "min": 24.39152620071603,
+        "max": 34.41261997428092
+      },
+      "predicted_exposure_risk": {
+        "mean": 0.5007167622902927,
+        "sample_sd": 0.04363432832403036,
+        "min": 0.4503743015769599,
+        "max": 0.5276718354887433
+      },
+      "risk_exposures": {
+        "mean": 560,
+        "sample_sd": 471.1178196587346,
+        "min": 288,
+        "max": 1104
+      },
+      "processed_samples": {
+        "mean": 1496,
+        "sample_sd": 471.1178196587346,
+        "min": 1224,
+        "max": 2040
+      },
+      "upload_bytes": {
+        "mean": 3032316,
+        "sample_sd": 0.0,
+        "min": 3032316,
+        "max": 3032316
+      },
+      "total_reward": {
+        "mean": -0.09393448224197601,
+        "sample_sd": 0.056282469276373,
+        "min": -0.1439986921533818,
+        "max": -0.03301508827880007
+      }
+    },
+    {
+      "method": "ppo",
+      "checkpoint_step": 500,
+      "n": 3,
+      "evaluation_seeds": [
+        8201,
+        8202,
+        8203
+      ],
+      "training_seeds": [
+        8101,
+        8102,
+        8103
+      ],
+      "validation_accuracy": {
+        "mean": 0.7570638820638821,
+        "sample_sd": 0.005239165266963166,
+        "min": 0.7527641277641277,
+        "max": 0.7628992628992629
+      },
+      "elapsed_seconds": {
+        "mean": 6.058675133002342,
+        "sample_sd": 1.6618356336719764,
+        "min": 4.500728591099107,
+        "max": 7.807854362898118
+      },
+      "energy_joules": {
+        "mean": 49.09614455888895,
+        "sample_sd": 12.159435715112059,
+        "min": 35.1439634958978,
+        "max": 57.433983818702636
+      },
+      "predicted_exposure_risk": {
+        "mean": 0.45811026030136287,
+        "sample_sd": 0.05389070627207965,
+        "min": 0.41258567834601684,
+        "max": 0.5176127547467196
+      },
+      "risk_exposures": {
+        "mean": 1456,
+        "sample_sd": 910.8765009593782,
+        "min": 432,
+        "max": 2176
+      },
+      "processed_samples": {
+        "mean": 2392,
+        "sample_sd": 910.8765009593782,
+        "min": 1368,
+        "max": 3112
+      },
+      "upload_bytes": {
+        "mean": 3561768,
+        "sample_sd": 542420.0925924481,
+        "min": 2936052,
+        "max": 3898692
+      },
+      "total_reward": {
+        "mean": -0.22559359025556516,
+        "sample_sd": 0.05169038773198995,
+        "min": -0.258888111259719,
+        "max": -0.16604525357571123
+      }
+    },
+    {
+      "method": "ppo",
+      "checkpoint_step": 1000,
+      "n": 3,
+      "evaluation_seeds": [
+        8201,
+        8202,
+        8203
+      ],
+      "training_seeds": [
+        8101,
+        8102,
+        8103
+      ],
+      "validation_accuracy": {
+        "mean": 0.7575757575757576,
+        "sample_sd": 0.005086919839805452,
+        "min": 0.7527641277641277,
+        "max": 0.7628992628992629
+      },
+      "elapsed_seconds": {
+        "mean": 6.05871347737541,
+        "sample_sd": 1.6618290163732907,
+        "min": 4.500728591099107,
+        "max": 7.807854362898118
+      },
+      "energy_joules": {
+        "mean": 49.38680378563331,
+        "sample_sd": 12.369353500073794,
+        "min": 35.1439634958978,
+        "max": 57.433983818702636
+      },
+      "predicted_exposure_risk": {
+        "mean": 0.45744746077720466,
+        "sample_sd": 0.0541601310317151,
+        "min": 0.41258567834601684,
+        "max": 0.5176127547467196
+      },
+      "risk_exposures": {
+        "mean": 1477.3333333333333,
+        "sample_sd": 922.2349664447414,
+        "min": 432,
+        "max": 2176
+      },
+      "processed_samples": {
+        "mean": 2413.3333333333335,
+        "sample_sd": 922.2349664447414,
+        "min": 1368,
+        "max": 3112
+      },
+      "upload_bytes": {
+        "mean": 3529680,
+        "sample_sd": 519141.7946881179,
+        "min": 2936052,
+        "max": 3898692
+      },
+      "total_reward": {
+        "mean": -0.2253080112366716,
+        "sample_sd": 0.051474733930763704,
+        "min": -0.258888111259719,
+        "max": -0.16604525357571123
+      }
+    },
+    {
+      "method": "ppo",
+      "checkpoint_step": 1500,
+      "n": 3,
+      "evaluation_seeds": [
+        8201,
+        8202,
+        8203
+      ],
+      "training_seeds": [
+        8101,
+        8102,
+        8103
+      ],
+      "validation_accuracy": {
+        "mean": 0.7578316953316954,
+        "sample_sd": 0.004624760548641133,
+        "min": 0.7538390663390664,
+        "max": 0.7628992628992629
+      },
+      "elapsed_seconds": {
+        "mean": 6.053010977357129,
+        "sample_sd": 1.3502357957929794,
+        "min": 4.500728591099107,
+        "max": 6.955450425523673
+      },
+      "energy_joules": {
+        "mean": 43.90648544794508,
+        "sample_sd": 7.661550684445338,
+        "min": 35.1439634958978,
+        "max": 49.34274200227318
+      },
+      "predicted_exposure_risk": {
+        "mean": 0.4613293079020211,
+        "sample_sd": 0.048748397034814955,
+        "min": 0.43245517617554835,
+        "max": 0.5176127547467196
+      },
+      "risk_exposures": {
+        "mean": 1160,
+        "sample_sd": 632.6073031510149,
+        "min": 432,
+        "max": 1576
+      },
+      "processed_samples": {
+        "mean": 2096,
+        "sample_sd": 632.6073031510149,
+        "min": 1368,
+        "max": 2512
+      },
+      "upload_bytes": {
+        "mean": 3433416,
+        "sample_sd": 436738.7807099342,
+        "min": 3032316,
+        "max": 3898692
+      },
+      "total_reward": {
+        "mean": -0.21967481485461315,
+        "sample_sd": 0.059631582060815064,
+        "min": -0.2838905072055465,
+        "max": -0.16604525357571123
+      }
+    },
+    {
+      "method": "ppo",
+      "checkpoint_step": 2000,
+      "n": 3,
+      "evaluation_seeds": [
+        8201,
+        8202,
+        8203
+      ],
+      "training_seeds": [
+        8101,
+        8102,
+        8103
+      ],
+      "validation_accuracy": {
+        "mean": 0.757985257985258,
+        "sample_sd": 0.004524238287056593,
+        "min": 0.753992628992629,
+        "max": 0.7628992628992629
+      },
+      "elapsed_seconds": {
+        "mean": 5.64685447855772,
+        "sample_sd": 0.9993273146237394,
+        "min": 4.500728591099107,
+        "max": 6.335898754086587
+      },
+      "energy_joules": {
+        "mean": 44.61361613781737,
+        "sample_sd": 11.048139924323102,
+        "min": 35.1439634958978,
+        "max": 56.75152660786403
+      },
+      "predicted_exposure_risk": {
+        "mean": 0.4714013013747334,
+        "sample_sd": 0.04102412755678074,
+        "min": 0.43927586157070964,
+        "max": 0.5176127547467196
+      },
+      "risk_exposures": {
+        "mean": 1104,
+        "sample_sd": 697.2402742240296,
+        "min": 432,
+        "max": 1824
+      },
+      "processed_samples": {
+        "mean": 2040,
+        "sample_sd": 697.2402742240296,
+        "min": 1368,
+        "max": 2760
+      },
+      "upload_bytes": {
+        "mean": 3754296,
+        "sample_sd": 144396.0,
+        "min": 3609900,
+        "max": 3898692
+      },
+      "total_reward": {
+        "mean": -0.20092775729822357,
+        "sample_sd": 0.06444058858814052,
+        "min": -0.2752899864712114,
+        "max": -0.16144803184774806
+      }
+    },
+    {
+      "method": "ppo",
+      "checkpoint_step": 2500,
+      "n": 3,
+      "evaluation_seeds": [
+        8201,
+        8202,
+        8203
+      ],
+      "training_seeds": [
+        8101,
+        8102,
+        8103
+      ],
+      "validation_accuracy": {
+        "mean": 0.758087633087633,
+        "sample_sd": 0.004440944149619973,
+        "min": 0.7541461916461917,
+        "max": 0.7628992628992629
+      },
+      "elapsed_seconds": {
+        "mean": 4.891809872702019,
+        "sample_sd": 0.8902729538821957,
+        "min": 4.264017345339458,
+        "max": 5.910683681667493
+      },
+      "energy_joules": {
+        "mean": 40.04814003257913,
+        "sample_sd": 13.043439290880125,
+        "min": 30.1676252542117,
+        "max": 54.83283134762788
+      },
+      "predicted_exposure_risk": {
+        "mean": 0.49363503246395674,
+        "sample_sd": 0.04335882846317689,
+        "min": 0.4435832020309236,
+        "max": 0.519709140614227
+      },
+      "risk_exposures": {
+        "mean": 864,
+        "sample_sd": 748.245948869755,
+        "min": 432,
+        "max": 1728
+      },
+      "processed_samples": {
+        "mean": 1800,
+        "sample_sd": 748.245948869755,
+        "min": 1368,
+        "max": 2664
+      },
+      "upload_bytes": {
+        "mean": 3898692,
+        "sample_sd": 0.0,
+        "min": 3898692,
+        "max": 3898692
+      },
+      "total_reward": {
+        "mean": -0.16073104890674755,
+        "sample_sd": 0.09442598349192845,
+        "min": -0.2523877089824793,
+        "max": -0.06376018416205215
+      }
+    },
+    {
+      "method": "ppo",
+      "checkpoint_step": 3000,
+      "n": 3,
+      "evaluation_seeds": [
+        8201,
+        8202,
+        8203
+      ],
+      "training_seeds": [
+        8101,
+        8102,
+        8103
+      ],
+      "validation_accuracy": {
+        "mean": 0.758087633087633,
+        "sample_sd": 0.004440944149619973,
+        "min": 0.7541461916461917,
+        "max": 0.7628992628992629
+      },
+      "elapsed_seconds": {
+        "mean": 4.891809872702019,
+        "sample_sd": 0.8902729538821957,
+        "min": 4.264017345339458,
+        "max": 5.910683681667493
+      },
+      "energy_joules": {
+        "mean": 40.04814003257913,
+        "sample_sd": 13.043439290880125,
+        "min": 30.1676252542117,
+        "max": 54.83283134762788
+      },
+      "predicted_exposure_risk": {
+        "mean": 0.49363503246395674,
+        "sample_sd": 0.04335882846317689,
+        "min": 0.4435832020309236,
+        "max": 0.519709140614227
+      },
+      "risk_exposures": {
+        "mean": 864,
+        "sample_sd": 748.245948869755,
+        "min": 432,
+        "max": 1728
+      },
+      "processed_samples": {
+        "mean": 1800,
+        "sample_sd": 748.245948869755,
+        "min": 1368,
+        "max": 2664
+      },
+      "upload_bytes": {
+        "mean": 3898692,
+        "sample_sd": 0.0,
+        "min": 3898692,
+        "max": 3898692
+      },
+      "total_reward": {
+        "mean": -0.16073104890674755,
+        "sample_sd": 0.09442598349192845,
+        "min": -0.2523877089824793,
+        "max": -0.06376018416205215
+      }
+    },
+    {
+      "method": "pqn",
+      "checkpoint_step": 500,
+      "n": 3,
+      "evaluation_seeds": [
+        8201,
+        8202,
+        8203
+      ],
+      "training_seeds": [
+        8101,
+        8102,
+        8103
+      ],
+      "validation_accuracy": {
+        "mean": 0.7576269451269452,
+        "sample_sd": 0.004881102739247061,
+        "min": 0.7541461916461917,
+        "max": 0.7632063882063882
+      },
+      "elapsed_seconds": {
+        "mean": 4.0230692190500665,
+        "sample_sd": 0.42414770953607944,
+        "min": 3.5911138162140612,
+        "max": 4.43895234054289
+      },
+      "energy_joules": {
+        "mean": 34.255156092907036,
+        "sample_sd": 7.089762585126591,
+        "min": 26.095560670044765,
+        "max": 38.9098324131459
+      },
+      "predicted_exposure_risk": {
+        "mean": 0.48416388036296215,
+        "sample_sd": 0.03963965002302481,
+        "min": 0.4449645435108858,
+        "max": 0.5242296389558099
+      },
+      "risk_exposures": {
+        "mean": 810.6666666666666,
+        "sample_sd": 510.079732329499,
+        "min": 352,
+        "max": 1360
+      },
+      "processed_samples": {
+        "mean": 1746.6666666666667,
+        "sample_sd": 510.079732329499,
+        "min": 1288,
+        "max": 2296
+      },
+      "upload_bytes": {
+        "mean": 3160668,
+        "sample_sd": 222312.18525308053,
+        "min": 3032316,
+        "max": 3417372
+      },
+      "total_reward": {
+        "mean": -0.11101460503506629,
+        "sample_sd": 0.05545329440748147,
+        "min": -0.16298365504557039,
+        "max": -0.05263438214572616
+      }
+    },
+    {
+      "method": "pqn",
+      "checkpoint_step": 1000,
+      "n": 3,
+      "evaluation_seeds": [
+        8201,
+        8202,
+        8203
+      ],
+      "training_seeds": [
+        8101,
+        8102,
+        8103
+      ],
+      "validation_accuracy": {
+        "mean": 0.7575757575757576,
+        "sample_sd": 0.005160558215040344,
+        "min": 0.7530712530712531,
+        "max": 0.7632063882063882
+      },
+      "elapsed_seconds": {
+        "mean": 5.042254924564479,
+        "sample_sd": 0.9015312319238924,
+        "min": 4.434410330624195,
+        "max": 6.078059913191822
+      },
+      "energy_joules": {
+        "mean": 35.30026506486399,
+        "sample_sd": 6.613662837682471,
+        "min": 30.199006650976834,
+        "max": 42.772622431367104
+      },
+      "predicted_exposure_risk": {
+        "mean": 0.48380372077600103,
+        "sample_sd": 0.03761054783230157,
+        "min": 0.4414491974993756,
+        "max": 0.5132950714656285
+      },
+      "risk_exposures": {
+        "mean": 666.6666666666666,
+        "sample_sd": 479.0212243036141,
+        "min": 336,
+        "max": 1216
+      },
+      "processed_samples": {
+        "mean": 1602.6666666666667,
+        "sample_sd": 479.0212243036141,
+        "min": 1272,
+        "max": 2152
+      },
+      "upload_bytes": {
+        "mean": 3032316,
+        "sample_sd": 0.0,
+        "min": 3032316,
+        "max": 3032316
+      },
+      "total_reward": {
+        "mean": -0.16303417087523536,
+        "sample_sd": 0.08463435232207567,
+        "min": -0.2492507244570934,
+        "max": -0.08007613863553116
+      }
+    },
+    {
+      "method": "pqn",
+      "checkpoint_step": 1500,
+      "n": 3,
+      "evaluation_seeds": [
+        8201,
+        8202,
+        8203
+      ],
+      "training_seeds": [
+        8101,
+        8102,
+        8103
+      ],
+      "validation_accuracy": {
+        "mean": 0.7573710073710074,
+        "sample_sd": 0.007083883657660215,
+        "min": 0.75,
+        "max": 0.7641277641277642
+      },
+      "elapsed_seconds": {
+        "mean": 4.3218314749547995,
+        "sample_sd": 0.3659305030789793,
+        "min": 4.012010888791432,
+        "max": 4.725566076285648
+      },
+      "energy_joules": {
+        "mean": 34.24217136981657,
+        "sample_sd": 0.16509755701595918,
+        "min": 34.06393904819038,
+        "max": 34.38987193963446
+      },
+      "predicted_exposure_risk": {
+        "mean": 0.481129605602058,
+        "sample_sd": 0.016280024764258338,
+        "min": 0.4672023884711727,
+        "max": 0.4990277316953455
+      },
+      "risk_exposures": {
+        "mean": 749.3333333333334,
+        "sample_sd": 276.70441509548294,
+        "min": 448,
+        "max": 992
+      },
+      "processed_samples": {
+        "mean": 1685.3333333333333,
+        "sample_sd": 276.70441509548294,
+        "min": 1384,
+        "max": 1928
+      },
+      "upload_bytes": {
+        "mean": 3240888,
+        "sample_sd": 194523.16209644548,
+        "min": 3032316,
+        "max": 3417372
+      },
+      "total_reward": {
+        "mean": -0.1258922433870598,
+        "sample_sd": 0.06306281890046574,
+        "min": -0.17312009985369214,
+        "max": -0.054277624451959765
+      }
+    },
+    {
+      "method": "pqn",
+      "checkpoint_step": 2000,
+      "n": 3,
+      "evaluation_seeds": [
+        8201,
+        8202,
+        8203
+      ],
+      "training_seeds": [
+        8101,
+        8102,
+        8103
+      ],
+      "validation_accuracy": {
+        "mean": 0.7558865683865684,
+        "sample_sd": 0.005286957958098039,
+        "min": 0.7516891891891891,
+        "max": 0.7618243243243243
+      },
+      "elapsed_seconds": {
+        "mean": 5.764047515235912,
+        "sample_sd": 1.032716347375622,
+        "min": 5.039444352492322,
+        "max": 6.946541602391158
+      },
+      "energy_joules": {
+        "mean": 43.300669787259295,
+        "sample_sd": 11.53581497310952,
+        "min": 36.19823698824183,
+        "max": 56.61106716395041
+      },
+      "predicted_exposure_risk": {
+        "mean": 0.46203551930460196,
+        "sample_sd": 0.024298895793771664,
+        "min": 0.4346044110205337,
+        "max": 0.4808586228127573
+      },
+      "risk_exposures": {
+        "mean": 1184,
+        "sample_sd": 794.7024600440092,
+        "min": 640,
+        "max": 2096
+      },
+      "processed_samples": {
+        "mean": 2120,
+        "sample_sd": 794.7024600440092,
+        "min": 1576,
+        "max": 3032
+      },
+      "upload_bytes": {
+        "mean": 3289020,
+        "sample_sd": 294091.377799486,
+        "min": 3032316,
+        "max": 3609900
+      },
+      "total_reward": {
+        "mean": -0.2066365741732515,
+        "sample_sd": 0.013857574531120746,
+        "min": -0.21827636842200906,
+        "max": -0.19130779886737787
+      }
+    },
+    {
+      "method": "pqn",
+      "checkpoint_step": 2500,
+      "n": 3,
+      "evaluation_seeds": [
+        8201,
+        8202,
+        8203
+      ],
+      "training_seeds": [
+        8101,
+        8102,
+        8103
+      ],
+      "validation_accuracy": {
+        "mean": 0.7555282555282555,
+        "sample_sd": 0.007201089734455368,
+        "min": 0.7478501228501229,
+        "max": 0.7621314496314496
+      },
+      "elapsed_seconds": {
+        "mean": 6.023703384929245,
+        "sample_sd": 0.7569002698308614,
+        "min": 5.181739339283911,
+        "max": 6.647713553215631
+      },
+      "energy_joules": {
+        "mean": 48.256958027762224,
+        "sample_sd": 12.154385184961,
+        "min": 34.249499697472146,
+        "max": 56.017266711721874
+      },
+      "predicted_exposure_risk": {
+        "mean": 0.4551061341894289,
+        "sample_sd": 0.026054368091615647,
+        "min": 0.43897634919951944,
+        "max": 0.48516426709565247
+      },
+      "risk_exposures": {
+        "mean": 1504,
+        "sample_sd": 744.3010143752325,
+        "min": 704,
+        "max": 2176
+      },
+      "processed_samples": {
+        "mean": 2440,
+        "sample_sd": 744.3010143752325,
+        "min": 1640,
+        "max": 3112
+      },
+      "upload_bytes": {
+        "mean": 3160668,
+        "sample_sd": 100194.7478863039,
+        "min": 3080448,
+        "max": 3272976
+      },
+      "total_reward": {
+        "mean": -0.22424103024521658,
+        "sample_sd": 0.03596254681820797,
+        "min": -0.26557614773381305,
+        "max": -0.20012951733386775
+      }
+    },
+    {
+      "method": "pqn",
+      "checkpoint_step": 3000,
+      "n": 3,
+      "evaluation_seeds": [
+        8201,
+        8202,
+        8203
+      ],
+      "training_seeds": [
+        8101,
+        8102,
+        8103
+      ],
+      "validation_accuracy": {
+        "mean": 0.7575245700245701,
+        "sample_sd": 0.00442942417133165,
+        "min": 0.7538390663390664,
+        "max": 0.7624385749385749
+      },
+      "elapsed_seconds": {
+        "mean": 4.144694577882696,
+        "sample_sd": 0.4450334266995623,
+        "min": 3.645765454091737,
+        "max": 4.500728591099107
+      },
+      "energy_joules": {
+        "mean": 31.08972376656774,
+        "sample_sd": 1.7420920924787824,
+        "min": 29.329036156825175,
+        "max": 32.81260493817795
+      },
+      "predicted_exposure_risk": {
+        "mean": 0.49667143778550243,
+        "sample_sd": 0.023095925158698467,
+        "min": 0.4715535558227982,
+        "max": 0.5169918710986773
+      },
+      "risk_exposures": {
+        "mean": 554.6666666666666,
+        "sample_sd": 310.80111539911394,
+        "min": 288,
+        "max": 896
+      },
+      "processed_samples": {
+        "mean": 1490.6666666666667,
+        "sample_sd": 310.80111539911394,
+        "min": 1224,
+        "max": 1832
+      },
+      "upload_bytes": {
+        "mean": 3064404,
+        "sample_sd": 27789.023156635067,
+        "min": 3032316,
+        "max": 3080448
+      },
+      "total_reward": {
+        "mean": -0.11528357149498751,
+        "sample_sd": 0.07317607153880698,
+        "min": -0.16242741988039727,
+        "max": -0.03098413611161452
+      }
+    },
+    {
+      "method": "risk_greedy",
+      "checkpoint_step": null,
+      "n": 3,
+      "evaluation_seeds": [
+        8201,
+        8202,
+        8203
+      ],
+      "training_seeds": [
+        null
+      ],
+      "validation_accuracy": {
+        "mean": 0.7568079443079443,
+        "sample_sd": 0.005546000504005648,
+        "min": 0.7533783783783784,
+        "max": 0.7632063882063882
+      },
+      "elapsed_seconds": {
+        "mean": 3.416803433535146,
+        "sample_sd": 0.29103089561925805,
+        "min": 3.0848799534556526,
+        "max": 3.6282523666503743
+      },
+      "energy_joules": {
+        "mean": 30.480447915741124,
+        "sample_sd": 5.28148119114438,
+        "min": 24.59606919341909,
+        "max": 34.8099400058062
+      },
+      "predicted_exposure_risk": {
+        "mean": 0.49056406118093976,
+        "sample_sd": 0.03756581381625625,
+        "min": 0.4472237452864647,
+        "max": 0.5137844227609181
+      },
+      "risk_exposures": {
+        "mean": 608,
+        "sample_sd": 471.1178196587346,
+        "min": 336,
+        "max": 1152
+      },
+      "processed_samples": {
+        "mean": 1544,
+        "sample_sd": 471.1178196587346,
+        "min": 1272,
+        "max": 2088
+      },
+      "upload_bytes": {
+        "mean": 3032316,
+        "sample_sd": 0.0,
+        "min": 3032316,
+        "max": 3032316
+      },
+      "total_reward": {
+        "mean": -0.07838562648295286,
+        "sample_sd": 0.04360261550753375,
+        "min": -0.11376409486557316,
+        "max": -0.029672835753541307
+      }
+    },
+    {
+      "method": "time_greedy",
+      "checkpoint_step": null,
+      "n": 3,
+      "evaluation_seeds": [
+        8201,
+        8202,
+        8203
+      ],
+      "training_seeds": [
+        null
+      ],
+      "validation_accuracy": {
+        "mean": 0.7556818181818182,
+        "sample_sd": 0.00603210053482875,
+        "min": 0.750460687960688,
+        "max": 0.7622850122850123
+      },
+      "elapsed_seconds": {
+        "mean": 3.1903974976935148,
+        "sample_sd": 0.24120082303630308,
+        "min": 3.047041377324344,
+        "max": 3.4688716025644406
+      },
+      "energy_joules": {
+        "mean": 26.840867982015443,
+        "sample_sd": 3.7829830794803265,
+        "min": 23.87822236758168,
+        "max": 31.102120500950186
+      },
+      "predicted_exposure_risk": {
+        "mean": 0.5199565931602761,
+        "sample_sd": 0.0032496989481062065,
+        "min": 0.5171121483047804,
+        "max": 0.5234983422689967
+      },
+      "risk_exposures": {
+        "mean": 288,
+        "sample_sd": 0.0,
+        "min": 288,
+        "max": 288
+      },
+      "processed_samples": {
+        "mean": 1224,
+        "sample_sd": 0.0,
+        "min": 1224,
+        "max": 1224
+      },
+      "upload_bytes": {
+        "mean": 3032316,
+        "sample_sd": 0.0,
+        "min": 3032316,
+        "max": 3032316
+      },
+      "total_reward": {
+        "mean": -0.06749112908120539,
+        "sample_sd": 0.057671436769444175,
+        "min": -0.11118946518431412,
+        "max": -0.002123732832528774
+      }
+    }
+  ],
+  "actual_interactions_from_native_receipts": 29034,
+  "new_cloud_calls": 0,
+  "new_real_interactions": 0,
+  "elapsed_seconds": 0.8439999999973224
+}
