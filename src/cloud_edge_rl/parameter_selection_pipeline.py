@@ -1,6 +1,6 @@
 """Independent, fail-closed DQN/PPO parameter-selection entry point.
 
-The notebook is the only CONFIG. Plans and registered jobs are immutable snapshots,
+Standalone config takes precedence over legacy notebook CONFIG. Plans and registered jobs are immutable snapshots,
 not alternate configuration inputs. Existing training and transport are reused as-is.
 """
 
@@ -26,7 +26,13 @@ def _config_target(node):
 
 
 def load_notebook_config(path: Path) -> dict:
-    """Evaluate only CONFIG assignments/updates, never notebook imports or jobs."""
+    """Load standalone CONFIG first; deprecated notebook fallback never runs jobs."""
+    path = Path(path).resolve()
+    root = path if path.is_dir() else path.parent
+    standalone = root / 'config' / 'experiment.json'
+    if path.name == 'experiment.json' or standalone.exists():
+        from .config import load_config
+        return load_config(path if path.name == 'experiment.json' else standalone)
     notebook = read_json(Path(path))
     statements, definitions = [], 0
     for cell in notebook['cells']:

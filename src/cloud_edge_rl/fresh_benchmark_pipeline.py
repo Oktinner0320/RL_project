@@ -3,6 +3,7 @@
 import argparse
 from dataclasses import asdict
 import importlib
+import hashlib
 import json
 from pathlib import Path
 
@@ -64,6 +65,18 @@ def _gate(proof, run_id):
             or proof['physical_interactions'] < 0):
         raise ValueError('Fresh semantic gate with physical interaction counter required')
     return proof['physical_interactions']
+
+
+def _journal_identity(descriptor, directory, specs):
+    """Bind external frozen descriptors without copying their nested payloads."""
+    encoded = json.dumps(descriptor, sort_keys=True, separators=(',', ':'),
+                         allow_nan=False).encode('utf-8')
+    return {'schema': 'fresh_benchmark_journal_v2',
+            'descriptor_ref': str(directory / 'stage.json'),
+            'descriptor_sha256': hashlib.sha256(encoded).hexdigest(),
+            'freeze_id': descriptor['freeze_id'],
+            'spec_refs': list(descriptor['spec_paths']),
+            'run_ids': [spec.run_id for spec in specs]}
 
 
 def run_fresh_stage(config: dict, root: Path, directory: Path, *, max_new_jobs: int,
@@ -166,40 +179,26 @@ def run_fresh_stage(config: dict, root: Path, directory: Path, *, max_new_jobs: 
         raise ValueError('Fresh semantic verifier unavailable; execution blocked')
     with _controller_lock(directory):
         journal = directory / 'fresh-journal.json'
-        snapshot = {'descriptor': descriptor, 'specs': [asdict(spec) for spec in specs]}
-        local_only = journal.exists()
+        identity = _journal_identity(descriptor, directory, specs)
+        historical = False
         if journal.exists():
             old = _strict_json(journal, budget)
-            if old.get('snapshot') != snapshot:
+            historical = 'snapshot' in old
+            matches = (old.get('snapshot') == {'descriptor': descriptor,
+                       'specs': [asdict(spec) for spec in specs]} if historical else
+                       all(old.get(key) == value for key, value in identity.items()))
+            if not matches:
                 raise ValueError('Fresh stage snapshot changed; never blindly retry')
-            # Reverification is LOCAL ONLY. Every job must have completed compute;
-            # an unknown reservation or incomplete stage never becomes a new spawn.
-            for spec in specs:
-                stage = directory / 'transport' / 'jobs' / spec.run_id
-                if not all((stage / name).exists() for name in (
-                        'spec.json', 'call.json', 'compute-result.json', 'shutdown.json')):
-                    raise ValueError('Fresh stage blocked or interrupted; never blindly retry')
-                if _strict_json(stage / 'spec.json', budget) != asdict(spec):
-                    raise ValueError('Cached frozen spec changed')
-                binding = _strict_json(stage / 'call.json', budget)
-                receipt = _strict_json(stage / 'compute-result.json', budget)
-                shutdown = _strict_json(stage / 'shutdown.json', budget)
-                if (receipt.get('compute_completed') is not True
-                        or type(receipt.get('result')) is not dict
-                        or receipt['result'].get('run_id') != spec.run_id
-                        or any(binding.get(key) != receipt.get(key) for key in ('run_id', 'call_id', 'app_id'))
-                        or binding.get('run_id') != spec.run_id
-                        or not all(type(binding.get(key)) is str and binding[key] for key in ('app_id', 'call_id'))
-                        or shutdown.get('app_id') != binding['app_id']
-                        or shutdown.get('verified') is not True or shutdown.get('stopped') is not True):
-                    raise ValueError('Completed receipt and stopped bound app required for local reverification')
         if any((directory / item).exists() for item in ('state.json', 'manifest.json', 'jobs')):
             raise ValueError('Historical controller phase recovery forbidden')
-        state = {'snapshot': snapshot, 'status': 'started'}
-        write_json(journal, state, replace=local_only)
+        state = {**identity, 'status': 'started', 'verification_refs': {}}
+        if not historical:
+            write_json(journal, state, replace=journal.exists())
         try:
+            # The shared controller validates cached specs/receipts and admission.
+            # It reattaches known calls; reserve() still protects unknown spawns.
             result = runner(specs, root, directory / 'transport', verify=VERIFIER,
-                            artifact_destination=directory / 'artifacts', local_only=local_only)
+                            artifact_destination=directory / 'artifacts', local_only=False)
             if result.get('status') != 'completed' or set(result.get('jobs', {})) != {s.run_id for s in specs}:
                 raise ValueError('All fresh jobs must complete semantic verification')
             count = 0
@@ -212,13 +211,19 @@ def run_fresh_stage(config: dict, root: Path, directory: Path, *, max_new_jobs: 
                 if (binding.get('run_id') != spec.run_id or not row.get('call_id') or not row.get('app_id')
                         or binding.get('call_id') != row['call_id'] or binding.get('app_id') != row['app_id']):
                     raise ValueError('Durable current-call binding mismatch')
+                # A JSON pointer references the authoritative controller proof.
+                state['verification_refs'][spec.run_id] = (
+                    str(directory / 'transport' / 'state.json') +
+                    '#/jobs/' + spec.run_id + '/verification')
             state.update(status='completed', physical_interactions=count, actual_cloud_cost=None,
-                         jobs=result['jobs'])
-            write_json(journal, state, replace=True)
+                         controller_ref=str(directory / 'transport' / 'state.json'))
+            if not historical:
+                write_json(journal, state, replace=True)
             return state
         except BaseException as error:
             state.update(status='blocked', error={'type': type(error).__name__, 'message': str(error)})
-            write_json(journal, state, replace=True)
+            if not historical:
+                write_json(journal, state, replace=True)
             raise
 
 

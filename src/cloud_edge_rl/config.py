@@ -26,6 +26,15 @@ _CORE_FIELDS = {
     'workflow': {'reuse_completed': bool, 'jobs': dict, 'training_pipeline': dict},
     'components': {'backend': str, 'risk': str, 'attack': str},
 }
+_EXTRA_FIELDS = {
+    'model': 'normalization dropout binary_pos_weight momentum weight_decay evaluation_batch_size classification_threshold',
+    'environment': 'history_window',
+    'risk': 'weight_decay',
+    'rl': 'max_grad_norm double_dqn rollout_steps ppo_epochs clip_range gae_lambda entropy_coefficient value_coefficient normalize_advantage',
+    'attack': 'learning_rate_schedule learning_rate_end_factor',
+    'audit': 'ranking_floor numeric_tolerance estimated_seconds_by_batch exclude_warmup',
+    'modal': 'scaledown_window persistent_compiler_cache budget_usd detach startup_timeout_seconds transport',
+}
 
 
 def _config_pairs(pairs):
@@ -48,6 +57,8 @@ def _validate_config(config):
     for section, obj in config.items():
         if type(obj) is not dict:
             raise ValueError(f'{section} must be an object')
+        if section in _CORE_FIELDS and set(obj) != set(_CORE_FIELDS[section]) | set(_EXTRA_FIELDS.get(section, '').split()):
+            raise ValueError(f'{section} contains missing or unknown schema fields')
         for key, kind in _CORE_FIELDS.get(section, {}).items():
             value = obj.get(key)
             valid = type(value) in (int, float) if kind is float else type(value) is kind
@@ -80,8 +91,16 @@ def _validate_config(config):
                             raise ValueError(f'{location} must be in (0, 1)')
                         if key in positive_numbers and child <= 0:
                             raise ValueError(f'{location} must be positive')
-                if key in bool_keys and type(child) is not bool and not (key == 'enabled' and type(child) is dict):
+                is_bool = key in bool_keys or key.startswith(('allow_', 'permit_')) or (key.endswith(('_approved', '_allowed')) and key != 'tuning_configuration_slots_approved')
+                if is_bool and type(child) is not bool and not (key == 'enabled' and type(child) is dict):
                     raise ValueError(f'{location} requires bool')
+                if key.endswith('_timeout_seconds') or key in ('timeout_seconds', 'startup_timeout_seconds'):
+                    if type(child) not in (int, float) or child <= 0:
+                        raise ValueError(f'{location} requires a positive timeout')
+                if (key.endswith('_seeds') and key not in ('required_paired_seeds', 'minimum_feasible_improving_seeds')) or (key == 'seeds' and path != 'config'):
+                    values = list(child.values()) if type(child) is dict else child
+                    if type(values) is not list or not values or any(type(seed) is not int for seed in values) or len(set(values)) != len(values):
+                        raise ValueError(f'{location} requires distinct integer seeds')
                 if key == 'hidden_sizes' and (type(child) is not list or not child or any(type(x) is not int or x <= 0 for x in child)):
                     raise ValueError(f'{location} requires positive integer widths')
                 if (key.endswith('_seed') or key == 'seed') and child is not None and type(child) is not int:
@@ -123,10 +142,36 @@ def _validate_config(config):
         if not values or any(type(x) is not int or not 0 <= x < actions for x in values):
             raise ValueError('Action IDs must be within the configured action space')
     for name, job in config['workflow']['jobs'].items():
-        if type(job) is not dict or type(job.get('enabled')) is not bool or job.get('backend') not in ('local', 'modal') or job.get('seed_group') not in config['seeds']:
+        if type(job) is not dict or type(job.get('enabled')) is not bool or job.get('backend') not in ('local', 'modal') or type(job.get('seed_group')) is not str or job['seed_group'] not in config['seeds']:
             raise ValueError(f'Invalid workflow job: {name}')
-        if type(job.get('variants')) is not list or any(x not in config['variants'] for x in job['variants']):
+        if type(job.get('variants')) is not list or any(type(x) is not str or x not in config['variants'] for x in job['variants']):
             raise ValueError(f'Invalid workflow variants: {name}')
+    fresh = config['native_acceptance'].get('fresh_benchmark')
+    if type(fresh) is not dict:
+        raise ValueError('native_acceptance.fresh_benchmark must be an object')
+    required = {'policy_interactions_per_group', 'shared_collection_limit', 'group_limit', 'training_seeds', 'validation_seeds', 'collection_seeds', 'collection_rounds_per_seed', 'checkpoint_steps', 'native_stage_interactions', 'rl_configs', 'methods'}
+    if not required <= fresh.keys():
+        raise ValueError('Incomplete fresh benchmark research schema')
+    for key in ('training_seeds', 'validation_seeds', 'collection_seeds'):
+        if type(fresh[key]) is not list or not fresh[key] or any(type(seed) is not int for seed in fresh[key]):
+            raise ValueError(f'Fresh {key} requires explicit integer seed arrays')
+    if any(type(fresh[key]) is not int or fresh[key] <= 0 for key in ('policy_interactions_per_group', 'shared_collection_limit', 'group_limit', 'collection_rounds_per_seed')):
+        raise ValueError('Fresh benchmark budgets require positive integers')
+    policy_limit = fresh['policy_interactions_per_group']
+    if fresh['group_limit'] != policy_limit + fresh['shared_collection_limit']:
+        raise ValueError('Fresh group limit must include the shared collection pool')
+    if fresh['shared_collection_limit'] != len(fresh['collection_seeds']) * fresh['collection_rounds_per_seed']:
+        raise ValueError('Fresh collection limit must match all collection seed rounds')
+    stages, checkpoints = fresh['native_stage_interactions'], fresh['checkpoint_steps']
+    if type(stages) is not list or not stages or any(type(x) is not int or x <= 0 for x in stages) or sum(stages) != policy_limit:
+        raise ValueError('Fresh native stages must exactly allocate the policy budget')
+    if type(checkpoints) is not list or not checkpoints or any(type(x) is not int or not 0 < x <= policy_limit for x in checkpoints) or checkpoints != sorted(set(checkpoints)) or checkpoints[-1] != policy_limit:
+        raise ValueError('Fresh checkpoints must increase through the policy budget')
+    if type(fresh['rl_configs']) is not dict or set(fresh['rl_configs']) != {'dqn', 'ppo'} or any(type(row) is not dict or row.get('total_steps') != policy_limit for row in fresh['rl_configs'].values()):
+        raise ValueError('Fresh policy arms must share the registered interaction budget')
+    groups = [set(fresh[key]) for key in ('training_seeds', 'validation_seeds', 'collection_seeds')]
+    if any(groups[i] & groups[j] for i in range(3) for j in range(i)):
+        raise ValueError('Fresh training, validation and collection seeds must be isolated')
 
 
 def load_config(path: str | Path | None = None, root: str | Path | None = None) -> dict:

@@ -313,11 +313,30 @@ def _run_controller(resolved: dict, root: Path, templates: dict, prior=None, pri
     return {**journal.data, "manifest": str(journal.path)}
 
 
-def run_comparisons(config: dict, root: Path) -> dict:
-    """单个 Notebook 开关运行主代码中的完整对照链。 / One notebook switch runs the complete comparison chain."""
+def prepare_comparison_specs(config: dict, root: Path) -> list[RunSpec]:
+    """Bind graph-ready comparison inputs without executing any phase or SDK call."""
+    resolved, root, templates = _prepare(config, root)
+    settings = resolved['comparisons']['workflow']
+    planned = {}
+    for phase in settings['job_order']:
+        planned[phase] = [_bind(spec, phase, planned, settings, root)
+                          for spec in templates[phase]]
+    return [spec for phase in settings['job_order'] for spec in planned[phase]]
+
+
+def run_comparisons(config: dict, root: Path, *, verifiers=None):
+    """Deprecated switch adapter; new runs use the common Experiment controller.
+
+    Explicit semantic verifiers are required rather than inheriting the historical
+    remote loop's completion-only gate. Historical manifests use resume_comparisons.
+    """
     if not config["comparisons"]["workflow"]["enabled"]:
         return {"state": "disabled", "phases": []}
-    return _run_controller(*_prepare(config, root))
+    if verifiers is None:
+        raise ValueError('New comparison execution requires explicit semantic verifiers')
+    from ..experiment import Experiment
+    return Experiment.prepare(config, root, specs=prepare_comparison_specs(config, root),
+                              verifiers=verifiers).submit()
 
 
 def resume_comparisons(config: dict, root: Path, prior_manifest_path: Path) -> dict:
