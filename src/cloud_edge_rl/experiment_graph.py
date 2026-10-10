@@ -320,7 +320,7 @@ def run_graph(graph, workspace, *, commit, worker=run_bounded, clock=time.monoto
                     record.pop('error', None)
                     save()
                 except BaseException as error:
-                    # 区分计算失败与核验失败，决定是否允许只读继续。 / Distinguish compute failure from verification failure for safe continuation.
+                    # 核验失败可重验，计算失败必须明确核对，不能自动重跑。 / Verification failures may reverify; compute failures need reconciliation, not automatic reruns.
                     record['status'] = 'failed' if phase == 'compute' else 'verification_failed'
                     record['error'] = {'type': type(error).__name__, 'message': str(error)}
                     raise

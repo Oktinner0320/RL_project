@@ -101,7 +101,7 @@ class Experiment:
                              verifier=verifiers, node_dependencies=dependencies,
                              node_seconds=controls['node_timeout_seconds'],
                              verify_seconds=controls['verification_timeout_seconds'],
-                              graph_seconds=controls['graph_timeout_seconds'])
+                             graph_seconds=controls['graph_timeout_seconds'])
         # 先保存配置和可选源码快照，最后发布图；中断后不覆盖不同内容。 / Save configuration/source before publishing the graph, without overwriting changed partial contents.
         target.mkdir(parents=True, exist_ok=True)
         config_path = target / 'configuration.json'
@@ -355,7 +355,7 @@ def _submit(experiment, *, continuation=False):
 
 
 def _submit_locked(experiment, *, continuation=False):
-    """核对继续条件并预约任务，持久化唯一云端提交绑定。 / Validate continuation, reserve jobs and persist the cloud submission binding."""
+    """核对继续条件并预约任务，持久化当前云端提交绑定。 / Validate continuation, reserve jobs and persist the current cloud submission binding."""
     import modal
 
     from .experiment_admission import validate_and_reserve_graph
@@ -501,7 +501,7 @@ def _repair_export(experiment):
             write_json(path, record, replace=True)
             raise
         finally:
-            # 成功和失败都清理确切恢复应用，且不掩盖原异常。 / Clean up the exact recovery app on either outcome without masking the original exception.
+            # 两种结果都尝试清理恢复应用；停止核验须保留已有异常。 / Attempt recovery-app cleanup on either outcome; preserve existing exceptions when checking shutdown.
             original_error = sys.exc_info()[1]
             app_id = record.get('app_id') or (getattr(app, 'app_id', None) if app is not None else None)
             if app_id is not None:

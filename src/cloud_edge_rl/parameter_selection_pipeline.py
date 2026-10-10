@@ -134,7 +134,7 @@ def prepare_parameter_specs(config: dict, root: Path) -> list[RunSpec]:
 
 
 def _scientific(config):
-    """复制配置并排除许可、变体标签及执行划分后比较科学设置。 / Copy scientific settings without admission, variant labels or execution split."""
+    """提取配置副本中的科学设置，排除许可、变体标签和执行划分。 / Copy scientific settings without admission, variant labels or execution split."""
     config = deepcopy(config)
     config.get('native_acceptance', {}).pop('execution_admission', None)
     config.get('experiment', {}).pop('variant', None)
@@ -320,7 +320,7 @@ def verify_parameter_training(spec: RunSpec, artifacts: Path, result: dict) -> d
 
 def _evaluate(spec, root, directory, destination, limits, worker=run_bounded,
               downloader=download_artifacts):
-    """恢复原验证调用，依次清理、下载、核验并保留失败证据。 / Resume the original evaluation call, then clean up, download and verify with failure evidence."""
+    """执行或重连验证调用，依次清理、下载、核验并保留失败证据。 / Execute or reattach an evaluation call, then clean up, download and verify with failure evidence."""
     from .training_pipeline import _compute_receipt
 
     directory.mkdir(parents=True, exist_ok=True)
