@@ -17,6 +17,7 @@ from .risk import mlp
 
 class Agent:
     def __init__(self, observation_space, action_count: int, config: dict):
+        """创建 DQN 或 PPO 策略及动作采样器。 / Build a DQN or PPO policy and its action sampler."""
         if config['algorithm'] not in ('dqn', 'ppo'):
             raise ValueError('Native policy algorithm must be dqn or ppo')
         self.observation_space, self.action_count = observation_space, action_count
@@ -36,6 +37,7 @@ class Agent:
                 raise ValueError('Observation divisors must be finite and positive')
         self.device = torch.device(config['device'])
         self.rng = np.random.default_rng(config['seed'])
+        # 固定种子初始化网络；PPO 多一个价值输出。 / Seed the network; PPO adds one value output.
         with torch.random.fork_rng(devices=[]):
             torch.manual_seed(config['seed'])
             self.network = mlp(flatdim(observation_space), config['hidden_sizes'],
@@ -43,6 +45,7 @@ class Agent:
         self.epsilon = config['epsilon_start']
 
     def encode(self, observation: dict) -> np.ndarray:
+        """按配置缩放观察，再转为一维数组。 / Scale observations as configured, then flatten them."""
         if self.observation_divisors:
             observation = {name: np.asarray(value, dtype=np.float32) / np.asarray(
                 self.observation_divisors[name], dtype=np.float32)
@@ -51,18 +54,26 @@ class Agent:
         return np.asarray(flatten(self.observation_space, observation), dtype=np.float32)
 
     def output(self, observation: dict) -> np.ndarray:
+        """返回网络输出，不计算梯度。 / Return network outputs without computing gradients."""
         with torch.no_grad():
             return self.network(torch.tensor(self.encode(observation), device=self.device)).cpu().numpy()
 
     def act(self, observation: dict, explore: bool) -> int:
+        """选择动作，并保存本次决策信息。 / Select an action and store decision details.
+
+        探索时使用随机动作或策略采样；否则选最大值。
+        Use random actions or policy sampling for exploration; otherwise select the largest value.
+        """
         values = self.output(observation)
         if self.config['algorithm'] == 'dqn':
             self.last_diagnostics = {'kind': 'q_values', 'values': values.tolist(),
                                      'margin': float(np.sort(values)[-1] - np.sort(values)[-2])}
+            # DQN 以 epsilon 概率随机探索。 / DQN explores at random with probability epsilon.
             if explore and self.rng.random() < self.epsilon:
                 return int(self.rng.integers(self.action_count))
             return int(values.argmax())
         logits = values[:self.action_count]
+        # 减去最大值，稳定计算 PPO 动作概率。 / Subtract the maximum for stable PPO probabilities.
         probabilities = np.exp(logits - logits.max())
         probabilities /= probabilities.sum()
         self.last_diagnostics = {'kind': 'action_probabilities', 'values': probabilities.tolist(),
@@ -72,6 +83,7 @@ class Agent:
         return int(self.rng.choice(self.action_count, p=probabilities)) if explore else int(probabilities.argmax())
 
     def checkpoint(self) -> dict:
+        """复制策略权重和采样状态，不含完整训练状态。 / Copy policy weights and sampler state, not full training state."""
         return deepcopy({'format': 'native_agent_v1', 'algorithm': self.config['algorithm'],
                          'hidden_sizes': self.config['hidden_sizes'],
                          'observation_space': self.observation_space, 'action_count': self.action_count,
@@ -81,6 +93,7 @@ class Agent:
 
 
 def load_agent(state: dict, config: dict) -> Agent:
+    """检查缩放和网络结构，再恢复策略。 / Check scaling and network settings, then restore the policy."""
     if state.get('observation_divisors', {}) != config.get('observation_divisors', {}):
         raise ValueError('Native policy checkpoint observation scaling mismatch')
     if state['format'] != 'native_agent_v1' or state['algorithm'] != config['algorithm'] or state['hidden_sizes'] != config['hidden_sizes']:
@@ -93,12 +106,19 @@ def load_agent(state: dict, config: dict) -> Agent:
 
 
 def _settings(config):
+    """提取恢复时必须一致的配置。 / Extract settings that must match when resuming."""
+    # 不比较设备、步数预算和保存频率等运行设置。 / Exclude device, step limits, and save frequency.
     return {k: v for k, v in config.items()
             if k not in ('device', 'total_steps', 'checkpoint_interval', 'stage_interaction_limit')}
 
 
 def train_agent(env, config: dict, previous: dict | None, on_checkpoint,
                 on_policy_snapshot=None, policy_snapshot_steps=()) -> TrainingResult:
+    """新建或恢复策略训练，返回策略和完整状态。 / Start or resume training; return the policy and full state.
+
+    交互预算包含预热。回调接收训练状态或指定步数的策略快照。
+    The interaction budget includes warmup. Callbacks receive training state or policy snapshots.
+    """
     requested_snapshots = frozenset(policy_snapshot_steps)
     emitted_snapshots = set()
     stage_limit = config.get('stage_interaction_limit')
@@ -114,6 +134,7 @@ def train_agent(env, config: dict, previous: dict | None, on_checkpoint,
     if base.config['reward'].get('protocol', 'legacy_v1') == 'exposure_v1' and config['gamma'] != 1:
         raise ValueError('Exposure finite-horizon protocol requires gamma=1')
     feedback = None
+    # 资源反馈只用于有限时域 exposure PPO，并保持恢复预算一致。 / Restrict feedback and check resume budgets.
     if config.get('resource_feedback') is not None:
         if config['algorithm'] != 'ppo' or base.config['reward'].get('protocol') != 'exposure_v1':
             raise ValueError('Resource feedback requires finite-horizon exposure PPO')
@@ -133,6 +154,7 @@ def train_agent(env, config: dict, previous: dict | None, on_checkpoint,
     learned_steps = warmup_steps = updates = episode = warmup_position = 0
     finished = False
     same_stage = previous is not None and previous['risk_version'] == config['risk_version']
+    # 同一风险阶段恢复全部状态；新阶段可继承策略，但重置训练进度。 / Resume fully only in the same risk stage.
     if same_stage:
         if state['format'] != 'native_training_v1' or state['settings'] != _settings(config):
             raise ValueError('Same-stage native training settings mismatch')
@@ -166,6 +188,7 @@ def train_agent(env, config: dict, previous: dict | None, on_checkpoint,
         config['total_steps'], learned_steps + warmup_steps + stage_limit)
 
     def checkpoint():
+        """复制恢复所需的环境、缓冲区和随机状态。 / Copy environment, buffers, and RNG states for resume."""
         saved = {'format': 'native_training_v1', 'settings': _settings(config),
                          'risk_version': config['risk_version'], 'agent': agent.checkpoint(),
                          'optimizer': optimizer.state_dict(), 'target': target.state_dict(),
@@ -181,6 +204,7 @@ def train_agent(env, config: dict, previous: dict | None, on_checkpoint,
         return deepcopy(saved)
 
     while learned_steps + warmup_steps < stage_end:
+        # 每个回合重置环境，并重新执行预热。 / Reset the environment and warmup for each episode.
         if finished:
             episode += 1
             observation, _ = env.reset(seed=config['seed'] + episode)
@@ -193,6 +217,7 @@ def train_agent(env, config: dict, previous: dict | None, on_checkpoint,
             if finished:
                 raise ValueError('Warmup exhausted the episode before policy training')
         else:
+            # 按学习步数降低 epsilon；记录动作执行前的策略输出。 / Decay epsilon and save pre-step outputs.
             fraction = min(learned_steps / config['epsilon_decay_steps'], 1.)
             agent.epsilon = config['epsilon_start'] + fraction * (config['epsilon_end'] - config['epsilon_start'])
             encoded = agent.encode(observation)
@@ -209,6 +234,7 @@ def train_agent(env, config: dict, previous: dict | None, on_checkpoint,
                 if truncated and not terminated:
                     raise ValueError('Resource feedback requires completed tasks, not truncated trajectories')
                 reward = feedback.adjust_reward(reward, info['round_time_seconds'], info['round_energy_joules'])
+                # 完整任务的累计资源包含预热，不能只统计策略步骤。 / Full task costs include warmup.
                 if finished:
                     feedback.record_episode(info['elapsed_seconds'], info['energy_joules'])
                 stage_boundary = feedback.ready
@@ -216,13 +242,16 @@ def train_agent(env, config: dict, previous: dict | None, on_checkpoint,
                                         'resource_multipliers': feedback.multipliers.copy()}
             diagnostics = None
             if config['algorithm'] == 'dqn':
+                # 回放只记录真正终止；截断后的状态仍可自举。 / Only termination stops replay bootstrap.
                 replay.append((encoded, action, reward, agent.encode(observation), terminated))
                 if learned_steps >= config['learning_starts'] and len(replay) >= config['batch_size'] and learned_steps % config['train_frequency'] == 0:
                     diagnostics = dqn.update(agent, optimizer, target, replay, config)
                     updates += 1
+                # 定期把在线权重复制到目标网络。 / Periodically copy online weights to the target network.
                 if learned_steps % config['target_update_interval'] == 0:
                     target.load_state_dict(agent.network.state_dict())
             else:
+                # 保存旧概率和价值，供后续 PPO 更新比较。 / Save old probabilities and values for PPO updates.
                 logits = torch.tensor(before[:agent.action_count])
                 log_prob = torch.log_softmax(logits, dim=0)[action].item()
                 rollout.append((encoded, action, reward, float(before[-1]),
@@ -234,6 +263,7 @@ def train_agent(env, config: dict, previous: dict | None, on_checkpoint,
                     rollout.clear()
                     updates += 1
             if stage_boundary:
+                # 先消费旧轨迹，再更新资源乘子。 / Consume the old rollout before changing multipliers.
                 if not finished or rollout:
                     raise ValueError('Resource stage requires a finished task and consumed rollout')
                 resource_diagnostics['resource_stage_completed'] = feedback.advance_stage()
@@ -244,6 +274,7 @@ def train_agent(env, config: dict, previous: dict | None, on_checkpoint,
                                 **resource_diagnostics, **diagnostics})
         if (learned_steps + warmup_steps) % config['checkpoint_interval'] == 0:
             on_checkpoint(checkpoint())
+        # 指定快照按总交互步数触发，同次调用中不重复发送。 / Emit each requested snapshot once per call.
         snapshot_step = learned_steps + warmup_steps
         if (on_policy_snapshot is not None and snapshot_step in requested_snapshots
                 and snapshot_step not in emitted_snapshots):
