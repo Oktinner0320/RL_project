@@ -118,6 +118,16 @@ def prepare_selection(config: dict, root: Path, directory: Path | None = None) -
     return manifest
 
 
+def prepare_parameter_specs(config: dict, root: Path) -> list[RunSpec]:
+    """Return the exact registered graph for Experiment.prepare, without execution.
+
+    Retains the historical scientific-design and dependency checks; admission and
+    semantic verification remain owned by the common controller at submission.
+    """
+    trains, evaluations, references = _registered_jobs(config, Path(root).resolve())
+    return [*trains.values(), *evaluations.values(), *references.values()]
+
+
 def _scientific(config):
     config = deepcopy(config)
     config.get('native_acceptance', {}).pop('execution_admission', None)
