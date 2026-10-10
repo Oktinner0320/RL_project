@@ -1,0 +1,24 @@
+# 白底与小字号适配论文栏宽。 / White backgrounds and compact text suit paper columns.
+figure.facecolor: white
+axes.facecolor: white
+font.family: DejaVu Sans
+font.size: 8.5
+axes.labelsize: 8.5
+axes.titlesize: 9
+legend.fontsize: 7
+xtick.labelsize: 7.5
+ytick.labelsize: 7.5
+axes.spines.top: False
+axes.spines.right: False
+# 克制的线条与网格突出实测数据。 / Restrained lines and grids emphasize recorded data.
+axes.linewidth: 0.6
+grid.linewidth: 0.4
+grid.alpha: 0.22
+lines.linewidth: 1.2
+lines.markersize: 3
+# PDF 嵌入 TrueType，PNG 输出 320 DPI。 / Embed TrueType in PDF and export PNG at 320 DPI.
+pdf.fonttype: 42
+ps.fonttype: 42
+svg.fonttype: path
+savefig.dpi: 320
+figure.constrained_layout.use: True
