@@ -115,17 +115,26 @@ class Experiment:
         self._command('resume', self._controls()['controller_timeout_seconds'])
         return self.status()
 
+    def cancel(self):
+        """Stop only this experiment's recorded call/app; retain unknown consumption."""
+        self._command('cancel', 120)
+        return self.status()
+
     def status(self, refresh=False):
         if refresh:
             self._command('status', 60)
         result = {'experiment_id': self.graph['experiment_id'],
                   'planned_nodes': len(self.graph['nodes']), 'status': 'prepared',
                   'formal_acceptance': 'not_evaluated', 'actual_cloud_cost_usd': None}
-        for name in ('submission', 'remote-status', 'transfer', 'closure'):
+        for name in ('submission', 'remote-status', 'transfer', 'closure', 'cancellation'):
             path = self.directory / f'{name}.json'
             if path.exists():
-                result[name] = read_json(path)
-        if 'closure' in result:
+                value = read_json(path)
+                if name == 'submission' or value.get('attempt_id') == result.get('submission', {}).get('attempt_id'):
+                    result[name] = value
+        if 'cancellation' in result:
+            result['status'] = 'cancelled_consumption_requires_reconciliation'
+        elif 'closure' in result:
             result['status'] = result['closure']['status']
         elif 'remote-status' in result:
             result['status'] = result['remote-status']['status']
@@ -174,9 +183,6 @@ class Experiment:
         if state['status'] != 'cloud_verified':
             raise ValueError('Full experiment has not reached cloud verification')
         closure = self.directory / 'closure-progress.json'
-        previous = read_json(closure) if closure.exists() else {}
-        if previous and previous.get('attempt_id') != submission['attempt_id']:
-            previous = {}
         proofs = []
         for node in self.graph['nodes']:
             if state['nodes'][node['run_id']]['status'] != 'verified':
@@ -246,6 +252,12 @@ def _remote_state(experiment, submission):
 
 
 def _submit(experiment, *, continuation=False):
+    from .admission import _locked
+    with _locked(experiment.directory / 'submission.json'):
+        return _submit_locked(experiment, continuation=continuation)
+
+
+def _submit_locked(experiment, *, continuation=False):
     import modal
     from .experiment_admission import validate_and_reserve_graph
     from .modal_runner import create_app
@@ -254,54 +266,47 @@ def _submit(experiment, *, continuation=False):
     if experiment._controls()['submission_enabled'] is not True:
         raise ValueError('Submission disabled in the frozen configuration')
     submission = directory / 'submission.json'
-    lock = directory / 'submission.lock'
-    with lock.open('x', encoding='utf-8') as stream:
-        stream.write(graph['experiment_id'])
-    try:
-        specs = [RunSpec(**expand(graph['pool'], node['spec_ref'])) for node in graph['nodes']]
-        if continuation:
-            prior = read_json(submission)
-            result = _remote_state(experiment, prior)
-            if (result.get('experiment_id') != graph['experiment_id']
-                    or result.get('status') not in ('paused_deadline', 'blocked')):
-                raise ValueError('Only an observed paused or verification-blocked graph can continue')
-            if any(row['status'] not in ('pending', 'verified', 'computed', 'verification_failed')
-                   for row in result['nodes'].values()):
-                raise ValueError('Ambiguous compute cannot be automatically retried')
-            from .transport import stop_and_verify
-            stopped = stop_and_verify(prior['app_id'], environment=prior['environment'])
-            if stopped.get('stopped') is not True or stopped.get('app_id') != prior['app_id']:
-                raise ValueError('Prior graph app shutdown not verified')
-            write_json(directory / f"prior-shutdown-{uuid.uuid4().hex}.json", stopped)
-            write_json(directory / f"prior-submission-{uuid.uuid4().hex}.json", prior)
-        elif submission.exists():
-            raise ValueError('Existing submission cannot be repeated')
-        # Preserve all historical approvals, allocations, failed attempts and source checks.
-        validate_and_reserve_graph(graph, experiment.root, directory)
-        settings = specs[0].config['modal']
-        record = {'experiment_id': graph['experiment_id'], 'status': 'reserved',
-                  'attempt_id': uuid.uuid4().hex,
-                  'call_id': None, 'app_id': None, 'volume_name': settings['volume_name'],
-                  'environment': settings.get('environment', 'main'),
-                  'reserved_run_ids': [s.run_id for s in specs],
-                  'actual_cloud_cost_usd': None, 'historical_consumption_reset': False}
-        write_json(submission, record, replace=continuation)
-        app, function, _ = create_app(experiment.root, settings, specs,
-                                      graph_timeout_seconds=graph['graph_seconds'],
-                                      graph_controller_directory=directory)
-        with modal.enable_output(), app.run(detach=True):
-            record.update(status='submitting', app_id=app.app_id)
-            write_json(submission, record, replace=True)
-            call = function.spawn(graph, settings['volume_name'], record['attempt_id'])
-            record.update(status='submitted', call_id=call.object_id)
-            write_json(submission, record, replace=True)
-    finally:
-        lock.unlink()
+    specs = [RunSpec(**expand(graph['pool'], node['spec_ref'])) for node in graph['nodes']]
+    if continuation:
+        prior = read_json(submission)
+        result = _remote_state(experiment, prior)
+        if result.get('status') not in ('paused_deadline', 'blocked'):
+            raise ValueError('Only an observed paused or verification-blocked graph can continue')
+        if any(row['status'] not in ('pending', 'verified', 'computed', 'verification_failed')
+               for row in result['nodes'].values()):
+            raise ValueError('Ambiguous compute cannot be automatically retried')
+        from .transport import stop_and_verify
+        stopped = stop_and_verify(prior['app_id'], environment=prior['environment'])
+        if stopped.get('stopped') is not True or stopped.get('app_id') != prior['app_id']:
+            raise ValueError('Prior graph app shutdown not verified')
+        write_json(directory / f"prior-shutdown-{uuid.uuid4().hex}.json", stopped)
+        write_json(directory / f"prior-submission-{uuid.uuid4().hex}.json", prior)
+    elif submission.exists():
+        raise ValueError('Existing submission cannot be repeated')
+    # Preserve all historical approvals, allocations, failed attempts and source checks.
+    validate_and_reserve_graph(graph, experiment.root, directory)
+    settings = specs[0].config['modal']
+    record = {'experiment_id': graph['experiment_id'], 'status': 'reserved',
+              'attempt_id': uuid.uuid4().hex,
+              'call_id': None, 'app_id': None, 'volume_name': settings['volume_name'],
+              'environment': settings.get('environment', 'main'),
+              'reserved_run_ids': [s.run_id for s in specs],
+              'actual_cloud_cost_usd': None, 'historical_consumption_reset': False}
+    write_json(submission, record, replace=continuation)
+    app, function, _ = create_app(experiment.root, settings, specs,
+                                  graph_timeout_seconds=graph['graph_seconds'],
+                                  graph_controller_directory=directory)
+    with modal.enable_output(), app.run(detach=True):
+        record.update(status='submitting', app_id=app.app_id)
+        write_json(submission, record, replace=True)
+        call = function.spawn(graph, settings['volume_name'], record['attempt_id'])
+        record.update(status='submitted', call_id=call.object_id)
+        write_json(submission, record, replace=True)
 
 
 def cli():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--action', choices=('submit', 'resume', 'status', 'cleanup'), required=True)
+    parser.add_argument('--action', choices=('submit', 'resume', 'status', 'cleanup', 'cancel'), required=True)
     parser.add_argument('--directory', type=Path, required=True)
     parser.add_argument('--root', type=Path, required=True)
     args = parser.parse_args()
@@ -312,18 +317,26 @@ def cli():
     submission = read_json(args.directory / 'submission.json')
     if not submission.get('call_id') or not submission.get('app_id'):
         raise ValueError('Submission identity unknown')
-    if args.action == 'cleanup':
+    if args.action in ('cleanup', 'cancel'):
+        if args.action == 'cancel':
+            import modal
+            modal.FunctionCall.from_id(submission['call_id']).cancel(terminate_containers=True)
         from .transport import stop_and_verify
         result = stop_and_verify(submission['app_id'], environment=submission['environment'])
-        write_json(args.directory / f"shutdown-{submission['attempt_id']}.json", result)
+        write_json(args.directory / f"shutdown-{submission['attempt_id']}.json", result, replace=True)
+        if args.action == 'cancel':
+            write_json(args.directory / 'cancellation.json',
+                       {'attempt_id': submission['attempt_id'], 'call_id': submission['call_id'],
+                        'shutdown': result, 'actual_interactions': None}, replace=True)
     else:
         import modal
         try:
             state = _remote_state(experiment, submission)
             result = {'status': state['status'], 'call_completed': True,
+                      'attempt_id': submission['attempt_id'],
                       'experiment_id': state['experiment_id'], 'nodes': state['nodes']}
         except TimeoutError:
-            result = {'status': 'running', 'call_completed': False}
+            result = {'status': 'running', 'call_completed': False, 'attempt_id': submission['attempt_id']}
         write_json(args.directory / 'remote-status.json', result, replace=True)
 
 

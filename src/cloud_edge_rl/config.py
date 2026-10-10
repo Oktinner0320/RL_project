@@ -55,12 +55,16 @@ def _validate_experiment_controls(controls):
     limits = {'graph_timeout_seconds': 86400, 'node_timeout_seconds': 7200,
               'verification_timeout_seconds': 7200, 'controller_timeout_seconds': 7200}
     required = guards | set(limits) | {'directory', 'mode'}
-    optional = {'graph_admission', 'max_nodes'}
+    optional = {'graph_admission', 'max_nodes', 'resume_enabled'}
     if type(controls) is not dict or not required <= controls.keys() or controls.keys() - required - optional:
         raise ValueError('workflow.experiment contains missing or unknown schema fields')
     for key in guards:
         if type(controls[key]) is not bool:
             raise ValueError(f'workflow.experiment.{key} requires bool')
+    if type(controls.get('resume_enabled', False)) is not bool:
+        raise ValueError('workflow.experiment.resume_enabled requires bool')
+    if controls.get('resume_enabled', False) and not controls['submission_enabled']:
+        raise ValueError('workflow.experiment.resume_enabled requires submission permission')
     for key, maximum in limits.items():
         if type(controls[key]) is not int or not 1 <= controls[key] <= maximum:
             raise ValueError(f'workflow.experiment.{key} requires an integer in [1, {maximum}]')
@@ -241,6 +245,16 @@ def json_copy(value):
     return json.loads(json.dumps(value, ensure_ascii=False, allow_nan=False))
 
 
+def scientific_configuration(config: dict) -> dict:
+    """Detach scientific inputs, excluding only live operational guard controls."""
+    projected = json.loads(json.dumps(config, ensure_ascii=False, allow_nan=False))
+    controls = projected.get('workflow', {}).get('experiment', {})
+    for key in ('prepare_enabled', 'submission_enabled', 'refresh_enabled',
+                'collection_enabled', 'verification_enabled', 'resume_enabled'):
+        controls.pop(key, None)
+    return projected
+
+
 def source_identity(project_root: Path) -> dict:
     """Freeze source contents without computing file hashes."""
     # New snapshots bind scientific JSON, not the read-only notebook frontend.
@@ -257,6 +271,10 @@ def source_identity(project_root: Path) -> dict:
         # Notebook outputs/execution counts are results, not executable source.
         # Notebook 输出与执行次数是产物，不应改变源码身份。
         content = path.read_text(encoding="utf-8")
+        if path == config_path:
+            config = json.loads(content, object_pairs_hook=_config_pairs, parse_constant=_config_constant)
+            content = json.dumps(scientific_configuration(config), ensure_ascii=False,
+                                 sort_keys=True, separators=(',', ':'), allow_nan=False)
         if path.suffix == ".ipynb":
             cells = json.loads(content)["cells"]
             content = [[c["cell_type"], c["source"]] for c in cells]
