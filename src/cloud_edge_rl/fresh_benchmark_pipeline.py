@@ -1,10 +1,10 @@
 """Bounded driver of owner-frozen fresh stages; never produces jobs or approval."""
 
 import argparse
-from dataclasses import asdict
 import importlib
-import uuid
 import json
+import uuid
+from dataclasses import asdict
 from pathlib import Path
 
 from .admission import check_admission
@@ -13,7 +13,6 @@ from .fresh_benchmark import build_plan
 from .parameter_selection_pipeline import load_notebook_config
 from .training_pipeline import _controller_lock, run_training_pipeline
 from .transport import safe_run_id, write_json
-
 
 EXPERIMENT = 'fresh-seven-methods-20261010-v1'
 PURPOSE = 'fresh_seven_method_development_benchmark_v1'

@@ -12,8 +12,7 @@ import uuid
 from pathlib import Path
 
 from .config import RunSpec, load_config, scientific_configuration, source_identity
-from .experiment_graph import (MAX_METADATA, expand, freeze_graph, run_graph,
-                               validate_graph)
+from .experiment_graph import MAX_METADATA, expand, freeze_graph, run_graph, validate_graph
 from .transport import read_json, run_bounded, write_json
 
 
@@ -273,6 +272,7 @@ def _submit(experiment, *, continuation=False):
 
 def _submit_locked(experiment, *, continuation=False):
     import modal
+
     from .experiment_admission import validate_and_reserve_graph
     from .modal_runner import create_app
 

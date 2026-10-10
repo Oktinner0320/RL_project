@@ -5,8 +5,6 @@ from __future__ import annotations
 import json
 import math
 import re
-import subprocess
-import sys
 import tomllib
 from dataclasses import asdict
 from pathlib import Path, PurePosixPath
@@ -14,8 +12,8 @@ from typing import Any
 
 import modal
 
+from cloud_edge_rl.admission import bind_call, check_admission, reserve
 from cloud_edge_rl.config import RunSpec
-from cloud_edge_rl.admission import check_admission, reserve, bind_call
 
 
 def _reference_sources(specs: list[RunSpec]) -> tuple[bool, set[str], PurePosixPath | None]:

@@ -2,15 +2,23 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import asdict, dataclass
 import json
-from pathlib import Path, PurePosixPath
 import sys
 import time
 import uuid
+from dataclasses import asdict, dataclass
+from pathlib import Path, PurePosixPath
 
-from .transport import (_decode_json, _no_symlinks, _restore_file, read_json,
-                        receive_file, run_bounded, safe_run_id, write_json)
+from .transport import (
+    _decode_json,
+    _no_symlinks,
+    _restore_file,
+    read_json,
+    receive_file,
+    run_bounded,
+    safe_run_id,
+    write_json,
+)
 
 
 @dataclass(frozen=True)

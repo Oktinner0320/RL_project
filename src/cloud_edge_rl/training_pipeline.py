@@ -3,18 +3,25 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import asdict, replace
-from contextlib import contextmanager
 import os
-from pathlib import Path
 import sys
 import uuid
+from contextlib import contextmanager
+from dataclasses import asdict, replace
+from pathlib import Path
 
 from cloud_edge_rl.config import RunSpec
 from cloud_edge_rl.transport import (
-    TransportLimits, download_artifacts, read_json, run_bounded, safe_run_id,
-    stop_and_verify, write_json, download_public_updates, POLICY_SNAPSHOTS,
+    POLICY_SNAPSHOTS,
+    TransportLimits,
+    download_artifacts,
     download_dependency_artifacts,
+    download_public_updates,
+    read_json,
+    run_bounded,
+    safe_run_id,
+    stop_and_verify,
+    write_json,
 )
 
 
@@ -319,6 +326,7 @@ def _run_training_pipeline(specs: list[RunSpec], root: Path, directory: Path, *,
 def execute_compute(spec: RunSpec, root: Path, directory: Path):
     """Persist the paid binding and return before leaving the app context."""
     import modal
+
     from cloud_edge_rl import admission, modal_runner
 
     call_path = directory / "call.json"
@@ -382,7 +390,9 @@ def verify_training_artifacts(spec: RunSpec, artifacts: Path, result: dict) -> d
     """Verify native checkpoint/counters/isolation, not utility or privacy acceptance."""
     import csv
     import math
+
     import torch
+
     from cloud_edge_rl.algorithms.policy import _settings
     from cloud_edge_rl.algorithms.resource_feedback import ResourceFeedback
     from cloud_edge_rl.artifacts import artifact_payload

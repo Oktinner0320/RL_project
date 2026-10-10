@@ -6,13 +6,13 @@ not alternate configuration inputs. Existing training and transport are reused a
 
 import argparse
 import ast
-from copy import deepcopy
 import csv
-from dataclasses import asdict
 import math
-from pathlib import Path
 import sys
 import uuid
+from copy import deepcopy
+from dataclasses import asdict
+from pathlib import Path
 
 from .config import RunSpec
 from .parameter_selection import build_plan, candidate_config, execution_blockers, rank_results
@@ -265,6 +265,7 @@ def verify_validation_artifacts(spec: RunSpec, artifacts: Path, result: dict) ->
 def verify_parameter_training(spec: RunSpec, artifacts: Path, result: dict) -> dict:
     """Extend, not change, the native gate with this batch's actual learning clocks."""
     import torch
+
     from .training_pipeline import verify_training_artifacts
 
     proof = verify_training_artifacts(spec, artifacts, result)

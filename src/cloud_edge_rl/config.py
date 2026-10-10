@@ -1,4 +1,4 @@
-"""Notebook 配置快照与源码身份。 / Notebook snapshots and source identity."""
+"""独立配置、不可变快照与源码身份。 / Configuration, frozen snapshots and source identity."""
 
 import json
 import math
@@ -6,7 +6,6 @@ import subprocess
 import uuid
 from dataclasses import asdict, dataclass
 from pathlib import Path
-
 
 _SECTIONS = frozenset('experiment data model environment resources reward baseline risk rl attack audit execution seeds modal variants tuning analysis workflow reference_benchmarks components comparisons native_acceptance'.split())
 _CORE_FIELDS = {

@@ -11,8 +11,8 @@ from pathlib import Path
 
 import modal
 
+from ..admission import bind_call, check_admission, reserve
 from ..config import RunSpec, make_run_spec, source_identity, spec_to_dict
-from ..admission import check_admission, reserve, bind_call
 from ..modal_runner import create_app, download_run
 from ..notebook import make_job_specs
 from ..pipeline import run_experiment

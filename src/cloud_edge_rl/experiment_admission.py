@@ -6,8 +6,8 @@ legacy_admission and source_contents_manifest descriptors plus owner/freeze_id.
 Future producers need not exist: execution must independently enforce verified
 dependency barriers. Spent IDs cannot be imported by this first-stage adapter.
 """
-from copy import deepcopy
 import json
+from copy import deepcopy
 from pathlib import Path
 
 from . import admission
@@ -15,7 +15,6 @@ from .comparisons.acceptance import _first_artifact, _first_json_equal, _first_j
 from .config import source_identity
 from .experiment_graph import MAX_METADATA, expand, validate_graph
 from .transport import read_json, write_json
-
 
 SCHEMA = 'fresh_graph_admission_v1'
 _FIELDS = {'schema', 'approved', 'owner', 'freeze_id', 'purpose', 'experiment_id',
