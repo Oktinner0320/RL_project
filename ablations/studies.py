@@ -4,7 +4,6 @@ from copy import deepcopy
 
 from cloud_edge_rl.fresh_benchmark import run_config
 
-
 STUDIES = {
     'N': {'status': 'implemented', 'question': 'Does 3-step improve short-budget Double DQN?',
           'arms': {'N1': {'n_step': 1}, 'N3': {'n_step': 3}},
@@ -100,7 +99,7 @@ def build_plan(base: dict, experiment_id: str, study_id: str = 'N') -> dict:
         'budget': {'method_seed_partition_limit': 3000,
                    'two_arm_training_per_seed': 2400, 'shared_allocation_headroom_per_seed': 600,
                    'planned_training_physical_max': 7200, 'pilot_training_physical_max': 1000,
-                   'planned_validation_physical_max': 240,
+                    'planned_validation_physical_max': 180,
                    'actual_shared_allocation': None, 'historical_cloud_cost_usd': None,
                    'remaining_configuration_slots': None, 'approved_new_paid_usd': 0,
                    'unknown_consumption_is_zero': False, 'historical_counters_reset': False},

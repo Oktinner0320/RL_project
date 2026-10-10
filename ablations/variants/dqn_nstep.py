@@ -7,7 +7,7 @@ import numpy as np
 import torch
 
 from cloud_edge_rl.algorithms import dqn
-from cloud_edge_rl.algorithms.policy import Agent, load_agent, _settings
+from cloud_edge_rl.algorithms.policy import Agent, _settings, load_agent
 from cloud_edge_rl.baselines import run_warmup
 from cloud_edge_rl.types import TrainingResult
 

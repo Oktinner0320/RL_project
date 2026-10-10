@@ -7,7 +7,6 @@ from cloud_edge_rl.transport import publish_file, read_json, write_json
 
 from .runner import _check_preparation, output_directory, project_root
 
-
 RISK_SOURCE = ('output/fresh-seven-method-rerun-20261010-v1/experiment/partial-artifacts/'
                '121196f0242940a69c558b34a98ba2e3/runs/'
                'fit_risk-fc7e3f5c799f49c2bc74487687245745')

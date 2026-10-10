@@ -6,10 +6,10 @@ from pathlib import Path
 
 import torch
 
+from cloud_edge_rl import pipeline
+from cloud_edge_rl.algorithms.policy import _settings, load_agent
 from cloud_edge_rl.artifacts import RunStore, artifact_payload
 from cloud_edge_rl.config import RunSpec
-from cloud_edge_rl.algorithms.policy import load_agent, _settings
-from cloud_edge_rl import pipeline
 from cloud_edge_rl.experiment_transfer import _check_local, _path
 from cloud_edge_rl.transport import read_json
 
@@ -192,7 +192,9 @@ def verify_stage(spec: RunSpec, workspace: Path, result: dict) -> dict:
     """Read actual artifacts and counters; not formal acceptance or true-risk auditing."""
     root, experiment = _guard(spec, workspace)
     prior = _prior(spec, root, experiment)
-    read = lambda name: read_json(_inside(root, f'runs/{spec.run_id}/{name}'))
+    def read(name):
+        return read_json(_inside(root, f'runs/{spec.run_id}/{name}'))
+
     if read('status.json').get('state') != 'completed' or read('config.json') != artifact_payload(spec) or read('summary.json') != result:
         raise ValueError('Completed status/config/summary content mismatch')
     with _inside(root, f'runs/{spec.run_id}/metrics.csv').open(encoding='utf-8', newline='') as stream:
