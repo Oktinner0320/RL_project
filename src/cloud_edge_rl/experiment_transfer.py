@@ -5,8 +5,8 @@ import argparse
 import json
 import sys
 import time
-import uuid
 import unicodedata
+import uuid
 from dataclasses import asdict, dataclass
 from pathlib import Path, PurePosixPath
 

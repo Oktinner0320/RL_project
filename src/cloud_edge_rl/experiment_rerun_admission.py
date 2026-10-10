@@ -3,9 +3,9 @@
 No legacy approval trees, hashes, result imports or execution path. Descriptors
 retain literal JSON once; source bytes are those read by source_identity.
 """
+import json
 from copy import deepcopy
 from dataclasses import asdict
-import json
 from pathlib import Path
 
 from . import admission
@@ -151,7 +151,7 @@ def _history(descriptor, run_ids):
     if receipt_runs != extra_ids:
         raise ValueError('Every additional completed call requires actual native receipt')
     old_ids = evidence_runs | extra_ids
-    bound, seen_runs, seen_calls = set(), {}, {}
+    bound, seen_calls = set(), {}
     scope_fields = ('run_id', 'call_id', 'method', 'seed', 'partition', 'actual_interactions')
     matching_groups = {(m, s, 'train') for m in ('dqn', 'ppo', 'pqn') for s in (8101, 8102, 8103)}
     matching_groups |= {('round_robin', s, 'train') for s in (8301, 8302, 8303)}
@@ -162,10 +162,11 @@ def _history(descriptor, run_ids):
         if (type(row) is not dict or type(row.get('run_id')) is not str or not row['run_id']
                 or type(row.get('call_id')) is not str or not row['call_id']):
             raise ValueError('Historical ledger run identities required')
-        for identifier, index in ((row['run_id'], seen_runs), (row['call_id'], seen_calls)):
-            if identifier in index:
-                _equal(row, index[identifier], 'Conflicting duplicate historical ledger identity')
-            index[identifier] = row
+        # A historical retry can reuse a run ID with a distinct physical call.
+        # Preserve both attempts; only an identical call must have identical rows.
+        if row['call_id'] in seen_calls:
+            _equal(row, seen_calls[row['call_id']], 'Conflicting duplicate historical ledger identity')
+        seen_calls[row['call_id']] = row
         old_ids.add(row['run_id'])
         expected_row = evidence.get(row['run_id'])
         key = row.get('method'), row.get('seed'), row.get('partition')

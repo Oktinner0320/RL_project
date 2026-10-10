@@ -77,14 +77,15 @@ def publish_shards(graph, workspace, *, commit=lambda: None, seconds=EXPORT_SECO
         if not owner.exists():
             continue
         _check_local(owner)
-        # Do not traverse the export directory, including abandoned shard partials.
+        # Export metadata and mutable call-completion receipts are controller state,
+        # not frozen payload. The SDK/Volume status path retrieves call receipts.
         for directory, dirs, names in os.walk(owner, followlinks=False):
             _check_deadline(deadline)
             directory = Path(directory)
             for name in list(dirs):
                 child = directory / name
                 _check_local(child)
-                if child == output:
+                if child in (output, base / 'calls'):
                     dirs.remove(name)
             dirs.sort()
             for name in sorted(names):
