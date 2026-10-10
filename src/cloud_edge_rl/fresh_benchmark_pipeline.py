@@ -3,7 +3,7 @@
 import argparse
 from dataclasses import asdict
 import importlib
-import hashlib
+import uuid
 import json
 from pathlib import Path
 
@@ -67,16 +67,33 @@ def _gate(proof, run_id):
     return proof['physical_interactions']
 
 
-def _journal_identity(descriptor, directory, specs):
-    """Bind external frozen descriptors without copying their nested payloads."""
-    encoded = json.dumps(descriptor, sort_keys=True, separators=(',', ':'),
-                         allow_nan=False).encode('utf-8')
-    return {'schema': 'fresh_benchmark_journal_v2',
+def _journal_identity(descriptor, directory, specs, *, historical=False, budget=None):
+    """Bind a compact journal to an exclusive, directly compared descriptor copy."""
+    identity = {'schema': 'fresh_benchmark_journal_v2',
             'descriptor_ref': str(directory / 'stage.json'),
-            'descriptor_sha256': hashlib.sha256(encoded).hexdigest(),
             'freeze_id': descriptor['freeze_id'],
             'spec_refs': list(descriptor['spec_paths']),
             'run_ids': [spec.run_id for spec in specs]}
+    if historical:
+        return identity
+    binding_path = directory / 'stage-binding.json'
+    if binding_path.exists():
+        binding = _strict_json(binding_path, [0, 0] if budget is None else budget)
+    else:
+        binding = {'descriptor_id': str(uuid.uuid4()), 'descriptor_snapshot': descriptor}
+        # Exclusive creation prevents replacing a retained identity, even on a race.
+        with binding_path.open('x', encoding='utf-8') as stream:
+            json.dump(binding, stream, allow_nan=False)
+            stream.flush()
+            import os
+            os.fsync(stream.fileno())
+    if (type(binding) is not dict or set(binding) != {'descriptor_id', 'descriptor_snapshot'}
+            or binding['descriptor_snapshot'] != descriptor
+            or type(binding['descriptor_id']) is not str):
+        raise ValueError('Fresh immutable stage descriptor changed')
+    uuid.UUID(binding['descriptor_id'])
+    identity.update(descriptor_id=binding['descriptor_id'], descriptor_binding_ref=str(binding_path))
+    return identity
 
 
 def run_fresh_stage(config: dict, root: Path, directory: Path, *, max_new_jobs: int,
@@ -179,11 +196,12 @@ def run_fresh_stage(config: dict, root: Path, directory: Path, *, max_new_jobs: 
         raise ValueError('Fresh semantic verifier unavailable; execution blocked')
     with _controller_lock(directory):
         journal = directory / 'fresh-journal.json'
-        identity = _journal_identity(descriptor, directory, specs)
-        historical = False
+        old = _strict_json(journal, budget) if journal.exists() else None
+        historical = old is not None and 'snapshot' in old
+        if old is not None and not historical and not (directory / 'stage-binding.json').exists():
+            raise ValueError('Missing retained stage descriptor identity')
+        identity = _journal_identity(descriptor, directory, specs, historical=historical, budget=budget)
         if journal.exists():
-            old = _strict_json(journal, budget)
-            historical = 'snapshot' in old
             matches = (old.get('snapshot') == {'descriptor': descriptor,
                        'specs': [asdict(spec) for spec in specs]} if historical else
                        all(old.get(key) == value for key, value in identity.items()))

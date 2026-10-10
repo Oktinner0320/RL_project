@@ -48,8 +48,8 @@ def _path(value):
     return path
 
 
-def _confined(root, relative):
-    path = root.joinpath(*_path(relative).parts)
+def _check_local(path):
+    path = Path(path).absolute()
     _no_symlinks(path)
     # Junctions/reparse points can escape without Path.is_symlink() on Windows.
     for item in (path, *path.parents):
@@ -57,6 +57,11 @@ def _confined(root, relative):
             raise ValueError('Reparse artifact path forbidden')
         if item.exists() and getattr(item.lstat(), 'st_file_attributes', 0) & 0x400:
             raise ValueError('Reparse artifact path forbidden')
+    return path
+
+
+def _confined(root, relative):
+    path = _check_local(root.joinpath(*_path(relative).parts))
     if not path.resolve().is_relative_to(root):
         raise ValueError('Experiment artifact escaped destination')
     return path
@@ -143,7 +148,7 @@ def collect_experiment(volume_name, experiment_id, destination, *, limits=None,
     limits = GraphTransferLimits() if limits is None else limits
     if type(limits) is not GraphTransferLimits:
         raise ValueError('Explicit graph transfer limits required')
-    _no_symlinks(destination)
+    _check_local(destination)
     root = Path(destination).absolute()
     root = _confined(root, 'experiments').parent.resolve()
     stage = _confined(root, f'.experiment-transfers/{experiment_id}')
@@ -156,6 +161,8 @@ def collect_experiment(volume_name, experiment_id, destination, *, limits=None,
             raise ValueError('Experiment transfer binding changed on resume')
     else:
         write_json(binding_path, binding)
+    completion_path = _check_local(stage / 'complete.json')
+    completion_path.unlink(missing_ok=True)
     started = time.monotonic()
     common = [sys.executable, '-m', 'cloud_edge_rl.experiment_transfer', '--volume', volume_name,
               '--experiment-id', experiment_id, '--environment', environment,
@@ -216,6 +223,17 @@ def collect_experiment(volume_name, experiment_id, destination, *, limits=None,
     for index, row in enumerate(files):
         if index != snapshot_index:
             transfer(row, index)
+    state = read_json(_confined(root, f'experiments/{experiment_id}/state.json'))
+    if type(state) is not dict or state.get('experiment_id') != experiment_id:
+        raise ValueError('Experiment state identity mismatch')
+    # A failed graph may legitimately lack results for unstarted/failed nodes.
+    # A globally completed graph must retain every result and native gate receipt.
+    if state.get('status', state.get('state')) == 'completed':
+        paths = {row['path'] for row in files}
+        for node_id in node_ids:
+            prefix = f'experiments/{experiment_id}/nodes/{node_id}'
+            if not {prefix + '/result.json', prefix + '/verification.json'} <= paths:
+                raise ValueError('Completed experiment missing node result/verification artifacts')
     # Retain the authoritative inventory alongside its downloaded experiment files.
     exported_inventory = _confined(root, f'experiments/{experiment_id}/inventory.json')
     if exported_inventory.exists():
@@ -227,7 +245,7 @@ def collect_experiment(volume_name, experiment_id, destination, *, limits=None,
               'semantic_verified': False, 'files': completed, 'bytes': completed_bytes,
               'destination': str(root), 'inventory': str(exported_inventory),
               'elapsed_seconds': time.monotonic() - started}
-    write_json(stage / 'complete.json', result, replace=True)
+    write_json(completion_path, result, replace=True)
     return result
 
 
@@ -254,7 +272,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
     safe_run_id(args.experiment_id)
     limits = GraphTransferLimits(**_decode_json(args.limits))
-    _no_symlinks(args.output)
+    _check_local(args.output)
     if args.action == 'read':
         path = _path(args.remote_path)
         if (not ((path.parts[0] == 'runs' and len(path.parts) >= 3)
@@ -262,7 +280,7 @@ def main(argv=None):
                 or args.bytes is None or not 0 <= args.bytes <= limits.max_file_bytes
                 or args.receipt is None or args.output.name != path.name):
             raise ValueError('Exact bounded experiment read required')
-        _no_symlinks(args.receipt)
+        _check_local(args.receipt)
     import modal
     volume = modal.Volume.from_name(args.volume, environment_name=args.environment)
     if args.action == 'inventory':
