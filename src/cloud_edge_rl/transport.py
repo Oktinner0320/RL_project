@@ -13,6 +13,8 @@ import uuid
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path, PurePosixPath
 
+from cloud_edge_rl.config import RunSpec
+
 
 @dataclass(frozen=True)
 class TransportLimits:
@@ -416,12 +418,12 @@ def _dependency_files(spec):
     return dependencies
 
 
-def dependency_run_ids(spec: 'RunSpec') -> list[str]:
+def dependency_run_ids(spec: RunSpec) -> list[str]:
     """Stable unique IDs for explicitly declared verification dependencies."""
     return list(_dependency_files(spec))
 
 
-def download_dependency_artifacts(spec: 'RunSpec', destination: Path, *,
+def download_dependency_artifacts(spec: RunSpec, destination: Path, *,
                                   worker=run_bounded, limits=None) -> list[Path]:
     """Bounded public hydration, resumable without spawning compute or loading models."""
     limits = limits or TransportLimits()
@@ -429,7 +431,6 @@ def download_dependency_artifacts(spec: 'RunSpec', destination: Path, *,
     started = time.monotonic()
     downloaded, total = [], 0
     pending = list(dependencies)
-    processed = set()
     while pending:
         run_id = pending.pop(0)
         names = dependencies[run_id]
@@ -460,7 +461,6 @@ def download_dependency_artifacts(spec: 'RunSpec', destination: Path, *,
         if total > limits.max_total_bytes:
             raise ValueError('Verification dependency closure exceeds total byte bound')
         downloaded.append(artifacts)
-        processed.add(run_id)
         if run_id in spec.inputs.get('audit_run_ids', []):
             sources = config.get('inputs', {}).get('source_run_ids')
             if type(sources) is not list or len(sources) > 32:
