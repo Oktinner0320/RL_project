@@ -100,6 +100,9 @@ def validate_and_reserve_graph(graph: dict, root: Path, controller_dir: Path) ->
     approval_path = Path(admission_path)
     approval_path = (approval_path if approval_path.is_absolute() else root / approval_path).resolve()
     approval = _read_approval(approval_path)
+    if type(approval) is dict and approval.get('schema') == 'fresh_full_rerun_admission_v1':
+        from .experiment_rerun_admission import reserve_rerun
+        return reserve_rerun(graph, root, directory, approval_path, approval)
     if (type(approval) is not dict or set(approval) != _FIELDS
             or approval['schema'] != SCHEMA or approval['approved'] is not True
             or approval['purpose'] != admission._FRESH_PURPOSE
