@@ -162,6 +162,9 @@ class Experiment:
             raise ValueError('Cloud graph still running; terminal inventory required')
         if not remote.get('call_completed'):
             raise ValueError('Cloud completion unknown; reconcile original call before transfer')
+        if (remote.get('attempt_id') != submission['attempt_id']
+                or remote.get('experiment_id') != self.graph['experiment_id']):
+            raise ValueError('Stale or unbound remote completion; refresh the current attempt')
         # Exact app cleanup precedes the one logical artifact return stage.
         shutdown = self.directory / f"shutdown-{submission['attempt_id']}.json"
         if not shutdown.exists():
