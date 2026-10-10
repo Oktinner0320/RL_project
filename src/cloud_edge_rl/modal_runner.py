@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import math
 import re
 import tomllib
 from dataclasses import asdict
@@ -12,7 +11,7 @@ from typing import Any
 
 import modal
 
-from cloud_edge_rl.admission import bind_call, check_admission, reserve
+from cloud_edge_rl.admission import check_admission
 from cloud_edge_rl.config import RunSpec
 
 
@@ -187,48 +186,6 @@ def create_app(
         scaledown_window=modal_config["scaledown_window"],
     )
     return app, function, volume
-
-
-def submit_runs(
-    specs: list[RunSpec], project_root: Path, modal_config: dict[str, Any]
-) -> list[str]:
-    """提交快照并返回调用 ID；预算值不是硬额度。 / Submit snapshots; the budget is not a hard cap."""
-    check_admission(specs, project_root)
-    app, function, _ = create_app(project_root, modal_config, specs)
-    check_admission(specs, project_root)
-    with modal.enable_output(), app.run(detach=modal_config["detach"]):
-        calls = []
-        for spec in specs:
-            old_call = reserve(spec, project_root)
-            if old_call is not None:
-                call = modal.FunctionCall.from_id(old_call)
-            else:
-                call = function.spawn(asdict(spec), modal_config["volume_name"])
-                bind_call(spec, project_root, call.object_id)
-            calls.append(call)
-        call_ids = [call.object_id for call in calls]
-        if not modal_config["detach"]:
-            # 非分离模式在退出 App 前等待，防止取消尚未完成的输入。 / Wait before closing an attached app.
-            for call in calls:
-                try:
-                    call.get(timeout=modal_config["timeout_seconds"]
-                             + modal_config["startup_timeout_seconds"])
-                except TimeoutError:
-                    call.cancel(terminate_containers=True)
-                    raise
-    return call_ids
-
-
-def get_run(call_id: str, timeout: float) -> dict[str, Any]:
-    """恢复调用句柄并读取结果；timeout=0 用于查询。 / Retrieve a run, or poll with timeout=0."""
-    if type(timeout) not in (int, float) or not math.isfinite(timeout) or timeout < 0:
-        raise ValueError("Explicit finite call wait timeout required")
-    return modal.FunctionCall.from_id(call_id).get(timeout=timeout)
-
-
-def wait_runs(call_ids: list[str], *, timeout: float) -> list[dict[str, Any]]:
-    """按提交顺序收集结果。 / Collect results in submission order."""
-    return [get_run(call_id, timeout=timeout) for call_id in call_ids]
 
 
 def download_run(volume_name: str, run_id: str, destination: Path) -> Path:
