@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import stat
 import sys
 import time
 import unicodedata
@@ -65,12 +66,16 @@ def _path(value):
 
 def _check_local(path):
     path = Path(path).absolute()
-    _no_symlinks(path)
-    # Junctions/reparse points can escape without Path.is_symlink() on Windows.
+    # Fresh metadata per component; never reuse checks across export phases.
     for item in (path, *path.parents):
-        if hasattr(item, 'is_junction') and item.is_junction():
-            raise ValueError('Reparse artifact path forbidden')
-        if item.exists() and getattr(item.lstat(), 'st_file_attributes', 0) & 0x400:
+        try:
+            metadata = item.lstat()
+        except FileNotFoundError:
+            continue
+        if stat.S_ISLNK(metadata.st_mode):
+            raise ValueError('Symbolic public artifact path forbidden')
+        # Reject all Windows reparse points, not only junctions.
+        if getattr(metadata, 'st_file_attributes', 0) & 0x400:
             raise ValueError('Reparse artifact path forbidden')
     return path
 

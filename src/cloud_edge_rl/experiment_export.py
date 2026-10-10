@@ -1,6 +1,7 @@
 """Bounded, uncompressed experiment shards; frozen bytes, never model semantics."""
 from __future__ import annotations
 
+import json
 import os
 import tarfile
 import time
@@ -63,11 +64,19 @@ def publish_shards(graph, workspace, *, commit=lambda: None, seconds=EXPORT_SECO
     from .experiment_transfer import GraphTransferLimits, _check_local, _inventory
     if not 0 < seconds <= EXPORT_SECONDS:
         raise ValueError('Bounded export deadline required')
-    deadline = time.monotonic() + seconds
+    started = time.monotonic()
+    deadline = started + seconds
     # Modal mounts the explicitly supplied workspace through a symlink. Resolve
     # that trusted root only; every artifact descendant still rejects links.
     workspace = _check_local(Path(workspace).resolve(strict=True))
     experiment_id = graph['experiment_id']
+
+    def phase(name, **values):
+        print(json.dumps({'event': 'experiment_export_phase', 'phase': name,
+                          'experiment_id': experiment_id,
+                          'elapsed_seconds': round(time.monotonic() - started, 3),
+                          **values}), flush=True)
+
     base = workspace / 'experiments' / experiment_id
     output = _check_local(base / 'export')
     output.mkdir(parents=True, exist_ok=True)
@@ -75,6 +84,7 @@ def publish_shards(graph, workspace, *, commit=lambda: None, seconds=EXPORT_SECO
     groups, rows, total = [], [], 0
     owners = [('base', base), *((n['run_id'], workspace / 'runs' / n['run_id']) for n in graph['nodes'])]
     for label, owner in owners:
+        phase('scan_owner', owner=label, files=len(rows), bytes=total)
         batch, used, index = [], 10240, 0
         if not owner.exists():
             continue
@@ -107,16 +117,21 @@ def publish_shards(graph, workspace, *, commit=lambda: None, seconds=EXPORT_SECO
                 used += size
                 rows.append(row)
                 total += row['bytes']
+                if len(rows) % 1000 == 0:
+                    phase('scan_progress', files=len(rows), bytes=total)
                 if len(rows) > limits.max_entries or total > limits.max_total_bytes:
                     raise ValueError('Whole-experiment transfer inventory exceeds declared limits')
         if batch:
             groups.append((label, index, batch))
     value = {'schema': 'experiment_inventory_v2', 'experiment_id': experiment_id,
              'files': rows, 'bytes': total, 'shards': []}
+    phase('scan_complete', files=len(rows), bytes=total, shards=len(groups))
     # Validate original paths before opening or publishing any archive.
+    phase('initial_inventory_validation')
     _inventory({**value, 'schema': 'experiment_inventory_v1'}, experiment_id, limits)
     for label, index, members in groups:
         _check_deadline(deadline)
+        phase('shard_start', owner=label, index=index, files=len(members))
         archive = _check_local(output / f'{label}-{index:05d}.tar')
         receipt = _check_local(archive.with_suffix('.receipt.json'))
         binding = {'members': members, 'path': archive.relative_to(workspace).as_posix()}
@@ -124,6 +139,7 @@ def publish_shards(graph, workspace, *, commit=lambda: None, seconds=EXPORT_SECO
                     and read_json(receipt).get('bytes') == archive.stat().st_size
                     and _matches(archive, members, workspace, deadline))
         if not reusable:
+            phase('write_shard', owner=label, index=index)
             partial = archive.with_name(f'.{archive.name}.{uuid.uuid4().hex}.part')
             with partial.open('xb') as stream:
                 with tarfile.open(fileobj=stream, mode='w', format=tarfile.PAX_FORMAT) as tar:
@@ -134,19 +150,25 @@ def publish_shards(graph, workspace, *, commit=lambda: None, seconds=EXPORT_SECO
                             tar.addfile(_info(row), _DeadlineReader(file, deadline))
                 stream.flush()
                 os.fsync(stream.fileno())
+            phase('compare_shard', owner=label, index=index)
             if partial.stat().st_size > SHARD_BYTES or not _matches(partial, members, workspace, deadline):
                 raise ValueError('Source changed during experiment export')
             os.replace(partial, archive)
             write_json(receipt, {'binding': binding, 'bytes': archive.stat().st_size}, replace=True)
+            phase('commit_shard', owner=label, index=index)
             commit()
+        phase('shard_complete', owner=label, index=index, reused=reusable,
+              bytes=archive.stat().st_size)
         value['shards'].append({'path': binding['path'], 'bytes': archive.stat().st_size,
                                 'members': [row['path'] for row in members]})
+    phase('final_inventory_validation')
     _inventory(value, experiment_id, limits)
     write_json(base / 'inventory.json', value, replace=True)
     if (base / 'inventory.json').stat().st_size > limits.max_inventory_bytes:
         (base / 'inventory.json').unlink()
         raise ValueError('Experiment inventory document exceeds byte bound')
     commit()
+    phase('export_complete', files=len(rows), bytes=total, shards=len(value['shards']))
     return value
 
 

@@ -218,6 +218,9 @@ def stop_and_verify(app_id: str, *, environment: str = "main", limits=None,
         if len(matching) != 1:
             raise ValueError("Exact app absent or duplicated; shutdown remains unknown")
         last = matching[0]["state"].lower()
+        # Normalize only known transient CLI renderings, never arbitrary suffixes.
+        if last in {"stopping...", "stopping\u2026"}:
+            last = "stopping"
         if last == "stopped" and clock() - start < limits.cleanup_seconds:
             receipt = {"app_id": app_id, "verified": True, "stopped": True,
                        "status_reads": attempt + 1, "elapsed_seconds": clock() - start}

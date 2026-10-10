@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .experiment_export import publish_shards
+from .experiment_export import EXPORT_SECONDS, publish_shards
 from .experiment_transfer import _check_local
 from .transport import read_json, safe_run_id, write_json
 
@@ -86,7 +86,8 @@ def run_export_recovery(graph, volume_name, binding, recovery_id):
     result = {**binding, 'recovery_id': recovery_id, 'status': 'blocked'}
     try:
         validate_exact_completed_graph(graph, workspace, binding)
-        inventory = publish_shards(graph, workspace, commit=volume.commit)
+        # Persist the bounded failure receipt before Modal's hard 1800s deadline.
+        inventory = publish_shards(graph, workspace, commit=volume.commit, seconds=EXPORT_SECONDS - 60)
         result.update(status='export_complete', files=len(inventory['files']),
                       bytes=inventory['bytes'], shards=len(inventory['shards']))
     except Exception as error:

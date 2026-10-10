@@ -164,6 +164,14 @@ class Experiment:
                 value = read_json(path)
                 if name == 'submission' or value.get('attempt_id') == result.get('submission', {}).get('attempt_id'):
                     result[name] = value
+        recovery_path = self.directory / 'export-recovery.json'
+        if recovery_path.exists() and 'submission' in result:
+            recovery = read_json(recovery_path)
+            binding = recovery.get('binding', {})
+            keys = ('experiment_id', 'attempt_id', 'call_id', 'app_id', 'volume_name', 'environment')
+            if all(key in binding and key in result['submission']
+                   and binding[key] == result['submission'][key] for key in keys):
+                result['export-recovery'] = recovery
         if 'cancellation' in result:
             result['status'] = 'cancelled_consumption_requires_reconciliation'
         elif 'closure' in result:
@@ -354,10 +362,11 @@ def _submit_locked(experiment, *, continuation=False):
 
 def _export_recovery_result(record, *, timeout):
     import modal
+    from modal.exception import FunctionTimeoutError
 
     try:
         result = modal.FunctionCall.from_id(record['call_id']).get(timeout=timeout)
-    except TimeoutError:
+    except (TimeoutError, FunctionTimeoutError):
         raise
     except Exception:
         from .transport import _decode_json
@@ -381,6 +390,7 @@ def _export_recovery_result(record, *, timeout):
 def _repair_export(experiment):
     """Reconcile one CPU export call; never reserve or resume scientific compute."""
     import modal
+    from modal.exception import FunctionTimeoutError
 
     from .admission import _locked
     from .experiment_export_recovery import create_export_recovery_app
@@ -407,6 +417,8 @@ def _repair_export(experiment):
                 raise ValueError('Export recovery belongs to another original submission')
             if not record.get('call_id') or not record.get('app_id'):
                 raise ValueError('Export recovery submission unknown; no automatic retry')
+            if record.get('status') in {'timed_out', 'blocked'}:
+                raise ValueError('Export recovery stop condition retained; no automatic retry')
         else:
             record = {'binding': binding, 'recovery_id': uuid.uuid4().hex, 'status': 'reserved',
                       'call_id': None, 'app_id': None, 'actual_cloud_cost_usd': None,
@@ -426,19 +438,34 @@ def _repair_export(experiment):
             result = _export_recovery_result(record, timeout=1950)
             record.update(status='export_complete', result=result)
             write_json(path, record, replace=True)
-        except TimeoutError:
-            if record.get('call_id'):
-                modal.FunctionCall.from_id(record['call_id']).cancel(terminate_containers=True)
-            record.update(status='timed_out')
+        except (TimeoutError, FunctionTimeoutError) as error:
+            if isinstance(error, TimeoutError) and record.get('call_id'):
+                try:
+                    modal.FunctionCall.from_id(record['call_id']).cancel(terminate_containers=True)
+                except Exception as cancel_error:
+                    record['cancel_error'] = f'{type(cancel_error).__name__}: {cancel_error}'[:4096]
+            record.update(status='timed_out', error={
+                'type': type(error).__name__, 'message': str(error)[:4096]})
+            write_json(path, record, replace=True)
+            raise
+        except Exception as error:
+            record.update(status='blocked', error={
+                'type': type(error).__name__, 'message': str(error)[:4096]})
             write_json(path, record, replace=True)
             raise
         finally:
+            original_error = sys.exc_info()[1]
             app_id = record.get('app_id') or (getattr(app, 'app_id', None) if app is not None else None)
             if app_id is not None:
-                stopped = stop_and_verify(app_id, environment=binding['environment'])
+                try:
+                    stopped = stop_and_verify(app_id, environment=binding['environment'])
+                except Exception as cleanup_error:
+                    stopped = {'app_id': app_id, 'stopped': False, 'verified': False,
+                               'error': f'{type(cleanup_error).__name__}: {cleanup_error}'[:4096]}
                 write_json(experiment.directory / f"export-shutdown-{record['recovery_id']}.json",
                            stopped, replace=True)
-                if stopped.get('stopped') is not True or stopped.get('app_id') != app_id:
+                if (original_error is None
+                        and (stopped.get('stopped') is not True or stopped.get('app_id') != app_id)):
                     raise ValueError('Exact export recovery app shutdown not verified')
         if read_json(experiment.directory / 'submission.json') != submission:
             raise ValueError('Original submission changed during export recovery')
