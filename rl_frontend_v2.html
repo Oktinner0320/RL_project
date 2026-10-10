@@ -1,0 +1,866 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RL Scheduler for Federated Learning</title>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>
+    body {
+      font-family: "Poppins", Arial, Helvetica, sans-serif;
+      background-color: #f4f6fb;
+      color: #222;
+      margin: 0;
+      line-height: 1.5;
+    }
+
+    header {
+      background: linear-gradient(135deg, #2c3e91, #6a3fb5);
+      color: white;
+      padding: 45px 20px;
+      text-align: center;
+    }
+
+    header h1 {
+      margin: 0 0 8px 0;
+    }
+
+    header p {
+      margin: 0;
+      color: #dfe4ff;
+    }
+
+    nav {
+      background-color: #1f2c6b;
+      text-align: center;
+      padding: 10px;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+
+    nav a {
+      color: white;
+      margin: 0 12px;
+      text-decoration: none;
+    }
+
+    nav a:hover {
+      text-decoration: underline;
+    }
+
+    .container {
+      max-width: 1000px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+
+    .box {
+      background-color: white;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 20px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+      border-top: 4px solid #2c3e91;
+    }
+
+    #mdp { border-top-color: #6a3fb5; }
+    #simulator { border-top-color: #e67e22; }
+    #methods { border-top-color: #27ae60; }
+
+    .tags span {
+      display: inline-block;
+      background-color: rgba(255, 255, 255, 0.18);
+      padding: 4px 12px;
+      border-radius: 20px;
+      margin: 12px 4px 0;
+      font-size: 13px;
+    }
+
+    .rq1 { border-left-color: #3b6fd4 !important; background-color: #eaf0fc !important; }
+    .rq2 { border-left-color: #8e44ad !important; background-color: #f4ecfa !important; }
+    .rq3 { border-left-color: #e67e22 !important; background-color: #fdf1e6 !important; }
+
+    .steps {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .step {
+      flex: 1;
+      min-width: 150px;
+      text-align: center;
+      padding: 12px;
+      border-radius: 6px;
+      background-color: #eef1fb;
+      font-size: 14px;
+    }
+
+    .step b {
+      display: block;
+      font-size: 16px;
+      margin-bottom: 4px;
+    }
+
+    .step.danger { background-color: #fdecea; color: #a93226; }
+
+    .clients {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 15px;
+    }
+
+    .client {
+      flex: 1;
+      min-width: 150px;
+      padding: 10px;
+      border-radius: 6px;
+      border: 2px solid #ddd;
+      text-align: center;
+      background-color: #fafafa;
+    }
+
+    .client.active {
+      border-color: #27ae60;
+      background-color: #eafaf1;
+    }
+
+    .best { font-weight: bold; color: #27ae60; }
+
+    .charts {
+      display: flex;
+      gap: 15px;
+      flex-wrap: wrap;
+    }
+
+    .charts > div { flex: 1; min-width: 300px; }
+
+    h2 {
+      color: #2c3e91;
+      margin-top: 0;
+    }
+
+    .row {
+      display: flex;
+      gap: 15px;
+      flex-wrap: wrap;
+    }
+
+    .row > div {
+      flex: 1;
+      min-width: 200px;
+    }
+
+    .small-box {
+      background-color: #eef1fb;
+      border-left: 4px solid #2c3e91;
+      padding: 10px 15px;
+      border-radius: 4px;
+    }
+
+    .warning {
+      background-color: #fff4e0;
+      border-left: 4px solid #e69500;
+      padding: 10px 15px;
+      border-radius: 4px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    th, td {
+      border: 1px solid #ccc;
+      padding: 8px;
+      text-align: center;
+    }
+
+    th {
+      background-color: #2c3e91;
+      color: white;
+    }
+
+    tr:nth-child(even) {
+      background-color: #f2f4fa;
+    }
+
+    .formula {
+      background-color: #eef1fb;
+      padding: 12px;
+      font-family: "Courier New", monospace;
+      border-radius: 4px;
+      overflow-x: auto;
+    }
+
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 15px;
+      align-items: flex-end;
+      margin-bottom: 15px;
+    }
+
+    .controls label {
+      display: flex;
+      flex-direction: column;
+      font-size: 14px;
+    }
+
+    select, input {
+      padding: 5px;
+      font-size: 14px;
+    }
+
+    button {
+      background-color: #2c3e91;
+      color: white;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 4px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+
+    button.secondary {
+      background-color: #e67e22;
+    }
+
+    button:hover {
+      background-color: #1f2c6b;
+    }
+
+    .results {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 15px;
+    }
+
+    .result {
+      border-top: 3px solid #2c3e91;
+      flex: 1;
+      min-width: 130px;
+      background-color: #eef1fb;
+      padding: 10px;
+      border-radius: 4px;
+      text-align: center;
+    }
+
+    .result .number {
+      font-size: 22px;
+      font-weight: bold;
+      color: #2c3e91;
+    }
+
+    .result.bad .number {
+      color: #d35400;
+    }
+
+    .timeline {
+      display: flex;
+      gap: 2px;
+      height: 60px;
+      align-items: flex-end;
+      margin-bottom: 5px;
+    }
+
+    .timeline div {
+      flex: 1;
+      border-radius: 2px 2px 0 0;
+    }
+
+    .legend span {
+      display: inline-block;
+      margin-right: 15px;
+      font-size: 13px;
+    }
+
+    .legend i {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      margin-right: 5px;
+      vertical-align: middle;
+    }
+
+    canvas {
+      width: 100%;
+      background-color: white;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+    }
+
+    footer {
+      text-align: center;
+      color: #777;
+      font-size: 13px;
+      padding: 20px;
+    }
+  </style>
+</head>
+
+<body>
+
+<header>
+  <h1>Deep RL Scheduler for Cloud-Edge Federated Learning</h1>
+  <p>Balancing accuracy, time, energy and gradient inversion risk</p>
+  <div class="tags">
+    <span>UCI Adult dataset</span><span>3 edge clients</span><span>12 actions</span><span>DQN · PPO</span>
+  </div>
+</header>
+
+<nav>
+  <a href="#idea">Idea</a>
+  <a href="#mdp">Problem</a>
+  <a href="#simulator">Simulator</a>
+  <a href="#methods">Methods</a>
+</nav>
+
+<div class="container">
+
+  <!-- ========== PROJECT IDEA ========== -->
+  <div class="box" id="idea">
+    <h2>Project Idea</h2>
+    <p>
+      During federated learning, the clients train the model using their data and pass the gradients
+      to the server. The curious server may then use these gradients to reconstruct the private data
+      (the process is called <b>gradient inversion attack</b>).
+    </p>
+    <p>
+      The RL agent determines in each iteration <b>which clients participate</b> and <b>the batch size</b>
+      they use. It has to trade-off between the accuracy of the model, training time, energy consumption,
+      and privacy risk.
+    </p>
+    <p>
+      The issue is that the agent does not have knowledge about the true privacy risk; it only has the
+      <b>prediction</b> of the privacy risk using a model built based on historical data. When the behavior
+      of the agent changes, the prediction can become inaccurate. That is why we use uncertainty and
+      several attacks to validate the prediction.
+    </p>
+
+    <h3>Research Questions</h3>
+    <div class="row">
+      <div class="small-box rq1"><b>RQ1:</b> Does the risk prediction underestimate the real risk when the scheduler changes its behaviour?</div>
+      <div class="small-box rq2"><b>RQ2:</b> Can uncertainty help to find these mistakes and make safer decisions?</div>
+      <div class="small-box rq3"><b>RQ3:</b> Do a small number of real audits improve the predictions and the scheduling?</div>
+    </div>
+
+    <h3>What happens in one round</h3>
+    <div class="steps">
+      <div class="step"><b>1. Observe</b>network, accuracy, budget, predicted risk</div>
+      <div class="step"><b>2. Choose</b>clients + batch size</div>
+      <div class="step"><b>3. Train</b>clients compute gradients</div>
+      <div class="step danger"><b>4. Upload</b>server sees gradients (risk!)</div>
+      <div class="step"><b>5. Audit</b>sometimes we run a real attack to check the risk</div>
+    </div>
+  </div>
+
+  <!-- ========== MDP ========== -->
+  <div class="box" id="mdp">
+    <h2>Problem Formulation (MDP)</h2>
+
+    <h3>State</h3>
+    <ul>
+      <li>Network speed and load of each client</li>
+      <li>Validation loss and accuracy</li>
+      <li>Time used and samples left in the budget</li>
+      <li>Which clients took part in recent rounds</li>
+      <li>Predicted risk and uncertainty for every action</li>
+    </ul>
+
+    <h3>Actions</h3>
+    <p>There are 12 actions: 4 client sets × 3 batch sizes.</p>
+    <table>
+      <tr><th>Client set</th><th>Batch 8</th><th>Batch 32</th><th>Batch 64</th></tr>
+      <tr style="background-color:#eaf0fc"><td><b>{0, 1}</b></td><td>0</td><td>1</td><td>2</td></tr>
+      <tr style="background-color:#fdf1e6"><td><b>{0, 2}</b></td><td>3</td><td>4</td><td>5</td></tr>
+      <tr style="background-color:#e9f7ef"><td><b>{1, 2}</b></td><td>6</td><td>7</td><td>8</td></tr>
+      <tr style="background-color:#f4ecfa"><td><b>{0, 1, 2}</b></td><td>9</td><td>10</td><td>11</td></tr>
+    </table>
+
+    <h3>Reward</h3>
+    <div class="formula">
+      reward = accuracy gain - α × time - β × energy - λ × (increase in average risk)
+    </div>
+    <p>
+      The risk used is <b>mean + κ × uncertainty</b>. When κ = 0 we use only the prediction,
+      when κ = 1 we are more careful (conservative).
+    </p>
+
+    <h3>Episode</h3>
+    <p>30 rounds, the first 12 are warm-up rounds where every action is tried once. The episode can end early if the sample budget (3000) runs out.</p>
+  </div>
+
+  <!-- ========== SIMULATOR ========== -->
+  <div class="box" id="simulator">
+    <h2>Simulator</h2>
+    <p class="warning">
+      This is a simple toy simulation to show our idea. The numbers are made up and are not our real results.
+      The real DQN and PPO results come from our Python code.
+    </p>
+
+    <div class="controls">
+      <label>Policy
+        <select id="policy">
+          <option value="fixed">Fixed (action 4)</option>
+          <option value="roundRobin">Round robin</option>
+          <option value="timeGreedy">Time greedy</option>
+          <option value="riskGreedy" selected>Risk greedy</option>
+          <option value="conservative">Conservative greedy</option>
+        </select>
+      </label>
+      <label>Seed
+        <input type="number" id="seed" value="101" style="width: 70px">
+      </label>
+      <label>Risk weight λ: <span id="lambdaText">12</span>
+        <input type="range" id="lambda" min="0" max="40" value="12">
+      </label>
+      <button onclick="runAndShow()">Run</button>
+      <button class="secondary" onclick="playEpisode()">▶ Play round by round</button>
+    </div>
+
+    <div class="results" id="results"></div>
+
+    <h3>Chosen actions per round</h3>
+    <div class="timeline" id="timeline"></div>
+    <div class="legend">
+      <span><i style="background:#3b6fd4"></i>clients {0,1}</span>
+      <span><i style="background:#e67e22"></i>clients {0,2}</span>
+      <span><i style="background:#27ae60"></i>clients {1,2}</span>
+      <span><i style="background:#8e44ad"></i>clients {0,1,2}</span>
+      <span>(taller bar = bigger batch, faded = warm-up)</span>
+    </div>
+
+    <h3>Clients in this round <span id="roundText" style="font-weight:normal; font-size:14px; color:#777"></span></h3>
+    <div class="clients" id="clients"></div>
+
+    <div class="charts">
+      <div>
+        <h3>Predicted risk vs real risk</h3>
+        <canvas id="riskChart" width="600" height="260"></canvas>
+        <div class="legend">
+          <span><i style="background:#3b6fd4"></i>predicted risk</span>
+          <span><i style="background:#d35400"></i>real risk</span>
+        </div>
+      </div>
+      <div>
+        <h3>Accuracy over rounds</h3>
+        <canvas id="accChart" width="600" height="260"></canvas>
+        <div class="legend"><span><i style="background:#27ae60"></i>validation accuracy</span></div>
+      </div>
+    </div>
+
+    <h3>Comparison of all policies (average of 5 seeds)</h3>
+    <table id="comparison"></table>
+    <p style="font-size:13px; color:#777">Green = best value in that column.</p>
+  </div>
+
+  <!-- ========== METHODS ========== -->
+  <div class="box" id="methods">
+    <h2>Methods We Compare</h2>
+    <table>
+      <tr><th>Method</th><th>Description</th></tr>
+      <tr><td>Fixed</td><td>Always uses the same action</td></tr>
+      <tr><td>Round robin</td><td>Cycles through actions 1, 4, 7</td></tr>
+      <tr><td>Time greedy</td><td>Always picks the fastest action</td></tr>
+      <tr><td>Risk greedy</td><td>Picks the action with the best one-step reward</td></tr>
+      <tr><td>Conservative greedy</td><td>Same as risk greedy but adds uncertainty to the risk</td></tr>
+      <tr><td>DQN</td><td>Our main RL agent (replay buffer, target network, ε-greedy)</td></tr>
+      <tr><td>Conservative DQN</td><td>DQN using mean + uncertainty as risk</td></tr>
+      <tr><td>PPO</td><td>Policy gradient method as an extra comparison</td></tr>
+    </table>
+  </div>
+
+</div>
+
+<footer>
+  Introduction to Reinforcement Learning - Final Project · Dataset: UCI Adult · 3 clients · FedSGD
+</footer>
+
+
+<script>
+  // ---------------- Settings ----------------
+  const clientSets = [[0, 1], [0, 2], [1, 2], [0, 1, 2]];
+  const batchSizes = [8, 32, 64];
+  const setColors = ["#3b6fd4", "#e67e22", "#27ae60", "#8e44ad"];
+
+  // make the 12 actions
+  const actions = [];
+  for (let s = 0; s < clientSets.length; s++) {
+    for (let b = 0; b < batchSizes.length; b++) {
+      actions.push({ id: s * 3 + b, clients: clientSets[s], set: s, batch: batchSizes[b] });
+    }
+  }
+
+  // client speeds (from our config)
+  const uploadSpeed = [5, 10, 20];          // Mbps
+  const samplesPerSecond = [400, 800, 1200];
+  const computeWatts = [5, 8, 12];
+  const modelBits = 12033 * 4 * 8;          // model size in bits
+
+  const totalRounds = 30;
+  const warmupRounds = 12;
+  const sampleBudget = 3000;
+
+  // risk numbers for the toy example
+  const realRiskBase = { 8: 0.66, 32: 0.40, 64: 0.28 };
+  const predictedRiskBase = { 8: 0.49, 32: 0.40, 64: 0.25 };
+  const uncertaintyBase = { 8: 0.09, 32: 0.015, 64: 0.035 };
+
+
+  // ---------------- Random numbers with a seed ----------------
+  function seededRandom(seed) {
+    return function () {
+      seed = (seed * 16807) % 2147483647;
+      return (seed - 1) / 2147483646;
+    };
+  }
+
+
+  // ---------------- Time and energy of one round ----------------
+  function roundCost(action, random) {
+    let slowest = 0;
+    let energy = 0;
+    for (const c of action.clients) {
+      const load = random() * 0.6;                                   // client is 0-60% busy
+      const speed = uploadSpeed[c] * (0.7 + random() * 0.6);         // speed changes a bit
+      const sendTime = modelBits / (speed * 1000000);
+      const computeTime = action.batch / (samplesPerSecond[c] * (1 - load));
+      slowest = Math.max(slowest, sendTime + computeTime);
+      energy += computeTime * computeWatts[c] + sendTime * 1.5;
+    }
+    return { time: slowest, energy: energy };
+  }
+
+
+  // ---------------- Risk ----------------
+  // early rounds and many rounds in a row = more risk
+  function realRisk(batch, round, inARow) {
+    const r = realRiskBase[batch] * (0.72 + 0.4 * Math.exp(-round / 9))
+            + 0.25 * (1 - Math.exp(-(inARow - 1) / 4));
+    return Math.min(1, r);
+  }
+
+  // the prediction misses most of the "in a row" effect and is too low for batch 8
+  function predictedRisk(batch, round, inARow, kappa) {
+    const mean = predictedRiskBase[batch] * (0.72 + 0.4 * Math.exp(-round / 9))
+               + 0.05 * (1 - Math.exp(-(inARow - 1) / 4));
+    const uncertainty = 0.025 + uncertaintyBase[batch] + 0.03 * Math.min(Math.max(0, inARow - 2), 3);
+    return Math.min(1, mean + kappa * uncertainty);
+  }
+
+
+  // ---------------- Run one episode ----------------
+  function runEpisode(policy, seed, lambda) {
+    const random = seededRandom(seed);
+    const kappa = policy === "conservative" ? 1 : 0;
+
+    let accuracy = 0.76;
+    let samplesUsed = 0;
+    let totalTime = 0;
+    let totalEnergy = 0;
+    let inARow = [0, 0, 0];
+    let expectedGain = new Array(12).fill(0);
+
+    let predictedSum = 0;
+    let realSum = 0;
+    let exposedRecords = 0;
+
+    const rounds = [];
+
+    for (let round = 0; round < totalRounds; round++) {
+      const warmup = round < warmupRounds;
+      const avgRiskBefore = exposedRecords > 0 ? predictedSum / exposedRecords : 0;
+
+      // choose an action
+      let choice;
+      if (warmup) {
+        choice = round;                         // try each action once
+      } else if (policy === "fixed") {
+        choice = 4;
+      } else if (policy === "roundRobin") {
+        choice = [1, 4, 7][round % 3];
+      } else {
+        let bestScore = -Infinity;
+        for (const a of actions) {
+          const cost = roundCost(a, seededRandom(seed + round * 100 + a.id));
+          let risk = 0;
+          for (const c of a.clients) risk += predictedRisk(a.batch, round, inARow[c] + 1, kappa);
+          risk /= a.clients.length;
+          const records = a.batch * a.clients.length;
+          const riskIncrease = (predictedSum + records * risk) / (exposedRecords + records) - avgRiskBefore;
+
+          let score;
+          if (policy === "timeGreedy") {
+            score = -cost.time;
+          } else {
+            score = expectedGain[a.id] - cost.time - 0.05 * cost.energy - lambda * riskIncrease;
+          }
+          if (score > bestScore) {
+            bestScore = score;
+            choice = a.id;
+          }
+        }
+      }
+
+      const action = actions[choice];
+      const cost = roundCost(action, seededRandom(seed + round * 100 + action.id));
+
+      // training: more samples = higher accuracy (simple curve)
+      const samples = action.batch * action.clients.length;
+      const oldAccuracy = accuracy;
+      samplesUsed += samples;
+      accuracy = 0.76 + 0.092 * (1 - Math.exp(-samplesUsed / 1400)) + (random() - 0.5) * 0.004;
+      const gain = (accuracy - oldAccuracy) * 100;
+      expectedGain[choice] = 0.8 * expectedGain[choice] + 0.2 * gain;
+
+      // privacy risk of this upload
+      for (const c of action.clients) {
+        const n = inARow[c] + 1;
+        if (!warmup) {
+          predictedSum += action.batch * predictedRisk(action.batch, round, n, kappa);
+          realSum += action.batch * realRisk(action.batch, round, n);
+          exposedRecords += action.batch;
+        }
+      }
+      for (let c = 0; c < 3; c++) {
+        inARow[c] = action.clients.includes(c) ? inARow[c] + 1 : 0;
+      }
+
+      totalTime += cost.time;
+      totalEnergy += cost.energy;
+
+      rounds.push({
+        round: round,
+        action: action,
+        warmup: warmup,
+        accuracy: accuracy,
+        predicted: exposedRecords > 0 ? predictedSum / exposedRecords : null,
+        real: exposedRecords > 0 ? realSum / exposedRecords : null
+      });
+
+      if (samplesUsed >= sampleBudget) break;
+    }
+
+    const last = rounds[rounds.length - 1];
+    return {
+      rounds: rounds,
+      accuracy: last.accuracy,
+      time: totalTime,
+      energy: totalEnergy,
+      samples: samplesUsed,
+      predicted: last.predicted,
+      real: last.real
+    };
+  }
+
+
+  // ---------------- Show results ----------------
+  function showResults(r) {
+    const gap = r.real - r.predicted;
+    document.getElementById("results").innerHTML = `
+      <div class="result"><div>Accuracy</div><div class="number">${(r.accuracy * 100).toFixed(1)}%</div></div>
+      <div class="result"><div>Time</div><div class="number">${r.time.toFixed(1)} s</div></div>
+      <div class="result"><div>Energy</div><div class="number">${r.energy.toFixed(0)} J</div></div>
+      <div class="result"><div>Samples used</div><div class="number">${r.samples}</div></div>
+      <div class="result"><div>Predicted risk</div><div class="number">${r.predicted.toFixed(2)}</div></div>
+      <div class="result ${gap > 0.02 ? "bad" : ""}"><div>Underestimate</div><div class="number">${gap.toFixed(3)}</div></div>
+    `;
+  }
+
+  function showTimeline(rounds) {
+    let html = "";
+    for (let i = 0; i < totalRounds; i++) {
+      const r = rounds[i];
+      if (!r) {
+        html += `<div style="background:#eee; height:5%"></div>`;
+        continue;
+      }
+      const height = { 8: 30, 32: 65, 64: 100 }[r.action.batch];
+      const opacity = r.warmup ? 0.4 : 1;
+      html += `<div title="Round ${i}: action ${r.action.id}" style="background:${setColors[r.action.set]}; height:${height}%; opacity:${opacity}"></div>`;
+    }
+    document.getElementById("timeline").innerHTML = html;
+  }
+
+  function drawRiskChart(rounds) {
+    const canvas = document.getElementById("riskChart");
+    const ctx = canvas.getContext("2d");
+    const w = canvas.width, h = canvas.height, pad = 40;
+    ctx.clearRect(0, 0, w, h);
+
+    // axes and grid
+    ctx.strokeStyle = "#ddd";
+    ctx.fillStyle = "#666";
+    ctx.font = "12px Arial";
+    for (let v = 0; v <= 0.8; v += 0.2) {
+      const y = h - pad - (v / 0.8) * (h - 2 * pad);
+      ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(w - 10, y); ctx.stroke();
+      ctx.fillText(v.toFixed(1), 5, y + 4);
+    }
+    for (let r = warmupRounds; r < totalRounds; r += 3) {
+      const x = pad + (r - warmupRounds) / (totalRounds - 1 - warmupRounds) * (w - pad - 10);
+      ctx.fillText("r" + r, x - 8, h - 15);
+    }
+
+    // draw one line
+    function line(key, color) {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      let first = true;
+      for (const r of rounds) {
+        if (r.warmup || r[key] == null) continue;
+        const x = pad + (r.round - warmupRounds) / (totalRounds - 1 - warmupRounds) * (w - pad - 10);
+        const y = h - pad - (r[key] / 0.8) * (h - 2 * pad);
+        if (first) { ctx.moveTo(x, y); first = false; } else { ctx.lineTo(x, y); }
+      }
+      ctx.stroke();
+    }
+    line("predicted", "#3b6fd4");
+    line("real", "#d35400");
+  }
+
+  function drawAccuracyChart(rounds) {
+    const canvas = document.getElementById("accChart");
+    const ctx = canvas.getContext("2d");
+    const w = canvas.width, h = canvas.height, pad = 40;
+    ctx.clearRect(0, 0, w, h);
+
+    ctx.strokeStyle = "#ddd";
+    ctx.fillStyle = "#666";
+    ctx.font = "12px Arial";
+    for (let v = 76; v <= 86; v += 2) {
+      const y = h - pad - ((v - 76) / 10) * (h - 2 * pad);
+      ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(w - 10, y); ctx.stroke();
+      ctx.fillText(v + "%", 2, y + 4);
+    }
+    for (let r = 0; r < totalRounds; r += 5) {
+      ctx.fillText("r" + r, pad + r / (totalRounds - 1) * (w - pad - 10) - 8, h - 15);
+    }
+
+    ctx.strokeStyle = "#27ae60";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    rounds.forEach((r, i) => {
+      const x = pad + r.round / (totalRounds - 1) * (w - pad - 10);
+      const y = h - pad - ((r.accuracy * 100 - 76) / 10) * (h - 2 * pad);
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+  }
+
+  function showClients(r) {
+    document.getElementById("roundText").textContent =
+      `(round ${r.round}, action ${r.action.id}, batch ${r.action.batch}${r.warmup ? ", warm-up" : ""})`;
+    let html = "";
+    for (let c = 0; c < 3; c++) {
+      const active = r.action.clients.includes(c);
+      html += `<div class="client ${active ? "active" : ""}">
+        <b>Client ${c}</b><br>
+        upload ${uploadSpeed[c]} Mbps · ${samplesPerSecond[c]} samples/s<br>
+        ${active ? "✅ training this round" : "💤 idle"}
+      </div>`;
+    }
+    document.getElementById("clients").innerHTML = html;
+  }
+
+  let playTimer = null;
+
+  function playEpisode() {
+    clearInterval(playTimer);
+    const policy = document.getElementById("policy").value;
+    const seed = Number(document.getElementById("seed").value);
+    const lambda = Number(document.getElementById("lambda").value);
+    const result = runEpisode(policy, seed, lambda);
+
+    let i = 1;
+    playTimer = setInterval(() => {
+      const part = result.rounds.slice(0, i);
+      showTimeline(part);
+      drawRiskChart(part);
+      drawAccuracyChart(part);
+      showClients(part[part.length - 1]);
+      i++;
+      if (i > result.rounds.length) {
+        clearInterval(playTimer);
+        showResults(result);
+      }
+    }, 250);
+  }
+
+  function showComparison(lambda) {
+    const names = {
+      fixed: "Fixed",
+      roundRobin: "Round robin",
+      timeGreedy: "Time greedy",
+      riskGreedy: "Risk greedy",
+      conservative: "Conservative greedy"
+    };
+    const seeds = [101, 102, 103, 104, 105];
+
+    let html = "<tr><th>Policy</th><th>Accuracy</th><th>Time (s)</th><th>Energy (J)</th><th>Predicted risk</th><th>Real risk</th><th>Underestimate</th></tr>";
+
+    // first calculate the averages for every policy
+    const rows = [];
+    for (const policy in names) {
+      let acc = 0, time = 0, energy = 0, pred = 0, real = 0;
+      for (const s of seeds) {
+        const r = runEpisode(policy, s, lambda);
+        acc += r.accuracy; time += r.time; energy += r.energy; pred += r.predicted; real += r.real;
+      }
+      const n = seeds.length;
+      rows.push({ name: names[policy], acc: acc / n, time: time / n, energy: energy / n,
+                  pred: pred / n, real: real / n, gap: (real - pred) / n });
+    }
+
+    // find the best value in each column (green in the table)
+    const bestAcc = Math.max(...rows.map(r => r.acc));
+    const bestTime = Math.min(...rows.map(r => r.time));
+    const bestEnergy = Math.min(...rows.map(r => r.energy));
+    const bestReal = Math.min(...rows.map(r => r.real));
+    const bestGap = Math.min(...rows.map(r => Math.abs(r.gap)));
+    const mark = (isBest) => isBest ? ' class="best"' : "";
+
+    for (const r of rows) {
+      html += `<tr>
+        <td>${r.name}</td>
+        <td${mark(r.acc === bestAcc)}>${(r.acc * 100).toFixed(2)}%</td>
+        <td${mark(r.time === bestTime)}>${r.time.toFixed(2)}</td>
+        <td${mark(r.energy === bestEnergy)}>${r.energy.toFixed(0)}</td>
+        <td>${r.pred.toFixed(3)}</td>
+        <td${mark(r.real === bestReal)}>${r.real.toFixed(3)}</td>
+        <td${mark(Math.abs(r.gap) === bestGap)}>${r.gap.toFixed(3)}</td>
+      </tr>`;
+    }
+    html += `<tr><td>DQN / PPO</td><td colspan="6"><i>coming from our backend results</i></td></tr>`;
+    document.getElementById("comparison").innerHTML = html;
+  }
+
+  function runAndShow() {
+    const policy = document.getElementById("policy").value;
+    const seed = Number(document.getElementById("seed").value);
+    const lambda = Number(document.getElementById("lambda").value);
+
+    clearInterval(playTimer);
+    const result = runEpisode(policy, seed, lambda);
+    showResults(result);
+    showTimeline(result.rounds);
+    drawRiskChart(result.rounds);
+    drawAccuracyChart(result.rounds);
+    showClients(result.rounds[result.rounds.length - 1]);
+    showComparison(lambda);
+  }
+
+  document.getElementById("lambda").addEventListener("input", function () {
+    document.getElementById("lambdaText").textContent = this.value;
+  });
+
+  runAndShow();
+</script>
+
+</body>
+</html>
