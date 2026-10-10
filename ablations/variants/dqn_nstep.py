@@ -97,8 +97,9 @@ def _validate(config, previous):
                 or state['updates'] > state['learned_steps']
                 or state['episode'] > state['environment_steps']
                 or state['warmup_position'] > len(config['warmup_actions'])
+                or state['warmup_steps'] != state['episode'] * len(config['warmup_actions']) + state['warmup_position']
                 or len(state['history']) != state['updates']
-                or len(state['replay']) > config['buffer_size']
+                or len(state['replay']) != min(config['buffer_size'], state['learned_steps'] - len(state['pending_n_step']))
                 or len(state['pending_n_step']) >= config['n_step']
                 or len(state['pending_n_step']) > state['learned_steps']
                 or (state['finished'] and state['pending_n_step'])
@@ -106,6 +107,18 @@ def _validate(config, previous):
             raise ValueError('Inconsistent restored counters or pending queue')
         if type(state['finished']) is not bool or state['rollout']:
             raise ValueError('Invalid DQN lifecycle state')
+        last_step = 0
+        for number, record in enumerate(state['history'], 1):
+            if (record['updates'] != number or type(record['learned_steps']) is not int
+                    or not last_step < record['learned_steps'] <= state['learned_steps']
+                    or record['learned_steps'] < config['learning_starts']
+                    or record['learned_steps'] % config['train_frequency']
+                    or record['risk_version'] != config['risk_version']
+                    or type(record['warmup_steps']) is not int
+                    or not 0 <= record['warmup_steps'] <= state['warmup_steps']
+                    or record['environment_steps'] != record['learned_steps'] + record['warmup_steps']):
+                raise ValueError('Invalid restored training history')
+            last_step = record['learned_steps']
         for row in state['pending_n_step']:
             if len(row) != 5 or row[4]:
                 raise ValueError('Invalid pending transition')
