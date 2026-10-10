@@ -20,6 +20,9 @@ def stage_risk(root: Path | None = None, *, name: str = 'N-preparation-v1') -> d
 
     复制成功不代表可执行，仍需核查来源、资源账目和许可。
     A successful copy is not execution approval. Source, accounting, and permissions still need checks.
+
+    两臂复用同一个风险模型，避免把风险重拟合的变化混入 N-step 消融。
+    Both arms reuse the same risk model so refitting cannot confound the N-step ablation.
     """
     import torch
 

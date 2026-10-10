@@ -5,6 +5,7 @@ Provide local-only preparation and preflight, without Modal submission or inheri
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import sys
 import uuid
@@ -42,9 +43,37 @@ def output_directory(root: Path, name: str = 'N-preparation-v1') -> Path:
     return path
 
 
+def _notebook_source(cell: dict):
+    """保存完整单元文本，仅规范已登记的阶段选择。
+    Preserve cell text, normalizing only the registered phase selector.
+
+    将 PHASE 字面量规范为占位符，但不忽略其余代码或注释变更。
+    Normalize the PHASE literal to a placeholder, not other code or comment edits.
+    """
+    source = cell['source']
+    if cell['cell_type'] != 'code':
+        return source
+    text = ''.join(source) if isinstance(source, list) else source
+    selections = [node for node in ast.parse(text).body
+                  if isinstance(node, ast.Assign) and len(node.targets) == 1
+                  and isinstance(node.targets[0], ast.Name) and node.targets[0].id == 'PHASE']
+    if not selections:
+        return source
+    if len(selections) != 1 or not isinstance(selections[0].value, ast.Constant):
+        raise ValueError('Notebook PHASE must be one registered literal selection')
+    value = selections[0].value
+    if value.value not in ('pilot', 'continue', 'replicate'):
+        raise ValueError('Unregistered Notebook phase selection')
+    lines = text.splitlines(keepends=True)
+    line = lines[value.lineno - 1].encode('utf-8')
+    lines[value.lineno - 1] = (line[:value.col_offset] + b"'<execution-phase>'" +
+                             line[value.end_col_offset:]).decode('utf-8')
+    return lines if isinstance(source, list) else ''.join(lines)
+
+
 def research_sources(root: Path) -> dict:
-    """记录消融源码及可选 Notebook 单元内容，用于冻结后逐字核对。
-    Record ablation source and optional notebook cells for literal checks after freezing.
+    """保留完整消融源码及 Notebook 文本，供执行代码核对和溯源。
+    Preserve full ablation and notebook text for executable checks and provenance.
     """
     base = root / 'ablations'
     paths = sorted(base.glob('*.py')) + sorted((base / 'variants').glob('*.py'))
@@ -53,8 +82,38 @@ def research_sources(root: Path) -> dict:
     if notebook.is_file():
         # 仅冻结单元类型和源码，不把 Notebook 输出或运行元数据计入身份。 / Freeze cell types and source, excluding outputs and execution metadata.
         result['ablations/experiment.ipynb'] = [
-            [cell['cell_type'], cell['source']] for cell in read_json(notebook)['cells']
+            [cell['cell_type'], _notebook_source(cell)] for cell in read_json(notebook)['cells']
         ]
+    return result
+
+
+def _executable_source(source) -> str:
+    """忽略注释、排版和真正的文档字符串，保留全部可执行语法。
+    Ignore comments, formatting, and actual docstrings; retain executable syntax.
+    """
+    tree = ast.parse(''.join(source) if isinstance(source, list) else source)
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            if (node.body and isinstance(node.body[0], ast.Expr)
+                    and isinstance(node.body[0].value, ast.Constant)
+                    and isinstance(node.body[0].value.value, str)):
+                node.body.pop(0)
+    return ast.dump(tree, include_attributes=False)
+
+
+def _research_identity(sources: dict) -> dict:
+    """兼容既有全文快照；只在本地核对时投影，绝不改写云端源码。
+    Project existing literal snapshots for local checks without rewriting cloud sources.
+    """
+    result = {}
+    for path, value in sources.items():
+        if path.endswith('.py'):
+            result[path] = _executable_source(value)
+        elif path == 'ablations/experiment.ipynb':
+            result[path] = [[kind, _executable_source(text) if kind == 'code' else text]
+                            for kind, text in value if kind != 'markdown']
+        else:
+            result[path] = value
     return result
 
 
@@ -65,12 +124,12 @@ def _check_preparation(root: Path, path: Path) -> dict:
         _check_local(path / name)
     record = read_json(path / 'preparation.json')
     config = load_config(root / 'config/experiment.json')
-    # 按保存内容核对，不覆盖旧快照；源码注释变化也会使原准备失效。 / Compare saved content without overwriting it; source comment changes also invalidate preparation.
+    # 保持配置与基础源码严格核对，消融文档变化不改变实验身份。 / Keep strict config/base checks; ablation documentation does not change experiment identity.
     if scientific_configuration(config) != read_json(path / 'configuration.json'):
         raise ValueError('Shared scientific configuration changed; old preparation is immutable')
     if source_identity(root)['source_contents'] != read_json(path / 'base-source.json'):
         raise ValueError('Imported base source changed; do not resume this preparation')
-    if research_sources(root) != read_json(path / 'ablation-source.json'):
+    if _research_identity(research_sources(root)) != _research_identity(read_json(path / 'ablation-source.json')):
         raise ValueError('Ablation source changed; create a new unsubmitted preparation')
     # 用当前登记定义重新生成计划，检测臂设置或预算规则漂移。 / Rebuild the registered plan to detect arm settings or budget-rule changes.
     expected = build_plan(config, record['experiment_id'], record['study_id'])
@@ -151,7 +210,8 @@ def preflight(root: Path | None = None, *, name: str = 'N-preparation-v1') -> di
         return read_json(path / 'preflight.json')
     tests = root / 'ablations/test'
     required = ['test_dqn_nstep.py', 'test_execution.py', 'test_preparation.py',
-                'test_native_recorder.py']
+                'test_native_recorder.py', 'test_workflow.py', 'test_admission.py',
+                'test_bundles.py', 'test_cloud.py']
     if any(not (tests / item).is_file() for item in required):
         raise FileNotFoundError('Local ignored regression tests are required for this preflight')
     log = path / 'controller' / f'preflight-{uuid.uuid4().hex}.log'
