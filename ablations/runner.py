@@ -125,7 +125,8 @@ def preflight(root: Path | None = None, *, name: str = 'N-preparation-v1') -> di
     if (path / 'preflight.json').exists():
         return read_json(path / 'preflight.json')
     tests = root / 'ablations/test'
-    required = ['test_dqn_nstep.py', 'test_execution.py', 'test_preparation.py']
+    required = ['test_dqn_nstep.py', 'test_execution.py', 'test_preparation.py',
+                'test_native_recorder.py']
     if any(not (tests / item).is_file() for item in required):
         raise FileNotFoundError('Local ignored regression tests are required for this preflight')
     log = path / 'controller' / f'preflight-{uuid.uuid4().hex}.log'
