@@ -268,6 +268,13 @@ def collect_experiment(volume_name, experiment_id, destination, *, limits=None,
     if inventory_path.stat().st_size > limits.max_inventory_bytes:
         raise ValueError('Experiment inventory document exceeds byte bound')
     inventory = read_json(inventory_path)
+    if available_only and inventory == {'experiment_id': experiment_id, 'status': 'partial_not_available'}:
+        inventory_path.unlink()
+        return {'experiment_id': experiment_id, 'status': 'partial_not_available',
+                'transport_complete': False, 'semantic_verified': False, 'destination': str(root)}
+    if available_only and (type(inventory) is not dict
+                           or inventory.get('schema') != 'experiment_inventory_v2'):
+        raise ValueError('Pinned available export requires archive inventory v2')
     files = _inventory(inventory, experiment_id, limits)
     progress_path = stage / 'progress.json'
     completed, completed_bytes = 0, 0
@@ -344,6 +351,9 @@ def collect_experiment(volume_name, experiment_id, destination, *, limits=None,
             write_json(progress_path, {'experiment_id': experiment_id, 'completed_shards': index + 1,
                                       'total_shards': len(inventory['shards']),
                                       'transport_complete': False}, replace=True)
+            if available_only:
+                print(f"Downloaded and extracted committed shard {index + 1}/{len(inventory['shards'])}",
+                      flush=True)
         completed, completed_bytes = len(files), inventory['bytes']
     else:
         for index, row in enumerate(files):
@@ -497,7 +507,11 @@ def main(argv=None):
     import modal
     volume = modal.Volume.from_name(args.volume, environment_name=args.environment)
     if args.action == 'available':
-        inventory = _available_inventory(volume, args.experiment_id, limits)
+        try:
+            inventory = _available_inventory(volume, args.experiment_id, limits)
+        except FileNotFoundError:
+            write_json(args.output, {'experiment_id': args.experiment_id, 'status': 'partial_not_available'})
+            return
         if len(json.dumps(inventory).encode('utf-8')) > limits.max_inventory_bytes:
             raise ValueError('Available inventory document exceeds byte bound')
         write_json(args.output, inventory)
