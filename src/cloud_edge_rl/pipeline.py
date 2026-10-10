@@ -431,7 +431,50 @@ def run_experiment(spec: RunSpec, root: Path) -> dict:
                             "training.pt",
                         )
 
-                    training = train_policy(spec, root, env, previous, save_training)
+                    fresh = spec.config.get('native_acceptance', {}).get('fresh_benchmark', {})
+                    snapshot_paths = []
+                    requested_steps = fresh.get('checkpoint_steps', [])
+                    if fresh.get('policy_snapshots_enabled', False):
+                        if (not isinstance(requested_steps, list) or not requested_steps
+                                or any(type(step) is not int or step <= 0 for step in requested_steps)
+                                or requested_steps != sorted(set(requested_steps))):
+                            raise ValueError('Policy snapshot steps must be sorted unique positive integers')
+                    emitted_steps = set()
+
+                    def same_snapshot(left, right):
+                        if isinstance(left, dict):
+                            return (isinstance(right, dict) and left.keys() == right.keys()
+                                    and all(same_snapshot(value, right[key])
+                                            for key, value in left.items()))
+                        if isinstance(left, (list, tuple)):
+                            return (type(left) is type(right) and len(left) == len(right)
+                                    and all(same_snapshot(a, b) for a, b in zip(left, right)))
+                        if isinstance(left, torch.Tensor):
+                            return isinstance(right, torch.Tensor) and torch.equal(left, right)
+                        if isinstance(left, np.ndarray):
+                            return isinstance(right, np.ndarray) and np.array_equal(left, right)
+                        return left == right
+
+                    def save_policy_snapshot(snapshot):
+                        step = snapshot['environment_steps']
+                        if step not in requested_steps or step in emitted_steps:
+                            return
+                        envelope = {'format': 'policy_snapshot_v1', 'run_id': spec.run_id,
+                                    **snapshot}
+                        name = f'agent-step{step:05d}.pt'
+                        path = store.path / name
+                        if path.exists():
+                            if not same_snapshot(store.load_checkpoint(name), envelope):
+                                raise ValueError(f'Conflicting policy snapshot: {name}')
+                        else:
+                            path = store.save_checkpoint(envelope, name)
+                        snapshot_paths.append(str(path.relative_to(root)))
+                        emitted_steps.add(step)
+
+                    training = train_policy(
+                        spec, root, env, previous, save_training,
+                        on_policy_snapshot=save_policy_snapshot
+                        if fresh.get('policy_snapshots_enabled', False) else None)
                     save_training(training.checkpoint)
                     store.save_checkpoint(
                         {
@@ -442,6 +485,8 @@ def run_experiment(spec: RunSpec, root: Path) -> dict:
                         "agent.pt",
                     )
                     result = {"trained": True, "risk_version": spec.risk_version}
+                    if fresh.get('policy_snapshots_enabled', False):
+                        result['policy_snapshot_paths'] = snapshot_paths
                     if 'learned_steps' in training.checkpoint:
                         result.update(
                             learned_steps=training.checkpoint["learned_steps"],

@@ -97,7 +97,8 @@ def _settings(config):
             if k not in ('device', 'total_steps', 'checkpoint_interval', 'stage_interaction_limit')}
 
 
-def train_agent(env, config: dict, previous: dict | None, on_checkpoint) -> TrainingResult:
+def train_agent(env, config: dict, previous: dict | None, on_checkpoint,
+                on_policy_snapshot=None) -> TrainingResult:
     stage_limit = config.get('stage_interaction_limit')
     if stage_limit is not None and (type(stage_limit) is not int or stage_limit <= 0):
         raise ValueError('Stage interaction limit must be a positive integer')
@@ -241,4 +242,10 @@ def train_agent(env, config: dict, previous: dict | None, on_checkpoint) -> Trai
                                 **resource_diagnostics, **diagnostics})
         if (learned_steps + warmup_steps) % config['checkpoint_interval'] == 0:
             on_checkpoint(checkpoint())
+        if on_policy_snapshot is not None:
+            on_policy_snapshot({'agent': agent.checkpoint(), 'algorithm': config['algorithm'],
+                                'settings': _settings(config), 'risk_version': config['risk_version'],
+                                'environment_steps': learned_steps + warmup_steps,
+                                'learned_steps': learned_steps, 'warmup_steps': warmup_steps,
+                                'updates': updates})
     return TrainingResult(agent, checkpoint())

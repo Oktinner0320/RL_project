@@ -22,6 +22,8 @@ _RESOURCE_PURPOSE = 'bounded_paired_resource_feedback_training'
 _RESOURCE_SCHEMA = 'resource_pair_shared_source_v1'
 _SELECTION_PURPOSE = 'bounded_dqn_ppo_parameter_selection'
 _SELECTION_SCHEMA = 'parameter_selection_shared_source_v1'
+_FRESH_PURPOSE = 'fresh_seven_method_development_benchmark_v1'
+_FRESH_METHODS = ['dqn', 'ppo', 'pqn', 'metacs', 'fixed', 'time_greedy', 'risk_greedy']
 
 
 def resource_frozen_payload(spec):
@@ -35,9 +37,189 @@ def _resource_shared_source(witness):
     if 'artifact_schema' not in witness:
         return False
     if (witness.get('purpose'), witness['artifact_schema']) not in (
-            (_RESOURCE_PURPOSE, _RESOURCE_SCHEMA), (_SELECTION_PURPOSE, _SELECTION_SCHEMA)):
+            (_RESOURCE_PURPOSE, _RESOURCE_SCHEMA), (_SELECTION_PURPOSE, _SELECTION_SCHEMA),
+            (_FRESH_PURPOSE, _FRESH_PURPOSE)):
         raise ValueError('Unknown admission artifact schema')
     return True
+
+
+def _fresh_contract(witness):
+    """A separate fresh scope: no historical scientific artifacts or tuning slots."""
+    freeze = _first_artifact(witness['freeze_manifest'])
+    contract = freeze.get('fresh_contract', {})
+    exact = {'schema': _FRESH_PURPOSE, 'methods': _FRESH_METHODS,
+             'training_seeds': [8101, 8102, 8103], 'validation_seeds': [8201, 8202, 8203],
+             'collection_seeds': [8301, 8302, 8303], 'risk_fit_seed': 8401,
+             'data_split_seed': 8501, 'partition_seed': 8502,
+             'policy_interactions_per_group': 3000, 'shared_collection_limit': 90,
+             'group_limit': 3090,
+             'scientific_inputs': 'new_experiment_only_except_public_raw_adult',
+             'checkpoint_steps': [500, 1000, 1500, 2000, 2500, 3000]}
+    if (witness.get('artifact_schema') != _FRESH_PURPOSE
+            or any(not _first_json_equal(contract.get(k), v) for k, v in exact.items())
+            or type(contract.get('experiment_id')) is not str or not contract['experiment_id']):
+        raise ValueError('Exact fresh benchmark contract required')
+    output = Path(contract.get('output_root', ''))
+    prefix = contract.get('volume_prefix')
+    if (not output.is_absolute() or type(prefix) is not str or not prefix
+            or prefix.startswith('/') or any(p in ('', '.', '..') for p in prefix.split('/'))):
+        raise ValueError('New absolute output root and confined volume prefix required')
+    runs = witness.get('runs')
+    dag = contract.get('dag')
+    if type(runs) is not list or not runs or type(dag) is not list:
+        raise ValueError('Explicit fresh frozen DAG required')
+    ids = [r['spec']['run_id'] for r in runs]
+    if (any(type(i) is not str or not i or '/' in i or '\\' in i or i in ('.', '..') for i in ids)
+            or len(set(ids)) != len(ids) or len(dag) != len(ids)
+            or [d['run_id'] for d in dag] != ids):
+        raise ValueError('Unique ordered fresh run IDs required')
+    by_id, seen, trains, validations, collections, fits = {}, set(), {}, set(), set(), []
+    for entry, run in zip(dag, runs):
+        p = run['spec']
+        rid, stage, method, seed = p['run_id'], p['stage'], p['method'], p['seed']
+        deps = entry.get('dependencies')
+        if (type(deps) is not list or len(set(deps)) != len(deps) or not set(deps) <= seen):
+            raise ValueError('Only declared new DAG predecessors allowed')
+        config, inputs = p['config'], p['inputs']
+        execution, data, modal = config['execution'], config['data'], config['modal']
+        if (execution.get('backend') != 'modal' or execution.get('split') not in ('train', 'validation')
+                or data.get('split_seed') != 8501 or data.get('partition_seed') != 8502
+                or p.get('provenance', {}).get('identity_kind') != 'source_contents_no_hash'
+                or 'source_contents' in p['provenance']):
+            raise ValueError('Fresh split, partition and compact source identity required')
+        bounded = {'gpu': 'H100', 'cpu': 16.0, 'memory_mb': 65536,
+                   'startup_timeout_seconds': 180, 'max_containers': 1, 'retries': 0}
+        if (any(not _first_json_equal(modal.get(k), v) for k, v in bounded.items())
+                or type(modal.get('timeout_seconds')) is not int
+                or not 1 <= modal['timeout_seconds'] <= 1800):
+            raise ValueError('Fresh bounded H100 settings and zero retries required')
+        # Input artifacts use suite-relative paths; IDs are resolved only through the DAG.
+        for key, value in inputs.items():
+            if key.endswith('run_ids'):
+                if type(value) is not list or not value or not set(value) <= set(deps):
+                    raise ValueError('Fresh audit/source IDs must be declared predecessors')
+            elif key.endswith('run_id'):
+                if value not in deps:
+                    raise ValueError('Fresh source ID must be a declared predecessor')
+            elif value not in (None, ''):
+                parts = value.split('/') if type(value) is str else []
+                if (len(parts) != 3 or parts[0] != 'runs' or parts[1] not in deps
+                        or parts[2] not in ('risk.pt', 'agent.pt', 'training.pt')):
+                    raise ValueError('Historical or unconfined scientific input forbidden')
+                producer = by_id[parts[1]]
+                if (parts[2] == 'risk.pt' and producer['stage'] != 'fit_risk'
+                        or parts[2] in ('agent.pt', 'training.pt') and
+                        (producer['stage'] != 'train_policy' or producer['method'] != method
+                         or producer['seed'] != (seed if stage == 'train_policy' else 8101 + seed - 8201))):
+                    raise ValueError('Cross-arm or invalid checkpoint producer forbidden')
+        amount, partition = 0, execution['split']
+        if stage == 'collect':
+            amount = config['rl'].get('stage_interaction_limit')
+            if (method != 'round_robin' or seed not in (8301, 8302, 8303)
+                    or seed in collections or partition != 'train' or inputs
+                    or type(amount) is not int or not 1 <= amount <= 30):
+                raise ValueError('Exactly three fresh bounded bootstrap collections required')
+            collections.add(seed)
+        elif stage == 'train_policy':
+            rl = config['comparisons']['pqn'] if method == 'pqn' else config['rl']
+            amount = rl.get('stage_interaction_limit', rl.get('total_steps'))
+            if (method not in ('dqn', 'ppo', 'pqn') or seed not in (8101, 8102, 8103)
+                    or partition != 'train' or rl.get('total_steps') != 3000
+                    or rl.get('gamma') != 1 or type(amount) is not int
+                    or set(inputs) != {'risk_checkpoint', 'previous_training_checkpoint'}
+                    or not inputs.get('risk_checkpoint')):
+                raise ValueError('Fresh learned policy budget includes all warmup')
+            if (method == 'pqn' and (amount != 3000 or rl.get('budget_includes_warmup') is not True)
+                    or method == 'dqn' and rl.get('learning_rate') != .001
+                    or method == 'ppo' and (rl.get('learning_rate') != .0003 or rl.get('rollout_steps') != 64)):
+                raise ValueError('Only registered D06/P01/PQN settings allowed')
+            group = trains.setdefault((method, seed), [])
+            expected = [3000] if method == 'pqn' else [500, 1000, 1000, 500]
+            if len(group) >= len(expected) or amount != expected[len(group)]:
+                raise ValueError('Exact native/PQN stage interaction budgets required')
+            previous = inputs['previous_training_checkpoint']
+            if previous != (f'runs/{group[-1]}/training.pt' if group else None):
+                raise ValueError('Fresh training must start from zero then its own predecessor')
+            group.append(rid)
+        elif stage == 'validate':
+            if (method not in _FRESH_METHODS or seed not in (8201, 8202, 8203)
+                    or partition != 'validation' or (method, seed) in validations):
+                raise ValueError('Exact fresh paired validation matrix required')
+            validations.add((method, seed))
+            amount = config.get('evaluation', {}).get('episodes')
+            if type(amount) is not int or not 1 <= amount <= 30 or not inputs.get('risk_checkpoint'):
+                raise ValueError('Bounded fresh validation required')
+            if method in ('dqn', 'ppo', 'pqn'):
+                group = trains.get((method, 8101 + seed - 8201), [])
+                if not group or inputs.get('agent_checkpoint') != f'runs/{group[-1]}/agent.pt':
+                    raise ValueError('Validation must use its own final fresh policy')
+            elif set(inputs) != {'risk_checkpoint'}:
+                raise ValueError('Static methods cannot load policy checkpoints')
+        elif stage == 'fit_risk':
+            if seed != 8401 or partition != 'train' or set(inputs) != {'audit_run_ids'}:
+                raise ValueError('Fresh risk fit must use new audit labels')
+            if any(by_id[i]['stage'] != 'audit' for i in inputs['audit_run_ids']):
+                raise ValueError('Fresh risk fit requires audit producers')
+            fits.append(rid)
+        elif stage in ('audit', 'benchmark_attack'):
+            if partition != 'train' or not inputs.get('source_run_ids') or any(
+                    by_id[i]['stage'] != 'collect' for i in inputs['source_run_ids']):
+                raise ValueError('Fresh audits require only fresh collection producers')
+        else:
+            raise ValueError('Official/sealed or unrelated stage forbidden')
+        charges = [{'method': method, 'seed': seed, 'partition': partition,
+                    'configuration_id': method, 'actual_interactions': amount}]
+        if not _first_json_equal(run.get('charges'), charges):
+            raise ValueError('Exact fresh canonical charges required')
+        by_id[rid] = p
+        seen.add(rid)
+    if (collections != {8301, 8302, 8303} or len(fits) != 1
+            or set(trains) != {(m, s) for m in ('dqn', 'ppo', 'pqn') for s in (8101, 8102, 8103)}
+            or any(len(v) != (1 if k[0] == 'pqn' else 4) for k, v in trains.items())
+            or validations != {(m, s) for m in _FRESH_METHODS for s in (8201, 8202, 8203)}):
+        raise ValueError('Incomplete fresh seven-method matrix')
+    return contract
+
+
+def _fresh_history(witness, ledger):
+    """Retain unknown old costs explicitly; allocate physical collection only once."""
+    contract = _fresh_contract(witness)
+    if (witness.get('historical_cloud_cost_usd', 'missing') is not None
+            or witness.get('historical_cloud_cost_unknown_retained') is not True):
+        raise ValueError('Historical cost unknown must remain unknown')
+    calls, totals, collected = set(), {}, 0
+    for row in ledger:
+        if row['call_id'] in calls:
+            raise ValueError('Duplicate historical budget call')
+        calls.add(row['call_id'])
+        amount = row.get('actual_interactions')
+        if (type(amount) is not int or amount < 0 or row.get('consumption_verified') is not True
+                or row.get('state') not in ('completed', 'failed', 'cancelled', 'canceled', 'interrupted')):
+            raise ValueError('Unreconciled historical consumption')
+        if row.get('experiment_id') != contract['experiment_id']:
+            # Old consumption is retained, but is never transferred into the fresh scope.
+            continue
+        if row.get('owner') != witness['owner']:
+            raise ValueError('Fresh ledger owner mismatch')
+        if row.get('method') == 'round_robin':
+            if (row.get('seed') not in (8301, 8302, 8303) or row.get('partition') != 'train'
+                    or row.get('state') != 'completed' or not 1 <= amount <= 30):
+                raise ValueError('Invalid fresh physical collection')
+            allocations = [{'method': m, 'seed': s, 'partition': 'train',
+                            'collection_interactions': amount}
+                           for m in ('dqn', 'ppo', 'pqn') for s in (8101, 8102, 8103)]
+            if not _first_json_equal(row.get('scoped_ancestry_allocations'), allocations):
+                raise ValueError('Every beneficiary must retain conservative collection allocation')
+            collected += amount
+            for allocation in allocations:
+                key = (allocation['method'], allocation['seed'], 'train')
+                totals[key] = totals.get(key, 0) + amount
+        else:
+            key = (row['method'], row['seed'], row['partition'])
+            totals[key] = totals.get(key, 0) + amount
+    if collected > 90 or any(v > 3090 for v in totals.values()):
+        raise ValueError('Fresh scoped 3090 interaction limit exceeded')
+    return totals, collected
 
 
 def _selection_history(witness, ledger):

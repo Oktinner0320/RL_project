@@ -91,7 +91,7 @@ def make_attack(spec, root: Path, artifact_directory: Path):
             raise ValueError(f"Unknown attack implementation: {value}")
 
 
-def train_policy(spec, root: Path, env, previous, on_checkpoint):
+def train_policy(spec, root: Path, env, previous, on_checkpoint, on_policy_snapshot=None):
     """第三方 PQN 与研究者 DQN/PPO 独立路由。 / Route reference PQN separately from researcher DQN/PPO."""
     common = {
         "seed": spec.seed,
@@ -103,9 +103,11 @@ def train_policy(spec, root: Path, env, previous, on_checkpoint):
         from .pqn import train_agent
 
         return train_agent(
-            env, {**spec.config["comparisons"]["pqn"], **common}, previous, on_checkpoint
+            env, {**spec.config["comparisons"]["pqn"], **common}, previous, on_checkpoint,
+            on_policy_snapshot=on_policy_snapshot
         )
-    return core.train_agent(env, {**spec.config["rl"], **common}, previous, on_checkpoint)
+    return core.train_agent(env, {**spec.config["rl"], **common}, previous, on_checkpoint,
+                            on_policy_snapshot=on_policy_snapshot)
 
 
 def load_policy(spec, state: dict):
