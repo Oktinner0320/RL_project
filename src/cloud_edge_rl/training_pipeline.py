@@ -14,6 +14,7 @@ from cloud_edge_rl.config import RunSpec
 from cloud_edge_rl.transport import (
     TransportLimits, download_artifacts, read_json, run_bounded, safe_run_id,
     stop_and_verify, write_json, download_public_updates, POLICY_SNAPSHOTS,
+    download_dependency_artifacts,
 )
 
 
@@ -274,9 +275,11 @@ def _run_training_pipeline(specs: list[RunSpec], root: Path, directory: Path, *,
                                        artifacts_root, limits=limits, **extra)
                 row['artifact_directory'] = str(artifacts)
                 write_json(state_path, state, replace=True)
+                download_dependency_artifacts(spec, artifacts_root, worker=worker, limits=limits)
                 if fresh_scope and spec.stage == 'collect':
                     download_public_updates(spec, artifacts, worker=worker,
-                                            limits=replace(limits, read_attempts=1, max_entries=66))
+                                            limits=replace(limits, read_attempts=1, max_entries=66,
+                                                           download_seconds=min(limits.download_seconds, 180)))
             row["phase"] = "verify"
             write_json(state_path, state, replace=True)
             # Re-run the semantic gate on resumed files: a receipt is NOT integrity proof.
@@ -382,8 +385,9 @@ def verify_training_artifacts(spec: RunSpec, artifacts: Path, result: dict) -> d
     import torch
     from cloud_edge_rl.algorithms.policy import _settings
     from cloud_edge_rl.algorithms.resource_feedback import ResourceFeedback
+    from cloud_edge_rl.artifacts import artifact_payload
 
-    if not _same(read_json(artifacts / "config.json"), asdict(spec)):
+    if not _same(artifact_payload(read_json(artifacts / "config.json")), artifact_payload(spec)):
         raise ValueError("Actual config/source differs from frozen training spec")
     if read_json(artifacts / "status.json").get("state") != "completed":
         raise ValueError("Training did not complete")
@@ -433,10 +437,21 @@ def verify_training_artifacts(spec: RunSpec, artifacts: Path, result: dict) -> d
     if previous:
         from pathlib import PurePosixPath
         remote = PurePosixPath(previous)
-        if len(remote.parts) != 3 or remote.parts[0] != "runs" or remote.name != "training.pt":
+        if (len(remote.parts) != 3 or remote.parts[0] != "runs" or remote.name != "training.pt"
+                or previous != remote.as_posix() or '\\' in previous):
             raise ValueError("Exact retained training checkpoint path required")
+        safe_run_id(remote.parts[1])
         prior = torch.load(artifacts.parent / remote.parts[1] / remote.name,
                            map_location="cpu", weights_only=False)
+        prior_state = prior['state']
+        if (prior.get('run_id') != remote.parts[1] or prior.get('risk_version') != spec.risk_version
+                or prior_state.get('format') != 'native_training_v1'
+                or prior_state.get('risk_version') != spec.risk_version
+                or not _same(prior_state.get('settings'), _settings(effective))
+                or any(type(prior_state.get(key)) is not int or prior_state[key] < 0 for key in
+                       ('environment_steps', 'learned_steps', 'warmup_steps', 'updates'))
+                or prior_state['environment_steps'] != prior_state['learned_steps'] + prior_state['warmup_steps']):
+            raise ValueError('Retained training checkpoint identity/settings/counters mismatch')
         before = prior["state"]["environment_steps"]
     steps = state["environment_steps"]
     expected = min(spec.config["rl"]["total_steps"], before + spec.config["rl"].get(
@@ -445,6 +460,8 @@ def verify_training_artifacts(spec: RunSpec, artifacts: Path, result: dict) -> d
             ("environment_steps", "learned_steps", "warmup_steps", "updates"))
             or steps != state["learned_steps"] + state["warmup_steps"]
             or steps != expected or len(rows) != steps - before
+            or type(result.get('learned_steps')) is not int
+            or type(result.get('warmup_steps')) is not int
             or result.get("learned_steps") != state["learned_steps"]
             or result.get("warmup_steps") != state["warmup_steps"]):
         raise ValueError("Actual training counters differ from registered target")

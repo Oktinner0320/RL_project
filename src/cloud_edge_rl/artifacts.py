@@ -7,12 +7,22 @@ import json
 import time
 import traceback
 from dataclasses import asdict
+from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
 from types import TracebackType
 from typing import Any
 
 from cloud_edge_rl.config import RunSpec
+
+
+def artifact_payload(spec: RunSpec | dict) -> dict:
+    """Project fresh artifact metadata only; execution retains its full approval."""
+    payload = asdict(spec) if isinstance(spec, RunSpec) else deepcopy(spec)
+    acceptance = payload.get('config', {}).get('native_acceptance', {})
+    if acceptance.get('fresh_benchmark', {}).get('schema') == 'fresh_seven_method_development_benchmark_v1':
+        acceptance.pop('execution_admission', None)
+    return payload
 
 
 def _utc_now() -> str:
@@ -35,7 +45,7 @@ class RunStore:
         self.path.mkdir(parents=True, exist_ok=False)
         self.started_at = _utc_now()
         self.started_clock = time.perf_counter()
-        self.write_json("config.json", asdict(self.spec))
+        self.write_json("config.json", artifact_payload(self.spec))
         self.write_json(
             "metadata.json",
             {

@@ -1,5 +1,4 @@
 """Fail-closed local verification of fresh development artifacts; no inference."""
-from dataclasses import asdict
 from pathlib import Path, PurePosixPath
 import csv
 import json
@@ -124,10 +123,12 @@ def _risk(spec, artifacts, summary):
 
 
 def verify_fresh_artifacts(spec: RunSpec, artifacts: Path, result: dict) -> dict:
+    from .artifacts import artifact_payload
     artifacts = Path(artifacts)
     settings = spec.config['native_acceptance']['fresh_benchmark']
     _require(settings['schema'] == 'fresh_seven_method_development_benchmark_v1', 'Wrong fresh purpose')
-    _require(_same(read_json(artifacts / 'config.json'), asdict(spec)), 'Actual RunSpec differs from frozen source/config')
+    _require(_same(artifact_payload(read_json(artifacts / 'config.json')), artifact_payload(spec)),
+             'Actual RunSpec differs from frozen source/config')
     status, summary = read_json(artifacts / 'status.json'), read_json(artifacts / 'summary.json')
     metadata = read_json(artifacts / 'metadata.json')
     _require(status.get('state') == 'completed' and metadata.get('run_id') == spec.run_id

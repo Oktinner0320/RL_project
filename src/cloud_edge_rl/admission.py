@@ -233,6 +233,251 @@ def _fresh_contract(witness):
     return contract
 
 
+def _fresh_recovery(witness, ledger, log, rows=None):
+    """Validate one explicit pre-attack recovery; retained IDs never authorize execution.
+
+    recovery_attempt binds original_approval, original_ledger_manifest and the
+    exact eight-event journal_snapshot. All failure snapshots are re-read from
+    owned files on every invocation, including the invocation under the lock.
+    """
+    retained = witness.get('retained_failed_runs')
+    if retained is None and 'recovery_attempt' not in witness:
+        return {}
+    if type(retained) is not list or len(retained) != 1:
+        raise ValueError('Exactly one retained fresh benchmark failure required')
+    item = retained[0]
+    original = _first_artifact(item['original_approval'])
+    attempt = _first_artifact(witness['recovery_attempt'])
+    proof = _first_artifact(item['failed_call_proof'])
+    if original.get('retained_failed_runs') or original.get('recovery_attempt'):
+        raise ValueError('Fresh recovery chains forbidden')
+    contract = _fresh_contract(witness)
+    old_contract = _fresh_contract(original)
+    old = original['runs'][3]
+    rid, new = old['spec']['run_id'], item['replace_run_id']
+    call, app = proof['call_id'], proof['app_id']
+    exact = {'schema': 'fresh_primary_explicit_attempt2_v1', 'approved': True,
+             'attempt': 2, 'automatic_retry': False, 'old_run_id': rid,
+             'new_run_id': new, 'retry_of_call_id': call, 'app_id': app,
+             'owner': witness['owner'], 'purpose': witness['purpose'],
+             'freeze_id': witness['freeze_id'], 'experiment_id': contract['experiment_id'],
+             'output_root': contract['output_root'], 'reservation_log': str(log),
+             'original_approval': item['original_approval'],
+             'original_ledger_manifest': original['ledger_manifest'],
+             'failed_call_proof': item['failed_call_proof']}
+    if any(not _first_json_equal(attempt.get(k), v) for k, v in exact.items()):
+        raise ValueError('Exact explicit fresh attempt2 binding required')
+    for key in ('owner', 'purpose', 'freeze_id', 'reservation_log', 'plan_config',
+                'counter_admission', 'truth_isolation'):
+        if not _first_json_equal(original.get(key), witness.get(key)):
+            raise ValueError('Original fresh ownership/design binding changed')
+    if (original.get('approved') is not True or old['spec']['stage'] != 'benchmark_attack'
+            or old['spec']['method'] != 'gradient_matching' or old['spec']['seed'] != 8401
+            or not _first_json_equal(item['spec'], old['spec'])
+            or not _first_json_equal(item['charges'], old['charges'])
+            or len(item['charges']) != 1 or item['charges'][0]['actual_interactions'] != 0
+            or new == rid or witness['runs'][3]['spec']['run_id'] != new
+            or rid in {r['spec']['run_id'] for r in witness['runs']}):
+        raise ValueError('Only the original zero-charge benchmark node may be replaced')
+    # Only node3's UUID, later source provenance, and downstream benchmark edges change.
+    expected_runs = deepcopy(original['runs'])
+    expected_runs[3]['spec']['run_id'] = new
+    for index in range(3, len(expected_runs)):
+        p = expected_runs[index]['spec']
+        if p['stage'] == 'audit':
+            p['inputs']['benchmark_run_id'] = new
+        p['provenance'] = deepcopy(witness['runs'][index]['spec']['provenance'])
+    expected_contract = deepcopy(old_contract)
+    for node in expected_contract['dag']:
+        if node['run_id'] == rid:
+            node['run_id'] = new
+        node['dependencies'] = [new if dep == rid else dep for dep in node['dependencies']]
+    if (not _first_json_equal(expected_runs, witness['runs'])
+            or not _first_json_equal(expected_contract, contract)):
+        raise ValueError('Fresh recovery scientific settings/UUID/DAG drift')
+    baseline = _first_artifact(original['ledger_manifest'])
+    if len(baseline) != 185 or not _first_json_equal(ledger[:185], baseline):
+        raise ValueError('Original 185-row fresh ledger prefix required')
+    failed = [r for r in ledger if r.get('call_id') == call or r.get('run_id') == rid]
+    expected_row = {'run_id': rid, 'call_id': call, 'owner': witness['owner'],
+                    'experiment_id': contract['experiment_id'], 'stage': 'benchmark_attack',
+                    'method': 'gradient_matching', 'seed': 8401, 'partition': 'train',
+                    'state': 'failed', 'actual_interactions': 0, 'consumption_verified': True,
+                    'actual_cloud_cost_usd': None, 'failed_call_proof': item['failed_call_proof']}
+    if len(failed) != 1 or not _first_json_equal(failed[0], expected_row):
+        raise ValueError('Unique verified failed call with unknown cost required')
+    error = 'ValueError: Audit target IDs must be nonempty unique (run_id, upload_id) pairs'
+    required = {'schema': 'fresh_pre_attack_failure_v1', 'run_id': rid, 'stage': 'benchmark_attack',
+                'actual_interactions': 0, 'consumption_verified': True,
+                'actual_cloud_cost_usd': None, 'original_spec': old['spec'],
+                'source_contents_manifest': original['source_contents_manifest']}
+    if any(not _first_json_equal(proof.get(k), v) for k, v in required.items()):
+        raise ValueError('Exact pre-attack zero-consumption proof required')
+    output = Path(contract['output_root']).resolve()
+    trace_path = Path(proof['compute_watchdog']['log_path']).resolve()
+    job = trace_path.parent
+    if not job.is_relative_to(output) or job.name != rid:
+        raise ValueError('Owned failed job path required')
+    def actual(name, snapshot):
+        value = json.loads((job / name).read_text(encoding='utf-8'))
+        if not _first_json_equal(value, snapshot):
+            raise ValueError('Failed owned file differs from proof snapshot')
+        return value
+    binding = actual('call.json', proof['binding'])
+    shutdown = actual('shutdown.json', proof['shutdown'])
+    watchdog = actual(trace_path.with_suffix('.json').name, proof['compute_watchdog'])
+    if (binding != {'run_id': rid, 'call_id': call, 'app_id': app}
+            or shutdown.get('app_id') != app or shutdown.get('verified') is not True
+            or shutdown.get('stopped') is not True or watchdog.get('exit_code') != 1
+            or watchdog.get('timed_out') is not False or watchdog.get('process_tree_clean') is not True
+            or watchdog.get('surviving_pids') != []):
+        raise ValueError('Verified stopped failed app and clean non-timeout watchdog required')
+    from .config import RunSpec
+    deployed = json.loads((job / 'spec.json').read_text(encoding='utf-8'))
+    if not _first_json_equal(resource_frozen_payload(RunSpec(**deployed)), old['spec']):
+        raise ValueError('Failed deployed original spec mismatch')
+    stop_path = output / 'bootstrap-stop-20261010-v1/state.json'
+    stop = json.loads(stop_path.read_text(encoding='utf-8'))
+    if not _first_json_equal(stop, proof['stop_state']):
+        raise ValueError('Actual stop state differs from failure snapshot')
+    state, scope = stop['failed_stage'], stop['verified_current_scope']
+    if (stop.get('status') != 'blocked_recoverable_before_attack_sample'
+            or stop.get('automatic_retry_permitted') is not False
+            or stop.get('new_paid_execution_approved_after_failure') is not False
+            or any(not _first_json_equal(state.get(k), v) for k, v in
+                   {'run_id': rid, 'call_id': call, 'app_id': app, 'error': error,
+                    'app_shutdown_verified': True, 'app_stopped': True, 'cloud_cost_usd': None}.items())
+            or any(not _first_json_equal(scope.get(k), v) for k, v in
+                   {'known_collection_interactions_total': 90, 'actual_collection_interactions': [30,30,30],
+                    'attack_samples_completed': 0, 'policy_training_interactions': 0,
+                    'risk_fits_completed': 0, 'official_test_used': False}.items())):
+        raise ValueError('Verified original pre-attack stop state required')
+    trace = trace_path.read_text(encoding='utf-8')
+    source = _first_artifact(original['source_contents_manifest'])['src/cloud_edge_rl/pipeline.py'].splitlines()
+    if (trace != proof['remote_traceback'] or not trace.rstrip().endswith(error)
+            or '/root/cloud_edge_rl/pipeline.py", line 302, in run_experiment' not in trace
+            or len(source) < 335
+            or 'raise ValueError("Audit target IDs must be nonempty unique (run_id, upload_id) pairs")' not in source[301]
+            or not any('attack = make_attack(' in s for s in source[302:332])
+            or not any('result = run_audits(' in s for s in source[302:335])):
+        raise ValueError('Frozen Source3 must prove failure before attack and audit execution')
+    artifacts = job.parents[2] / 'artifacts/runs' / rid
+    if (job / 'compute-result.json').exists() or any((artifacts / name).exists() for name in
+                                                   ('audits.jsonl', 'summary.json', 'environment.pt')):
+        raise ValueError('Pre-attack failure cannot retain result/audits/environment')
+    rows = _rows(log) if rows is None else rows
+    _journal(rows, log)
+    prefix = attempt.get('journal_snapshot')
+    if type(prefix) is not list or len(prefix) != 8 or not _first_json_equal(rows[:8], prefix):
+        raise ValueError('Exact original eight-event journal prefix required')
+    prefix_calls = [row.get('call_id') for row in prefix if row.get('event') == 'bound']
+    if len(prefix_calls) != 4 or len(set(prefix_calls)) != 4:
+        raise ValueError('Unique original fresh journal call bindings required')
+    for index in range(4):
+        reserved, bound = prefix[2*index:2*index+2]
+        entry = original['runs'][index]
+        if (reserved.get('event') != 'reserved' or bound.get('event') != 'bound'
+                or reserved.get('freeze_id') != witness['freeze_id']
+                or reserved.get('run_id') != entry['spec']['run_id']
+                or bound.get('run_id') != reserved['run_id']
+                or not _first_json_equal(reserved.get('spec'), entry['spec'])
+                or not _first_json_equal(reserved.get('charges'), entry['charges'])
+                or index == 3 and bound.get('call_id') != call):
+            raise ValueError('Original fresh journal reservation/binding drift')
+        if index < 3:
+            physical = [row for row in baseline if row.get('run_id') == entry['spec']['run_id']]
+            if len(physical) != 1:
+                raise ValueError('Unique original physical collection ledger row required')
+            row = physical[0]
+            collection_proof = _first_artifact(row['physical_collection_proof'])
+            evidence = _first_artifact(collection_proof['interaction_evidence'])
+            expected_binding = {'run_id': entry['spec']['run_id'], 'call_id': row['call_id'],
+                                'app_id': collection_proof['app_id']}
+            if ('primary_receipt' in evidence) == ('recovery_proof' in evidence):
+                raise ValueError('Exactly one supported collection binding proof schema required')
+            if 'primary_receipt' in evidence:
+                receipt = _first_artifact(evidence['primary_receipt'])
+                stage = Path(receipt.get('stage_directory', ''))
+                binding_path = stage / 'transport/jobs' / entry['spec']['run_id'] / 'call.json'
+                receipt_job = receipt.get('jobs', {}).get(entry['spec']['run_id'], {})
+            else:
+                recovery = _first_artifact(evidence['recovery_proof'])
+                verified = recovery.get('proof', {})
+                exact_recovery = {'status': 'completed_owned_artifacts_local_recovery_passed',
+                    **expected_binding, 'shutdown_verified': True,
+                    'original_compute_source_preserved': True,
+                    'original_failed_verification_preserved': True}
+                exact_verified = {'verified': True, 'experiment_id': contract['experiment_id'],
+                    'run_id': entry['spec']['run_id'], 'physical_interactions': 30,
+                    'actual_interactions': 30, 'csv_rows_verified': 30,
+                    'source_data_verified': True, 'source_verified': True, 'audit_targets_verified': True}
+                if (any(not _first_json_equal(recovery.get(k), v) for k, v in exact_recovery.items())
+                        or any(not _first_json_equal(verified.get(k), v) for k, v in exact_verified.items())):
+                    raise ValueError('Exact verified owned-artifact collection recovery required')
+                binding_path = Path(recovery.get('call_binding_path', ''))
+                artifacts_path = Path(recovery.get('artifacts', ''))
+                if (not artifacts_path.is_absolute() or not artifacts_path.resolve().is_relative_to(output)
+                        or artifacts_path.name != entry['spec']['run_id'] or not artifacts_path.is_dir()
+                        or not binding_path.is_absolute() or len(binding_path.resolve().parents) < 4
+                        or binding_path.resolve().parent.name != entry['spec']['run_id']
+                        or binding_path.resolve().parent.parent.name != 'jobs'
+                        or binding_path.resolve().parent.parent.parent.name != 'transport'
+                        or artifacts_path.resolve() != (binding_path.resolve().parents[3] / 'artifacts/runs' /
+                                                       entry['spec']['run_id']).resolve()):
+                    raise ValueError('Owned original recovered collection artifact path required')
+                owned = {}
+                for name in ('config.json', 'status.json', 'summary.json', 'environment.pt'):
+                    path = artifacts_path / name
+                    if not path.is_file() or not path.resolve().is_relative_to(output):
+                        raise ValueError('Actual owned recovered collection artifacts required')
+                    if name != 'environment.pt':
+                        owned[name] = json.loads(path.read_text(encoding='utf-8'))
+                def compact_payload(payload):
+                    payload = deepcopy(payload)
+                    payload.get('config', {}).get('native_acceptance', {}).pop('execution_admission', None)
+                    payload.get('provenance', {}).pop('source_contents', None)
+                    return payload
+                manifest = _first_artifact(collection_proof['completed_manifest'])
+                actual_status = owned['status.json']
+                actual_status.setdefault('run_id', entry['spec']['run_id'])
+                if (not _first_json_equal(compact_payload(owned['config.json']), compact_payload(manifest['spec']))
+                        or not _first_json_equal(compact_payload(owned['config.json']), entry['spec'])
+                        or actual_status.get('state') != 'completed'
+                        or not _first_json_equal(actual_status, _first_artifact(collection_proof['status']))
+                        or not _first_json_equal(owned['summary.json'], _first_artifact(collection_proof['summary']))):
+                    raise ValueError('Actual recovered collection config/status/summary proof mismatch')
+                receipt_job = recovery
+            if (not binding_path.is_absolute() or not binding_path.resolve().is_relative_to(output)
+                    or binding_path.name != 'call.json' or binding_path.parent.name != entry['spec']['run_id']):
+                raise ValueError('Owned original collection binding path required')
+            actual_binding = json.loads(binding_path.read_text(encoding='utf-8'))
+            if 'recovery_proof' in evidence:
+                shutdown_path = binding_path.with_name('shutdown.json').resolve()
+                if (not shutdown_path.is_relative_to(output)
+                        or shutdown_path.parent != binding_path.resolve().parent):
+                    raise ValueError('Owned recovered collection shutdown path required')
+                actual_shutdown = json.loads(shutdown_path.read_text(encoding='utf-8'))
+                if (actual_shutdown.get('app_id') != expected_binding['app_id']
+                        or actual_shutdown.get('verified') is not True or actual_shutdown.get('stopped') is not True):
+                    raise ValueError('Recovered collection app must be verifiably stopped')
+            if (row.get('method') != 'round_robin' or row.get('seed') != entry['spec']['seed']
+                    or row.get('experiment_id') != contract['experiment_id']
+                    or row.get('owner') != witness['owner'] or row.get('partition') != 'train'
+                    or row.get('state') != 'completed' or type(row.get('actual_interactions')) is not int
+                    or row['actual_interactions'] != 30 or row.get('consumption_verified') is not True
+                    or bound.get('call_id') != row['call_id']
+                    or collection_proof.get('call_id') != row['call_id']
+                    or not _first_json_equal(actual_binding, expected_binding)
+                    or any(not _first_json_equal(evidence.get(k), v) for k, v in expected_binding.items())
+                    or any(not _first_json_equal(receipt_job.get(k), expected_binding[k])
+                           for k in ('call_id', 'app_id'))):
+                raise ValueError('Original journal call must match verified physical collection binding')
+    active = {r['spec']['run_id'] for r in witness['runs']}
+    if any(row['run_id'] not in active for row in rows[8:]):
+        raise ValueError('Only active fresh runs may append after recovery prefix')
+    return {rid: item}
+
+
 def _fresh_history(witness, ledger):
     """Retain unknown old costs explicitly; allocate physical collection only once."""
     contract = _fresh_contract(witness)
@@ -737,6 +982,7 @@ def check_admission(specs, root, *, _saved_source=False):
             output = Path(_first_artifact(witness['freeze_manifest'])['fresh_contract']['output_root']).resolve()
             if not log.resolve().is_relative_to(output):
                 raise ValueError('Fresh reservation journal must be confined to new output root')
+            _fresh_recovery(witness, ledger, log)
         run = next(item for item in witness['runs'] if _first_json_equal(payload, item['spec']))
         approved.append((witness, run, ledger, log))
     return approved
@@ -1193,6 +1439,10 @@ def _fresh_reserve(spec, witness, run, ledger, log, rows, closed):
     """Called under the existing OS lock; unknown reservations remain fully charged."""
     totals, collected = _fresh_history(witness, ledger)
     approved = {r['spec']['run_id']: r for r in witness['runs']}
+    retained = _fresh_recovery(witness, ledger, log, rows)
+    if spec.run_id in retained:
+        raise ValueError('Retired failed fresh run cannot execute')
+    approved.update(retained)  # Journal lookup only; execution uses witness['runs'].
     ledger_calls = {r['call_id'] for r in ledger}
     bindings = {r['run_id']: r['call_id'] for r in rows if r['event'] == 'bound'}
     reservations = [r for r in rows if r['event'] == 'reserved']

@@ -297,7 +297,23 @@ def run_experiment(spec: RunSpec, root: Path) -> dict:
                 candidates = read_candidates(root, spec.inputs["source_run_ids"])
                 if "target_ids" in spec.inputs:
                     # 显式分片，不改变单目标攻击随机性。 / Explicit shards keep per-target randomness unchanged.
-                    targets = [tuple(pair) for pair in spec.inputs["target_ids"]]
+                    target_ids = spec.inputs["target_ids"]
+                    if not isinstance(target_ids, (list, tuple)):
+                        raise ValueError("Audit target IDs must be nonempty unique (run_id, upload_id) pairs")
+                    if any(isinstance(target, str) for target in target_ids):
+                        fresh = spec.config.get('native_acceptance', {}).get('fresh_benchmark', {})
+                        source_ids = spec.inputs["source_run_ids"]
+                        if (spec.stage not in ('benchmark_attack', 'audit')
+                                or fresh.get('schema') != 'fresh_seven_method_development_benchmark_v1'
+                                or not isinstance(target_ids, (list, tuple))
+                                or not all(isinstance(target, str) and target for target in target_ids)
+                                or not isinstance(source_ids, (list, tuple))
+                                or len(source_ids) != 1
+                                or not isinstance(source_ids[0], str) or not source_ids[0]):
+                            raise ValueError("Audit target IDs must be nonempty unique (run_id, upload_id) pairs")
+                        targets = [(source_ids[0], target) for target in target_ids]
+                    else:
+                        targets = [tuple(pair) for pair in target_ids]
                     if not targets or any(len(pair) != 2 for pair in targets) or len(set(targets)) != len(targets):
                         raise ValueError("Audit target IDs must be nonempty unique (run_id, upload_id) pairs")
                     available = {(item.run_id, item.upload_id): item for item in candidates}

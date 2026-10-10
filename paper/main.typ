@@ -5,7 +5,7 @@
 #let title = [Risk Prediction Reliability in Cloud-Edge Federated Learning: Uncertainty-Aware Scheduling and Budgeted Auditing]
 #let authors = ("TO COMPLETE: Author Name - Student ID - Institution",)
 #let abstract = [
-  In the training of federated learning (FL), the participation set and batch selection influence model progress, resource consumption and the gradient exposure at the same time. When the training trajectory changes in the deep reinforcement learning, the low-cost risk surrogate fitted on prior trajectories may underestimate. This thesis based on 3 simulated clients and the UCI Adult dataset, and encodes the client set and batch configuration of synchronous FedSGD as 12 discrete actions, which builds around DQN that combines predictive uncertainty with finite-budget gradient-inversion auditing. 
+  
 
   //之后等实际实验进行后再补充实验结果和结论
 ]

@@ -305,15 +305,23 @@ def _restore_file(row: dict, target: Path, receipt: Path) -> bool:
 
 
 def download_artifacts(volume_name: str, run_id: str, destination: Path, *, environment="main",
-                       limits=None, worker=run_bounded, policy_snapshots=()) -> Path:
+                       limits=None, worker=run_bounded, policy_snapshots=(), selected_files=None) -> Path:
     """Resume completed files, retry only bounded reads, never recreate a compute call."""
     limits = limits or TransportLimits()
+    if selected_files is not None and (type(selected_files) is not tuple
+            or len(set(selected_files)) != len(selected_files)
+            or not set(selected_files) <= ARTIFACT_FILES | set(POLICY_SNAPSHOTS)
+            or not {'config.json', 'status.json'} <= set(selected_files)):
+        raise ValueError('Exact public dependency filenames and identity metadata required')
     if type(policy_snapshots) is not tuple or any(name not in POLICY_SNAPSHOTS for name in policy_snapshots) or len(set(policy_snapshots)) != len(policy_snapshots):
         raise ValueError('Only exact registered policy snapshots allowed')
     safe_run_id(run_id)
+    _no_symlinks(destination)
     destination = Path(destination).resolve()
     stage = destination / ".transfers" / run_id
     target_dir = destination / "runs" / run_id
+    _no_symlinks(stage)
+    _no_symlinks(target_dir)
     stage.mkdir(parents=True, exist_ok=True)
     target_dir.mkdir(parents=True, exist_ok=True)
     started = time.monotonic()
@@ -335,6 +343,8 @@ def download_artifacts(volume_name: str, run_id: str, destination: Path, *, envi
     if checked["files"] != inventory["files"] or checked["bytes"] != inventory["bytes"]:
         raise ValueError("Download inventory changed")
     for row in inventory["files"]:
+        if selected_files is not None and row['name'] not in selected_files:
+            continue
         target = target_dir / row["name"]
         receipt = stage / (row["name"] + ".receipt.json")
         if _restore_file(row, target, receipt):
@@ -361,10 +371,111 @@ def download_artifacts(volume_name: str, run_id: str, destination: Path, *, envi
     if config.get("run_id") != run_id or status.get("state") not in ("completed", "failed"):
         raise ValueError("Downloaded run identity or terminal state invalid")
     marker = stage / "complete.json"
-    if not marker.exists():
+    if selected_files is None and not marker.exists():
         write_json(marker, {"run_id": run_id, "files": inventory["files"],
                             "transport_complete": True, "semantic_gate_required": True})
     return target_dir
+
+
+def _dependency_files(spec):
+    """Declared public verifier inputs only; never follow arbitrary remote paths."""
+    dependencies = {}
+
+    def add(run_id, names):
+        safe_run_id(run_id)
+        if run_id == spec.run_id:
+            raise ValueError('A run cannot depend on itself')
+        dependencies.setdefault(run_id, {'config.json', 'status.json'}).update(names)
+        if len(dependencies) > 32:
+            raise ValueError('Verification dependency closure exceeds 32 runs')
+
+    for key, allowed in (
+            ('risk_checkpoint', {'risk.pt'}),
+            ('previous_training_checkpoint', {'training.pt'}),
+            ('agent_checkpoint', {'agent.pt', *POLICY_SNAPSHOTS})):
+        value = spec.inputs.get(key)
+        if value in (None, ''):
+            continue
+        if type(value) is not str:
+            raise ValueError('Exact retained dependency checkpoint path required')
+        path = PurePosixPath(value)
+        if (len(path.parts) != 3 or path.parts[0] != 'runs'
+                or path.name not in allowed or value != path.as_posix() or '\\' in value):
+            raise ValueError('Exact retained dependency checkpoint path required')
+        add(path.parts[1], {path.name})
+    for key, names in (('audit_run_ids', {'audits.jsonl', 'risk_dataset.csv'}),
+                       ('source_run_ids', {'uploads.jsonl', 'reference_sources.json'})):
+        values = spec.inputs.get(key, [])
+        if type(values) is not list or any(type(value) is not str for value in values):
+            raise ValueError('Explicit dependency run ID list required')
+        for run_id in values:
+            add(run_id, names)
+    value = spec.inputs.get('benchmark_run_id')
+    if value not in (None, ''):
+        add(value, {'summary.json'})
+    return dependencies
+
+
+def dependency_run_ids(spec: 'RunSpec') -> list[str]:
+    """Stable unique IDs for explicitly declared verification dependencies."""
+    return list(_dependency_files(spec))
+
+
+def download_dependency_artifacts(spec: 'RunSpec', destination: Path, *,
+                                  worker=run_bounded, limits=None) -> list[Path]:
+    """Bounded public hydration, resumable without spawning compute or loading models."""
+    limits = limits or TransportLimits()
+    dependencies = _dependency_files(spec)
+    started = time.monotonic()
+    downloaded, total = [], 0
+    pending = list(dependencies)
+    processed = set()
+    while pending:
+        run_id = pending.pop(0)
+        names = dependencies[run_id]
+        remaining = limits.download_seconds - (time.monotonic() - started)
+        if remaining < 1:
+            raise TimeoutError('Dependency download deadline; completed files retained')
+        budget = limits.max_total_bytes - total
+        if budget <= 0:
+            raise ValueError('Verification dependency closure exceeds total byte bound')
+        artifacts = download_artifacts(spec.config['modal']['volume_name'], run_id,
+                                      destination, worker=worker,
+                                      limits=replace(limits, download_seconds=int(remaining),
+                                                     max_total_bytes=budget,
+                                                     max_file_bytes=min(limits.max_file_bytes, budget)),
+                                      policy_snapshots=POLICY_SNAPSHOTS,
+                                      selected_files=tuple(sorted(names)))
+        config = read_json(artifacts / 'config.json')
+        if (config.get('run_id') != run_id
+                or read_json(artifacts / 'status.json').get('state') != 'completed'):
+            raise ValueError('Dependency identity or completed state invalid')
+        inventory = read_json(Path(destination).resolve() / '.transfers' / run_id / 'inventory.json')
+        present = {row['name'] for row in inventory['files']}
+        # Some source stages do not produce optional frame/reference metadata.
+        required = names - {'risk_dataset.csv', 'reference_sources.json'}
+        if not required <= present:
+            raise ValueError('Required verification dependency artifact missing')
+        total += sum(row['bytes'] for row in inventory['files'] if row['name'] in names)
+        if total > limits.max_total_bytes:
+            raise ValueError('Verification dependency closure exceeds total byte bound')
+        downloaded.append(artifacts)
+        processed.add(run_id)
+        if run_id in spec.inputs.get('audit_run_ids', []):
+            sources = config.get('inputs', {}).get('source_run_ids')
+            if type(sources) is not list or len(sources) > 32:
+                raise ValueError('Explicit bounded audited source run IDs required')
+            for source in sources:
+                safe_run_id(source)
+                if source == spec.run_id:
+                    raise ValueError('A run cannot depend on itself')
+                if source not in dependencies:
+                    if len(dependencies) >= 32:
+                        raise ValueError('Verification dependency closure exceeds 32 runs')
+                    dependencies[source] = {'config.json', 'status.json', 'uploads.jsonl',
+                                            'reference_sources.json'}
+                    pending.append(source)
+    return downloaded
 
 
 def _no_symlinks(path):
