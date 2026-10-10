@@ -129,7 +129,9 @@ def _training(envelope, spec, experiment, expected_run_id):
     # 真实交互预算同时计入学习步和预热步。 / Count both learning and warmup steps in the interaction budget.
     if state['environment_steps'] != state['learned_steps'] + state['warmup_steps']:
         raise ValueError('Warmup must be included in the interaction budget')
-    load_agent(state['agent'], config)
+    # 核验只检查结构，不重训；CPU 覆盖不修改冻结的 GPU 训练配置。
+    # Inspection only: the CPU override leaves the frozen GPU training config intact.
+    load_agent(state['agent'], {**config, 'device': 'cpu'})
     return state
 
 
@@ -223,6 +225,10 @@ def verify_stage(spec: RunSpec, workspace: Path, result: dict) -> dict:
     Read actual artifacts and counters; return a stage verification record.
 
     不代表正式验收或真实风险审计。 / This is not formal acceptance or true-risk auditing.
+
+    同时核对检查点、逐交互日志和摘要，不能只相信云端完成标记。
+    Cross-check checkpoint, per-interaction logs, and summary rather than trusting
+    a cloud completion flag. Inspect weights on CPU without policy updates.
     """
     root, experiment = _guard(spec, workspace)
     prior = _prior(spec, root, experiment)
@@ -248,8 +254,10 @@ def verify_stage(spec: RunSpec, workspace: Path, result: dict) -> dict:
                 or agent.get('n_step') != spec.config['rl']['n_step']
                 or agent.get('ablation_experiment_id') != experiment):
             raise ValueError('Exported agent binding mismatch')
-        exported = load_agent(agent['agent'], _config(spec))
-        actual = load_agent(state['agent'], _config(spec))
+        # 云端 GPU 权重在本地 CPU 上逐张量比对，下载核验不要求本地有 CUDA。
+        # Compare cloud GPU weights on CPU; download verification needs no local CUDA.
+        exported = load_agent(agent['agent'], {**_config(spec), 'device': 'cpu'})
+        actual = load_agent(state['agent'], {**_config(spec), 'device': 'cpu'})
         # 按张量核对导出权重，防止身份正确但策略内容不同。 / Compare exported weights tensor by tensor, not just checkpoint identity.
         if any(not torch.equal(value, exported.network.state_dict()[key])
                for key, value in actual.network.state_dict().items()):

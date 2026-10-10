@@ -1,5 +1,19 @@
 """独立的 1-step/3-step DQN；预算边界可恢复，不视为终止。
 Isolated one/three-step DQN with resumable, non-terminal budget boundaries.
+
+消融只改变 TD 目标的回报长度；网络、奖励、采样及优化设置保持配对一致。
+The ablation changes only the TD return horizon; network, reward, sampling,
+and optimizer settings remain paired.
+
+对实际长度 m<=n 的片段，R_t^(m)=sum_{i=0}^{m-1} gamma^i*r_{t+i}，
+y_t=R_t^(m)+(1-d)*gamma^m*Q_target(s_{t+m}, argmax_a Q_online(s_{t+m}, a))。
+For an actual-length m<=n segment, accumulate discounted rewards and bootstrap
+with Double DQN: the online network selects the next action and the target
+network evaluates it. Here d marks true termination, not a controller pause.
+
+N3 将较晚奖励直接传播到更早动作，但不保证收益更高，也未新增重要性采样校正。
+N3 propagates later rewards to earlier actions, but does not guarantee improvement
+and adds no importance-sampling correction for off-policy multi-step returns.
 """
 
 from collections import deque
@@ -15,7 +29,14 @@ from cloud_edge_rl.types import TrainingResult
 
 
 def _emit(pending, replay, gamma):
-    """写入最早状态的多步回报，使用实际长度和末状态。 / Store the oldest state's return with its actual length and endpoint."""
+    """写入最早状态的多步回报，使用实际长度和末状态。
+    Store the oldest state's return with its actual length and endpoint.
+
+    回放为 (s_t, a_t, R_t^(m), s_{t+m}, terminated, m)，只移除最早记录；
+    下一条回放保留重叠片段，使每个学习动作都有自己的 TD 目标。
+    Replay stores (s_t, a_t, R_t^(m), s_{t+m}, terminated, m). Pop only the
+    oldest transition so overlapping windows give each learning action a target.
+    """
     first, last = pending[0], pending[-1]
     # 回报按步数折扣；记录实际长度，供后续自举使用。 / Discount rewards and save the length for bootstrap.
     reward = sum(gamma ** i * row[2] for i, row in enumerate(pending))
@@ -26,6 +47,11 @@ def _emit(pending, replay, gamma):
 def append_transition(pending, replay, transition, n_step, gamma, truncated=False):
     """收集单步记录，形成多步回放，并在回合边界清空队列。
     Collect transitions, create multi-step replay, and drain the queue at episode boundaries.
+
+    回合结束时不足 n 步的尾部也写入回放，不能丢弃这些动作的学习信号。
+    Emit shorter tail returns at episode boundaries rather than dropping actions.
+    截断保留末状态自举；真正终止将所有尾部目标的自举项置零。
+    Truncation retains endpoint bootstrap; true termination masks all tail bootstrap.
     """
     pending.append(transition)
     # 收齐 n 步后写入一条回放，其余记录等待下一步。 / Emit one replay row after collecting n steps.
@@ -42,6 +68,13 @@ def update(agent, optimizer, target, replay, config):
 
     沿用原 DQN 的采样、损失和优化器，只改变回报计算。
     Use the native DQN sampler, loss, and optimizer; only the return differs.
+
+    目标是 m 步累计回报加 gamma^m 倍末状态价值；m 是实际片段长度。
+    The target combines the m-step return with gamma^m times endpoint value;
+    m is the actual segment length, not always the configured n_step.
+    在线网络选择末状态动作，目标网络估值，避免同一网络同时选择和评价。
+    Online action selection and target-network evaluation decouple Double DQN's
+    selection and evaluation. Targets are detached; only Q_online(s_t,a_t) learns.
     """
     ids = agent.rng.choice(len(replay), config['batch_size'], replace=False)
     x, actions, rewards, next_x, done, lengths = zip(*(replay[i] for i in ids))
@@ -61,7 +94,8 @@ def update(agent, optimizer, target, replay, config):
         else:
             next_values = next_values.max(1).values
         labels = dqn.td_targets(rewards, next_values, done, discounts)
-    # 只拟合选中动作的 Q 值，目标不参与反向传播。 / Fit Q for chosen actions without gradients through targets.
+    # 只拟合选中动作；Huber 损失和梯度裁剪沿用对照，不引入第二个消融因素。
+    # Fit chosen actions; retain the control's Huber loss and gradient clipping.
     values = agent.network(x).gather(1, actions[:, None])[:, 0]
     loss = torch.nn.functional.smooth_l1_loss(values, labels)
     optimizer.zero_grad(set_to_none=True)
@@ -79,6 +113,8 @@ def _validate(config, previous):
         raise ValueError('n_step must be 1 or 3')
     if config['gamma'] != 1:
         raise ValueError('Exposure ablation requires gamma=1')
+    # 有限回合采用 gamma=1，保留原曝光增量奖励的无折扣累加口径。
+    # Finite episodes use gamma=1 to retain the undiscounted exposure-reward sum.
     for key in ('total_steps', 'batch_size', 'checkpoint_interval', 'buffer_size',
                 'target_update_interval', 'train_frequency', 'epsilon_decay_steps'):
         if type(config[key]) is not int or config[key] <= 0:
@@ -155,6 +191,13 @@ def train_agent(env, config: dict, previous: dict | None, on_checkpoint,
 
     总预算包含预热。单次调用结束时保留未完成的多步队列。
     The total budget includes warmup. Keep pending transitions when a bounded call ends.
+
+    500/700 的阶段边界是控制器暂停，不是环境终止；恢复后继续同一回合。
+    The 500/700 stage boundary pauses the controller, not the environment; resume
+    the same episode. Flushing there would invent shorter targets and bias pairing.
+    检查点同时保存环境、优化器、目标网络、回放、随机状态和未成熟片段。
+    Checkpoints preserve environment, optimizer, target network, replay, RNG state,
+    and immature return windows so continuation neither repeats nor loses actions.
     """
     settings = _validate(config, previous)
     requested_snapshots, emitted_snapshots = frozenset(policy_snapshot_steps), set()
@@ -217,6 +260,8 @@ def train_agent(env, config: dict, previous: dict | None, on_checkpoint,
             if finished:
                 raise ValueError('Warmup exhausted the episode before policy training')
         else:
+            # 探索衰减只按学习步推进，两臂不因预热开销不同而改变 epsilon 日程。
+            # Advance epsilon by learning steps only, independently of warmup cost.
             fraction = min(learned_steps / config['epsilon_decay_steps'], 1.)
             agent.epsilon = config['epsilon_start'] + fraction * (config['epsilon_end'] - config['epsilon_start'])
             encoded = agent.encode(observation)
