@@ -73,9 +73,12 @@ def prepare(root: Path | None = None, *, study_id: str = 'N',
             name: str = 'N-preparation-v1') -> dict:
     """Freeze literal content in an exclusive directory; never mutate shared configuration."""
     root = project_root(root)
+    if study_definition(study_id)['status'] != 'implemented':
+        raise ValueError('Requested study is not implemented')
     path = output_directory(root, name)
     if path.exists():
-        _check_preparation(root, path)
+        if _check_preparation(root, path)['study_id'] != study_id:
+            raise ValueError('Existing directory belongs to another study')
         return status(root, name=name)
     config = load_config(root / 'config/experiment.json')
     experiment_id = f'ablation-{study_id.lower()}-{uuid.uuid4().hex}'
@@ -126,7 +129,10 @@ def preflight(root: Path | None = None, *, name: str = 'N-preparation-v1') -> di
     if any(not (tests / item).is_file() for item in required):
         raise FileNotFoundError('Local ignored regression tests are required for this preflight')
     log = path / 'controller' / f'preflight-{uuid.uuid4().hex}.log'
-    outcome = run_bounded([sys.executable, '-m', 'pytest', '-o', 'addopts=', '-q',
+    # A notebook kernel's sys.path is not inherited by a child launched from ablations/.
+    bootstrap = ('import sys; sys.path.insert(0, sys.argv.pop(1)); import pytest; '
+                 'raise SystemExit(pytest.main(sys.argv[1:]))')
+    outcome = run_bounded([sys.executable, '-c', bootstrap, str(root), '-o', 'addopts=', '-q',
                            *(str(tests / item) for item in required)], 90, log)
     _check_preparation(root, path)
     result = {'status': 'local_synthetic_preflight_passed', 'process': outcome,
