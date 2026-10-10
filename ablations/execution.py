@@ -1,7 +1,7 @@
 """Internal, isolated stage execution; admission belongs to the ablation runner."""
 
 import csv
-import json
+from dataclasses import replace
 from pathlib import Path
 
 import torch
@@ -10,13 +10,14 @@ from cloud_edge_rl.artifacts import RunStore, artifact_payload
 from cloud_edge_rl.config import RunSpec
 from cloud_edge_rl.algorithms.policy import load_agent, _settings
 from cloud_edge_rl import pipeline
+from cloud_edge_rl.experiment_transfer import _check_local, _path
+from cloud_edge_rl.transport import read_json
 
 
 def _inside(root, value):
-    path = Path(value)
-    if path.is_absolute() or '..' in path.parts or '\\' in str(value):
-        raise ValueError('Artifact paths must be workspace-relative')
-    resolved = (root / path).resolve()
+    path = _path(value)
+    # Check the lexical path first: resolving first conceals internal aliases.
+    resolved = _check_local(root.joinpath(*path.parts)).resolve()
     if not resolved.is_relative_to(root):
         raise ValueError('Artifact path escapes ablation workspace')
     return resolved
@@ -25,7 +26,7 @@ def _inside(root, value):
 def _guard(spec, workspace):
     root = Path(workspace).resolve(strict=True)
     marker = _inside(root, 'ablation-workspace.json')
-    identity = json.loads(marker.read_text(encoding='utf-8'))
+    identity = read_json(marker)
     experiment = identity.get('experiment_id')
     if (identity.get('schema') != 'ablation_workspace_v1' or not experiment
             or spec.provenance.get('ablation_experiment_id') != experiment):
@@ -41,10 +42,22 @@ def _guard(spec, workspace):
     rl = cfg['rl']
     if (rl.get('algorithm') != 'dqn' or type(rl.get('n_step')) is not int
             or rl['n_step'] not in (1, 3) or rl.get('gamma') != 1
-            or rl.get('resource_feedback') is not None or rl.get('total_steps') != 1200):
+            or rl.get('resource_feedback') is not None
+            or type(rl.get('total_steps')) is not int or rl['total_steps'] != 1200
+            or rl.get('double_dqn') is not True
+            or cfg.get('reward', {}).get('protocol') != 'exposure_v1'):
         raise ValueError('Invalid DQN ablation settings')
-    if spec.stage == 'train_policy' and rl.get('stage_interaction_limit') not in (500, 700):
-        raise ValueError('Training must be bounded to 500 or 700 interactions')
+    if type(spec.seed) is not int or type(rl.get('seed')) is not int:
+        raise ValueError('Policy and evaluation seeds must be exact integers')
+    if 'stage_interaction_limit' in rl and (type(rl['stage_interaction_limit']) is not int
+                                           or rl['stage_interaction_limit'] not in (500, 700)):
+        raise ValueError('Stage interaction limit must be 500 or 700 exact integer interactions')
+    if spec.stage == 'train_policy':
+        if (type(rl.get('stage_interaction_limit')) is not int
+                or rl['stage_interaction_limit'] not in (500, 700)):
+            raise ValueError('Training must be bounded to 500 or 700 integer interactions')
+        if rl['seed'] != spec.seed:
+            raise ValueError('Training configuration seed must match RunSpec seed')
     if cfg['execution'].get('split') != ('train' if spec.stage == 'train_policy' else 'validation'):
         raise ValueError('Official/test splits are forbidden')
     if cfg['data'].get('include_official_test', False):
@@ -54,6 +67,10 @@ def _guard(spec, workspace):
     allowed = {'risk_checkpoint', 'previous_training_checkpoint'} if spec.stage == 'train_policy' else {'risk_checkpoint', 'agent_checkpoint'}
     if set(spec.inputs) != allowed or spec.inputs['risk_checkpoint'] != 'inputs/risk.pt':
         raise ValueError('Only explicit workspace risk and policy inputs are allowed')
+    if spec.stage == 'train_policy':
+        fresh = spec.inputs['previous_training_checkpoint'] is None
+        if rl['stage_interaction_limit'] != (500 if fresh else 700):
+            raise ValueError('Registered progression requires fresh 500 then continuation 700')
     for key, value in spec.inputs.items():
         if key == 'previous_training_checkpoint' and value is None:
             continue
@@ -77,11 +94,12 @@ def _load(path):
     return torch.load(path, map_location='cpu', weights_only=False)
 
 
-def _training(envelope, spec, experiment):
+def _training(envelope, spec, experiment, expected_run_id):
     config = _config(spec)
     state = envelope['state']
     settings = {**_settings(config), 'total_steps': config['total_steps']}
-    if (envelope.get('ablation_experiment_id') != experiment
+    if (envelope.get('run_id') != expected_run_id
+            or envelope.get('ablation_experiment_id') != experiment
             or envelope.get('risk_version') != spec.risk_version
             or state.get('risk_version') != spec.risk_version
             or state.get('format') != 'ablation_dqn_training_v1'
@@ -96,6 +114,32 @@ def _training(envelope, spec, experiment):
     return state
 
 
+def _prior(spec, root, experiment):
+    key = 'previous_training_checkpoint' if spec.stage == 'train_policy' else 'agent_checkpoint'
+    relative = spec.inputs[key]
+    if relative is None:
+        return None
+    run_id = Path(relative).parts[1]
+    envelope = _load(_inside(root, relative))
+    training_spec = spec if spec.stage == 'train_policy' else replace(spec, seed=spec.config['rl']['seed'])
+    state = _training(envelope, training_spec, experiment, run_id)
+    if state['environment_steps'] != (500 if spec.stage == 'train_policy' else 1200):
+        raise ValueError('Prior checkpoint does not match registered progression')
+    status = read_json(_inside(root, f'runs/{run_id}/status.json'))
+    saved = read_json(_inside(root, f'runs/{run_id}/config.json'))
+    if (status.get('state') != 'completed' or saved.get('run_id') != run_id
+            or saved.get('stage') != 'train_policy' or saved.get('method') != 'dqn'
+            or saved.get('seed') != training_spec.seed or saved.get('risk_version') != spec.risk_version
+            or saved.get('provenance', {}).get('ablation_experiment_id') != experiment):
+        raise ValueError('Prior completed status/config binding mismatch')
+    prior_config = {**saved['config']['rl'], 'risk_version': saved['risk_version'],
+                    'seed': saved['seed'], 'algorithm': 'dqn',
+                    'warmup_actions': saved['config']['execution']['warmup_actions']}
+    if state['settings'] != {**_settings(prior_config), 'total_steps': prior_config['total_steps']}:
+        raise ValueError('Prior saved config differs from actual training settings')
+    return envelope
+
+
 def execute_stage(spec: RunSpec, workspace: Path) -> dict:
     """LOW-LEVEL internal worker AFTER runner admission, not an unguarded notebook launcher.
 
@@ -104,10 +148,7 @@ def execute_stage(spec: RunSpec, workspace: Path) -> dict:
     the evaluation seed. This function supplies no approval or submission API.
     """
     root, experiment = _guard(spec, workspace)
-    previous = None
-    if spec.stage == 'train_policy' and spec.inputs['previous_training_checkpoint']:
-        previous = _load(_inside(root, spec.inputs['previous_training_checkpoint']))
-        _training(previous, spec, experiment)
+    previous = _prior(spec, root, experiment)
     with RunStore(root, spec) as store:
         store.write_json('runtime.json', pipeline.runtime_info())
         data = pipeline.prepare_adult(spec.config['data'], store.path / 'data', include_official_test=False)
@@ -132,13 +173,8 @@ def execute_stage(spec: RunSpec, workspace: Path) -> dict:
                 result = {'trained': True, 'new_environment_steps': state['environment_steps'] - before,
                           **{key: state[key] for key in ('environment_steps', 'learned_steps', 'warmup_steps', 'updates')}}
             else:
-                saved = _load(_inside(root, spec.inputs['agent_checkpoint']))
                 seed = spec.config['rl']['seed']
-                from dataclasses import replace
-
-                state = _training(saved, replace(spec, seed=seed), experiment)
-                if state['environment_steps'] != 1200:
-                    raise ValueError('Validation requires the completed training budget')
+                state = previous['state']
                 policy = load_agent(state['agent'], _config(spec, seed))
                 if policy.observation_space != env.observation_space or policy.action_count != env.action_space.n:
                     raise ValueError('Validation environment space mismatch')
@@ -155,8 +191,8 @@ def execute_stage(spec: RunSpec, workspace: Path) -> dict:
 def verify_stage(spec: RunSpec, workspace: Path, result: dict) -> dict:
     """Read actual artifacts and counters; not formal acceptance or true-risk auditing."""
     root, experiment = _guard(spec, workspace)
-    path = _inside(root, f'runs/{spec.run_id}')
-    read = lambda name: json.loads(_inside(root, f'runs/{spec.run_id}/{name}').read_text(encoding='utf-8'))
+    prior = _prior(spec, root, experiment)
+    read = lambda name: read_json(_inside(root, f'runs/{spec.run_id}/{name}'))
     if read('status.json').get('state') != 'completed' or read('config.json') != artifact_payload(spec) or read('summary.json') != result:
         raise ValueError('Completed status/config/summary content mismatch')
     with _inside(root, f'runs/{spec.run_id}/metrics.csv').open(encoding='utf-8', newline='') as stream:
@@ -165,7 +201,7 @@ def verify_stage(spec: RunSpec, workspace: Path, result: dict) -> dict:
         raise ValueError('Missing actual metrics or predicted-risk labeling')
     if spec.stage == 'train_policy':
         envelope = _load(_inside(root, f'runs/{spec.run_id}/training.pt'))
-        state = _training(envelope, spec, experiment)
+        state = _training(envelope, spec, experiment, spec.run_id)
         from ablations.variants.dqn_nstep import _validate
 
         _validate(_config(spec), envelope)
@@ -180,7 +216,7 @@ def verify_stage(spec: RunSpec, workspace: Path, result: dict) -> dict:
                for key, value in actual.network.state_dict().items()):
             raise ValueError('Exported agent differs from trained checkpoint')
         prior_path = spec.inputs['previous_training_checkpoint']
-        before = _training(_load(_inside(root, prior_path)), spec, experiment)['environment_steps'] if prior_path else 0
+        before = prior['state']['environment_steps'] if prior else 0
         target = min(1200, before + spec.config['rl']['stage_interaction_limit'])
         delta = state['environment_steps'] - before
         if (state['environment_steps'] != target or delta != len(rows) or delta != result.get('new_environment_steps')
