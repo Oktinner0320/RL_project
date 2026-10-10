@@ -14,6 +14,7 @@ from .federated import make_model
 def categorical_relaxation(inputs: torch.Tensor, metadata: dict, temperature: float) -> torch.Tensor:
     """只用公开布局，将类别块映射至概率单纯形。 / Relax public categorical blocks onto simplices."""
     blocks, cursor = [], 0
+    # 按列顺序检查布局；数值列不变，类别块转为概率。 / Keep numeric columns; turn categorical blocks into probabilities.
     for layout in sorted(metadata['encoding_layout'].values(), key=lambda item: item['start']):
         start, stop = layout['start'], layout['stop']
         if start != cursor or not start < stop <= inputs.shape[-1]:
@@ -37,6 +38,7 @@ def gradient_guided_initialization(inputs: torch.Tensor, observed: AttackInput) 
         start, stop = layout['start'], layout['stop']
         masses = gradient[:, start:stop].norm(dim=0)
         if masses.sum() > 0:
+            # 梯度强度转为初始偏好，不屏蔽任何类别。 / Use gradient strength as an initial preference, not a mask.
             prior = (masses / masses.sum()).clamp_min(1e-6).log()
             guided[..., start:stop] += prior
     return guided
@@ -47,6 +49,7 @@ def parallel_gradient_objective(model, inputs, labels, target, metadata, paramet
     candidate = (categorical_relaxation(inputs, metadata, temperature)
                  if parameterization == 'categorical_softmax' else inputs)
     gradients = relu_parameter_gradients(model, candidate, labels)
+    # 按模型参数顺序拼接；每个重启单独比较梯度方向。 / Flatten in parameter order; compare each restart separately.
     flat = torch.cat([gradients[name].flatten(1) for name, _ in model.named_parameters()], dim=1)
     objective = 1 - torch.nn.functional.cosine_similarity(flat, target.unsqueeze(0), dim=1)
     return objective, candidate
@@ -54,13 +57,17 @@ def parallel_gradient_objective(model, inputs, labels, target, metadata, paramet
 
 @lru_cache(maxsize=2)
 def compiled_parallel_objective(mode):
+    """按编译模式缓存并返回并行梯度目标。 / Cache and return the compiled parallel objective by mode."""
     # 不允许静默图断裂回退，也不编译含二阶 autograd 的历史路径。
     # No silent graph-break fallback; the historic nested-autograd path stays untouched.
     return torch.compile(parallel_gradient_objective, fullgraph=True, dynamic=False, mode=mode)
 
 
 class GradientAttack:
+    """使用已知标签，通过梯度匹配重建输入。 / Reconstruct inputs by gradient matching with known labels."""
+
     def __init__(self, config: dict):
+        """保存攻击配置，检查预算和执行选项。 / Store attack settings; check budgets and execution options."""
         self.config = dict(config)
         if not config['labels_known'] or config['method'] != 'gradient_matching':
             raise ValueError('Native attack supports known-label gradient_matching only')
@@ -88,11 +95,17 @@ class GradientAttack:
             raise ValueError('Public gradient prior requires categorical_softmax logits')
 
     def reconstruct(self, observed: AttackInput):
+        """从上传梯度和已知标签重建样本，并解码特征。 / Reconstruct samples from uploaded gradients and known labels.
+
+        使用产生梯度时的模型状态。运行记录保存在 last_diagnostics。
+        Use the model state that produced the gradients. Store run details in last_diagnostics.
+        """
         config = self.config
         device = torch.device(config['device'])
         if config.get('compile_gradient_objective', False) and device.type != 'cuda':
             raise ValueError('Compiled inversion requires CUDA; use eager vectorized execution on CPU')
         devices = [device.index or 0] if device.type == 'cuda' else []
+        # 在局部随机状态中加载源模型，避免攻击改变调用方随机序列。 / Keep attack RNG changes local.
         with torch.random.fork_rng(devices=devices):
             model = make_model({**observed.model_config, 'device': str(device)})
             model.load_state_dict(observed.model_state)
@@ -101,6 +114,7 @@ class GradientAttack:
             if set(observed.gradients) != {name for name, _ in named}:
                 raise ValueError('Gradient names differ from source model')
             dtype = next(model.parameters()).dtype
+            # 目标梯度顺序必须与候选梯度的参数顺序一致。 / Use the same parameter order for target and candidate gradients.
             target = torch.cat([observed.gradients[n].to(device=device, dtype=dtype).flatten()
                                 for n, _ in named])
             if not torch.isfinite(target).all() or target.norm() == 0:
@@ -108,6 +122,7 @@ class GradientAttack:
             labels = observed.labels.to(device=device, dtype=dtype).reshape(-1, 1)
             if len(labels) != observed.batch_size:
                 raise ValueError('Known labels and batch size differ')
+            # 串行和并行路径都返回目标最小的候选样本。 / Both paths return the candidate with the lowest objective.
             optimize = (self._parallel_reconstruct
                         if config.get('restart_execution', 'serial') == 'vectorized_analytic'
                         else self._serial_reconstruct)
@@ -122,6 +137,7 @@ class GradientAttack:
                                   'compile_mode': config.get('compile_mode', 'default'),
                                   'initialization': config.get('initialization', 'gaussian'),
                                  'final_learning_rate': final_lr}
+        # 按公开特征布局解码，不读取评价侧的真实样本。 / Decode with public metadata, not evaluation samples.
         return decode_features(reconstruction, observed.feature_metadata)
 
     def _serial_reconstruct(self, model, observed, named, target, labels):
@@ -129,6 +145,7 @@ class GradientAttack:
         config, device, dtype = self.config, target.device, target.dtype
         best, reconstruction, initial = float('inf'), None, []
         for restart in range(config['restarts']):
+            # 每个重启使用自己的种子和优化器，只优化候选输入。 / Seed each restart and optimize only its inputs.
             torch.manual_seed((config['seed'] + restart) % 2**32)
             inputs = torch.randn(observed.batch_size, observed.model_config['input_size'],
                                  device=device, dtype=dtype)
@@ -147,6 +164,7 @@ class GradientAttack:
                              if config.get('input_parameterization', 'unconstrained') == 'categorical_softmax'
                              else inputs)
                 loss = model.criterion(model(candidate), labels)
+                # 保留梯度计算图，才能继续求目标对候选输入的导数。 / Keep the gradient graph to differentiate inputs.
                 gradient = torch.autograd.grad(loss, [p for _, p in named], create_graph=True)
                 flat = torch.cat([g.flatten() for g in gradient])
                 objective = 1 - torch.nn.functional.cosine_similarity(flat, target, dim=0)
@@ -155,8 +173,10 @@ class GradientAttack:
                     raise RuntimeError('Nonfinite gradient inversion objective')
                 if iteration == 0:
                     initial.append(value)
+                # 保存所有重启、所有评估步中的最佳候选，不只保存最后一步。 / Keep the best candidate across all steps and restarts.
                 if value < best:
                     best, reconstruction = value, candidate.detach().cpu().numpy().copy()
+                # 最后只评价，确保恰好执行配置次数的优化更新。 / Evaluate the final step without another update.
                 if iteration == config['iterations']:
                     break
                 optimizer.zero_grad(set_to_none=True)
@@ -177,6 +197,7 @@ class GradientAttack:
             if config.get('initialization') == 'public_gradient_prior':
                 start = gradient_guided_initialization(start, observed)
             starts.append(start)
+        # 首维区分重启；每个元素保留自己的 Adam 状态。 / The first axis holds restarts with separate Adam state per element.
         inputs = torch.stack(starts).requires_grad_()
         optimizer = torch.optim.Adam([inputs], lr=config['learning_rate'])
         scheduler = None
@@ -204,6 +225,7 @@ class GradientAttack:
             finite = finite & torch.isfinite(objective).all()
             if iteration == 0:
                 initial = objective.detach().cpu().tolist()
+            # 逐个重启保存最佳候选，最后再选全局最优。 / Keep each restart's best candidate, then choose the overall best.
             improved = objective.detach() < best_values
             best_inputs = torch.where(improved[:, None, None], candidate.detach(), best_inputs)
             best_values = torch.minimum(best_values, objective.detach())
@@ -216,6 +238,7 @@ class GradientAttack:
                 scheduler.step()
         if not finite:
             raise RuntimeError('Nonfinite gradient inversion objective')
+        # 返回最佳重启的拷贝，避免后续修改影响结果。 / Return a copy of the best restart's reconstruction.
         restart = int(best_values.argmin().item())
         return (best_values[restart].item(), best_inputs[restart].cpu().numpy().copy(),
                 initial, optimizer.param_groups[0]['lr'])
