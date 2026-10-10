@@ -219,7 +219,8 @@ def verify_stage_artifacts(spec, artifacts, result):
             'formal_acceptance': 'not_evaluated'}
 
 
-def run_graph(graph, workspace, *, commit, worker=run_bounded, clock=time.monotonic):
+def run_graph(graph, workspace, *, commit, worker=run_bounded, clock=time.monotonic,
+              export_inventory=True):
     """Computed nodes reverify; ambiguous/failed compute never automatically reruns."""
     validate_graph(graph)
     base = Path(workspace) / 'experiments' / graph['experiment_id']
@@ -314,8 +315,9 @@ def run_graph(graph, workspace, *, commit, worker=run_bounded, clock=time.monoto
         state['error'] = {'type': type(error).__name__, 'message': str(error)}
     finally:
         save()
-        publish_inventory(graph, Path(workspace), commit=commit)
-        commit()
+        if export_inventory:
+            publish_inventory(graph, Path(workspace), commit=commit)
+            commit()
     return state
 
 

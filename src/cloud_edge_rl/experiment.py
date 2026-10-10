@@ -236,10 +236,18 @@ def run_remote_graph(graph, volume_name, attempt_id):
     from .transport import safe_run_id
     safe_run_id(attempt_id)
     workspace = Path('/workspace')
-    result = run_graph(graph, workspace, commit=volume.commit)
-    write_json(workspace / 'experiments' / graph['experiment_id'] / 'calls' / f'{attempt_id}.json',
-               {'attempt_id': attempt_id, 'state': result})
-    publish_inventory(graph, workspace)
+    result = run_graph(graph, workspace, commit=volume.commit, export_inventory=False)
+    receipt = workspace / 'experiments' / graph['experiment_id'] / 'calls' / f'{attempt_id}.json'
+    # Export failures are resumable closure failures, never permission to recompute.
+    pending = {**result, 'status': 'blocked', 'error': {'phase': 'export', 'message': 'Export pending'}}
+    write_json(receipt, {'attempt_id': attempt_id, 'state': pending})
+    volume.commit()
+    try:
+        publish_inventory(graph, workspace, commit=volume.commit)
+    except Exception as error:
+        result = {**result, 'status': 'blocked',
+                  'error': {'phase': 'export', 'type': type(error).__name__, 'message': str(error)}}
+    write_json(receipt, {'attempt_id': attempt_id, 'state': result}, replace=True)
     volume.commit()
     return result
 
