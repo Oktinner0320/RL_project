@@ -193,6 +193,10 @@ class Experiment:
         stopped = read_json(shutdown)
         if stopped.get('stopped') is not True or stopped.get('app_id') != submission['app_id']:
             raise ValueError('Exact app shutdown not verified')
+        if (remote.get('status') == 'blocked'
+                and remote.get('error', {}).get('phase') == 'export'):
+            # Recovery only packages existing verified artifacts. It never resumes compute.
+            self._command('repair-export', 2100)
         destination = self.directory / 'artifacts' / submission['attempt_id']
         result = collect_experiment(submission['volume_name'], self.graph['experiment_id'],
                                     destination, environment=submission['environment'])
@@ -348,15 +352,106 @@ def _submit_locked(experiment, *, continuation=False):
         write_json(submission, record, replace=True)
 
 
+def _export_recovery_result(record, *, timeout):
+    import modal
+
+    try:
+        result = modal.FunctionCall.from_id(record['call_id']).get(timeout=timeout)
+    except TimeoutError:
+        raise
+    except Exception:
+        from .transport import _decode_json
+        binding = record['binding']
+        volume = modal.Volume.from_name(binding['volume_name'], environment_name=binding['environment'])
+        content = bytearray()
+        path = f"experiments/{binding['experiment_id']}/calls/export-{record['recovery_id']}.json"
+        for chunk in volume.read_file(path):
+            if len(content) + len(chunk) > 2 * 1024**2:
+                raise ValueError('Export recovery receipt exceeded byte bound')
+            content.extend(chunk)
+        result = _decode_json(content.decode('utf-8'))
+    if (type(result) is not dict or result.get('recovery_id') != record['recovery_id']
+            or any(result.get(key) != value for key, value in record['binding'].items())):
+        raise ValueError('Export recovery completion binding mismatch')
+    if result.get('status') != 'export_complete':
+        raise ValueError(f"Export recovery blocked; no automatic retry: {result.get('error')}")
+    return result
+
+
+def _repair_export(experiment):
+    """Reconcile one CPU export call; never reserve or resume scientific compute."""
+    import modal
+
+    from .admission import _locked
+    from .experiment_export_recovery import create_export_recovery_app
+    from .transport import stop_and_verify
+
+    if experiment._controls()['collection_enabled'] is not True:
+        raise ValueError('Collection permission required for export recovery')
+    path = experiment.directory / 'export-recovery.json'
+    with _locked(path):
+        submission = read_json(experiment.directory / 'submission.json')
+        state = _remote_state(experiment, submission)
+        if (state['status'] != 'blocked' or state.get('error', {}).get('phase') != 'export'
+                or any(row['status'] != 'verified' for row in state['nodes'].values())):
+            raise ValueError('Export-only recovery requires the completed original verified graph')
+        shutdown = read_json(experiment.directory / f"shutdown-{submission['attempt_id']}.json")
+        if shutdown.get('stopped') is not True or shutdown.get('app_id') != submission['app_id']:
+            raise ValueError('Original app shutdown required before export recovery')
+        binding = {key: submission[key] for key in
+                   ('experiment_id', 'attempt_id', 'call_id', 'app_id', 'volume_name', 'environment')}
+        if path.exists():
+            record = read_json(path)
+            if record.get('binding') != binding:
+                raise ValueError('Export recovery belongs to another original submission')
+            if not record.get('call_id') or not record.get('app_id'):
+                raise ValueError('Export recovery submission unknown; no automatic retry')
+        else:
+            record = {'binding': binding, 'recovery_id': uuid.uuid4().hex, 'status': 'reserved',
+                      'call_id': None, 'app_id': None, 'actual_cloud_cost_usd': None,
+                      'new_real_interactions': 0, 'gpu': None, 'cpu': 2, 'memory_mb': 2048,
+                      'timeout_seconds': 1800, 'automatic_retries': 0}
+            write_json(path, record)
+            app, function = create_export_recovery_app(binding['volume_name'], binding['environment'])
+            with modal.enable_output(), app.run(detach=True, environment_name=binding['environment']):
+                record.update(status='submitting', app_id=app.app_id)
+                write_json(path, record, replace=True)
+                call = function.spawn(experiment.graph, binding['volume_name'], binding, record['recovery_id'])
+                record.update(status='submitted', call_id=call.object_id)
+                write_json(path, record, replace=True)
+        try:
+            result = _export_recovery_result(record, timeout=1950)
+            record.update(status='export_complete', result=result)
+            write_json(path, record, replace=True)
+        except TimeoutError:
+            modal.FunctionCall.from_id(record['call_id']).cancel(terminate_containers=True)
+            record.update(status='timed_out')
+            write_json(path, record, replace=True)
+            raise
+        finally:
+            stopped = stop_and_verify(record['app_id'], environment=binding['environment'])
+            write_json(experiment.directory / f"export-shutdown-{record['recovery_id']}.json",
+                       stopped, replace=True)
+            if stopped.get('stopped') is not True or stopped.get('app_id') != record['app_id']:
+                raise ValueError('Exact export recovery app shutdown not verified')
+        if read_json(experiment.directory / 'submission.json') != submission:
+            raise ValueError('Original submission changed during export recovery')
+        return result
+
+
 def cli():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--action', choices=('submit', 'resume', 'status', 'cleanup', 'cancel'), required=True)
+    parser.add_argument('--action', choices=('submit', 'resume', 'status', 'cleanup', 'cancel',
+                                            'repair-export'), required=True)
     parser.add_argument('--directory', type=Path, required=True)
     parser.add_argument('--root', type=Path, required=True)
     args = parser.parse_args()
     experiment = Experiment.open(args.directory, args.root)
     if args.action in ('submit', 'resume'):
         _submit(experiment, continuation=args.action == 'resume')
+        return
+    if args.action == 'repair-export':
+        _repair_export(experiment)
         return
     submission = read_json(args.directory / 'submission.json')
     if not submission.get('call_id') or not submission.get('app_id'):
@@ -378,7 +473,9 @@ def cli():
         try:
             state = _remote_state(experiment, submission)
             result = {**binding, 'status': state['status'], 'call_completed': True,
-                      'nodes': state['nodes']}
+                       'nodes': state['nodes']}
+            if state.get('error') is not None:
+                result['error'] = state['error']
         except TimeoutError:
             result = {**binding, 'status': 'running', 'call_completed': False}
         except RemoteCompletionUnavailable as error:

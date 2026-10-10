@@ -64,7 +64,9 @@ def publish_shards(graph, workspace, *, commit=lambda: None, seconds=EXPORT_SECO
     if not 0 < seconds <= EXPORT_SECONDS:
         raise ValueError('Bounded export deadline required')
     deadline = time.monotonic() + seconds
-    workspace = _check_local(workspace).resolve()
+    # Modal mounts the explicitly supplied workspace through a symlink. Resolve
+    # that trusted root only; every artifact descendant still rejects links.
+    workspace = _check_local(Path(workspace).resolve(strict=True))
     experiment_id = graph['experiment_id']
     base = workspace / 'experiments' / experiment_id
     output = _check_local(base / 'export')
