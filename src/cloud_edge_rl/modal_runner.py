@@ -108,6 +108,7 @@ def _run_remote(spec_data: dict[str, Any], volume_name: str) -> dict[str, Any]:
 def create_app(
     project_root: Path, modal_config: dict[str, Any], specs: list[RunSpec] | None = None,
     *, graph_timeout_seconds: int | None = None,
+    graph_controller_directory: Path | None = None,
 ) -> tuple[modal.App, modal.Function, modal.Volume]:
     """从锁文件和运行快照组装任务。 / Build from the lockfile and run snapshots.
 
@@ -119,7 +120,22 @@ def create_app(
         or modal_config['max_containers'] != 1 or modal_config['retries'] != 0
     ):
         raise ValueError('Detached graph requires bounded time, one container and no retries')
-    check_admission(specs, project_root)
+    if graph_timeout_seconds is None:
+        if graph_controller_directory is not None:
+            raise ValueError('Graph controller belongs only to graph execution')
+        check_admission(specs, project_root)
+    else:
+        from .experiment_admission import validate_and_reserve_graph
+        from .experiment_graph import expand
+        from .transport import read_json
+        if graph_controller_directory is None:
+            raise ValueError('Exact reserved graph controller required')
+        graph = read_json(Path(graph_controller_directory) / 'snapshot.json')
+        if (graph['graph_seconds'] != graph_timeout_seconds
+                or [expand(graph['pool'], row['spec_ref']) for row in graph['nodes']]
+                != [asdict(spec) for spec in specs]):
+            raise ValueError('Image specs differ from the reserved graph')
+        validate_and_reserve_graph(graph, project_root, graph_controller_directory)
     from cloud_edge_rl.comparisons.acceptance import _first_json_equal
     if any(not _first_json_equal(modal_config, spec.config['modal']) for spec in specs):
         raise ValueError('Modal execution settings do not match approved specs')

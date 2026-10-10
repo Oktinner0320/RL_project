@@ -23,7 +23,7 @@ MAX_METADATA = 32 * 1024 * 1024
 VERIFIERS = frozenset({
     'cloud_edge_rl.fresh_benchmark:verify_fresh_artifacts',
     'cloud_edge_rl.training_pipeline:verify_training_artifacts',
-    'cloud_edge_rl.parameter_selection_pipeline:verify_evaluation_artifacts',
+    'cloud_edge_rl.parameter_selection_pipeline:verify_validation_artifacts',
     'cloud_edge_rl.experiment_graph:verify_stage_artifacts',
 })
 
@@ -189,7 +189,7 @@ def execute_node(graph, node, workspace, phase):
         module, name = node['verifier'].split(':')
         proof = getattr(importlib.import_module(module), name)(
             spec, Path(workspace) / 'runs' / spec.run_id, result)
-        if not isinstance(proof, dict):
+        if not isinstance(proof, dict) or proof.get('verified') is not True:
             raise ValueError('Semantic verifier must return evidence')
         write_json(directory / 'verification.json', proof, replace=True)
     else:
@@ -198,10 +198,10 @@ def execute_node(graph, node, workspace, phase):
 
 def verify_stage_artifacts(spec, artifacts, result):
     """General evaluation closure; specialized native stages use their own gate."""
-    from .config import spec_to_dict
+    from .artifacts import artifact_payload
     stored = read_json(Path(artifacts) / 'config.json')
     # Producer metadata can be either the native RunSpec or its public projection.
-    if stored != spec_to_dict(spec):
+    if artifact_payload(stored) != artifact_payload(spec):
         raise ValueError('Actual producer configuration mismatch')
     if read_json(Path(artifacts) / 'status.json').get('state') != 'completed':
         raise ValueError('Stage did not complete')
@@ -251,9 +251,12 @@ def run_graph(graph, workspace, *, commit, worker=run_bounded, clock=time.monoto
         for node in graph['nodes']:
             record = state['nodes'][node['run_id']]
             if record['status'] == 'verified':
-                if not (_node_directory(workspace, graph, node['run_id']) / 'verification.json').is_file():
-                    raise ValueError('Verified receipt missing')
-                continue
+                receipt = read_json(_node_directory(workspace, graph, node['run_id']) / 'verification.json')
+                if receipt.get('run_id') != node['run_id'] or receipt.get('verified') is not True:
+                    raise ValueError('Verified receipt missing or invalid')
+                # No hashes: recheck actual dependencies before consuming them on
+                # a later invocation. This phase cannot perform training.
+                record['status'] = 'computed'
             if record['status'] not in ('pending', 'computed', 'verification_failed'):
                 raise ValueError('Unknown or failed compute requires explicit reconciliation')
             if any(state['nodes'][dep]['status'] != 'verified' for dep in node['dependencies']):
@@ -267,6 +270,8 @@ def run_graph(graph, workspace, *, commit, worker=run_bounded, clock=time.monoto
             phases = ('compute', 'verify') if record['status'] == 'pending' else ('verify',)
             for phase in phases:
                 if phase == 'compute':
+                    if (Path(workspace) / 'runs' / node['run_id']).exists():
+                        raise ValueError('Existing run requires explicit import; never overwrite computation')
                     record.update(status='reserved', attempt_id=uuid.uuid4().hex,
                                   actual_interactions=None)
                     save()  # Committed before the first possible interaction.
@@ -282,7 +287,14 @@ def run_graph(graph, workspace, *, commit, worker=run_bounded, clock=time.monoto
                     receipt = read_json(directory / required_file)
                     if receipt.get('run_id') != node['run_id']:
                         raise ValueError('Worker receipt run identity mismatch')
+                    if phase == 'verify' and receipt.get('verified') is not True:
+                        raise ValueError('Semantic verification did not pass')
                     record['status'] = 'computed' if phase == 'compute' else 'verified'
+                    if phase == 'verify' and 'actual_interactions' in receipt:
+                        amount = receipt['actual_interactions']
+                        if type(amount) is not int or amount < 0:
+                            raise ValueError('Verified interaction count must be a nonnegative integer')
+                        record['actual_interactions'] = amount
                     record[phase + '_receipt'] = (directory / required_file).relative_to(workspace).as_posix()
                     record.pop('error', None)
                     save()
