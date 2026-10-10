@@ -1,4 +1,6 @@
-"""Registered differences; common scientific settings come only from the shared JSON."""
+"""登记消融差异；共同实验设置只来自共享 JSON。
+Register ablation differences; common scientific settings come only from the shared JSON.
+"""
 
 from copy import deepcopy
 
@@ -35,6 +37,7 @@ STUDIES = {
 
 
 def study_definition(study_id: str = 'N') -> dict:
+    """返回已登记实验定义的副本，未知编号报错。 / Return a copy of a registered study; reject unknown IDs."""
     if study_id not in STUDIES:
         raise ValueError('Unknown ablation study')
     return deepcopy(STUDIES[study_id])
@@ -42,7 +45,12 @@ def study_definition(study_id: str = 'N') -> dict:
 
 def arm_configuration(base: dict, experiment_id: str, arm: str, seed: int,
                       *, stage: str = 'train_policy', stage_steps: int = 500) -> dict:
-    """Use actual fresh-benchmark settings, without its permissions or scientific-input rules."""
+    """生成 N1/N3 单臂配置，继承现有基准的实验设置。
+    Build an N1/N3 arm configuration from the existing benchmark settings.
+
+    不继承原管线的执行许可或科学输入规则。
+    Do not inherit its execution permissions or scientific-input rules.
+    """
     study = study_definition('N')
     seeds = study['training_seeds'] if stage == 'train_policy' else study['validation_seeds']
     if (arm not in study['arms'] or stage not in ('train_policy', 'validate')
@@ -51,6 +59,7 @@ def arm_configuration(base: dict, experiment_id: str, arm: str, seed: int,
         raise ValueError('Only the registered N1/N3 development stages are supported')
     cfg = run_config(base, 'dqn', stage, seed)
     cfg['experiment'] = {'tag': experiment_id, 'variant': arm}
+    # 总预算固定为 1200；500/700 只限制本次调用，验证种子映射到配对训练种子。 / Fix the total budget and pair validation seeds.
     cfg['rl'].update(n_step=study['arms'][arm]['n_step'], total_steps=1200,
                      stage_interaction_limit=stage_steps, checkpoint_interval=100,
                      seed=seed if stage == 'train_policy' else
@@ -59,18 +68,20 @@ def arm_configuration(base: dict, experiment_id: str, arm: str, seed: int,
             or cfg['rl'].get('resource_feedback') is not None
             or cfg['reward']['protocol'] != 'exposure_v1'):
         raise ValueError('N requires finite-horizon fixed-reward Double DQN')
+    # 独立执行后端、云端命名和单容器设置，不启用原正式验收。 / Isolate execution and cloud names; disable native acceptance.
     cfg['execution']['backend'] = 'ablation'
     cfg['native_acceptance'] = {'enabled': False, 'version': 'first-acceptance-v1',
                                 'artifact_verification': 'json_snapshot_no_hash'}
     cfg['modal'].update(app_name=f'ablation-{experiment_id}', volume_name=f'ablation-{experiment_id}',
                         max_containers=1, retries=0)
-    # These are inherited scheduling controls, not a grant for this study.
+    # 原预算和后台运行选项不是本实验的授权，因此移除。 / Inherited scheduling controls do not grant permission for this study.
     cfg['modal'].pop('budget_usd', None)
     cfg['modal'].pop('detach', None)
     return cfg
 
 
 def build_plan(base: dict, experiment_id: str, study_id: str = 'N') -> dict:
+    """生成配对消融计划和门槛，不执行实验或授予许可。 / Build a paired ablation plan and gates, without execution or approval."""
     definition = study_definition(study_id)
     if definition['status'] != 'implemented':
         raise ValueError('This study is registered as an idea, not an executable implementation')
@@ -79,11 +90,13 @@ def build_plan(base: dict, experiment_id: str, study_id: str = 'N') -> dict:
         for arm in definition['arms']
     }
     left, right = (deepcopy(configurations[arm]) for arm in ('N1', 'N3'))
+    # 除臂名称和 n_step 外，两臂配置必须完全相同。 / Both arms must match except for their names and n_step.
     for item in (left, right):
         item['experiment'].pop('variant')
         item['rl'].pop('n_step')
     if left != right:
         raise ValueError('Unregistered difference between paired arms')
+    # 计划仅表示准备完成；历史消耗和资金仍需核查，未知值不算零。 / Preparation is not approval; unknown spending is not zero.
     return {
         'schema': 'ablation_plan_v1', 'experiment_id': experiment_id, 'study_id': study_id,
         'status': 'prepared_not_admitted', 'definition': definition,
