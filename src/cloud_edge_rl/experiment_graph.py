@@ -262,6 +262,11 @@ def run_graph(graph, workspace, *, commit, worker=run_bounded, clock=time.monoto
             if any(state['nodes'][dep]['status'] != 'verified' for dep in node['dependencies']):
                 raise ValueError('Unverified dependency')
             required = (node['timeout_seconds'] if record['status'] == 'pending' else 0) + node['verify_seconds'] + 60
+            # Large real runs must leave time to close their bounded export shards.
+            if graph['graph_seconds'] >= 1800 and any(
+                    expand(graph['pool'], item['spec_ref']).get('config', {}).get('rl', {}).get('total_steps', 0) >= 1000
+                    for item in graph['nodes']):
+                required += 1800
             if graph['graph_seconds'] - (clock() - start) < required:
                 state['status'] = 'paused_deadline'
                 break
@@ -309,32 +314,15 @@ def run_graph(graph, workspace, *, commit, worker=run_bounded, clock=time.monoto
         state['error'] = {'type': type(error).__name__, 'message': str(error)}
     finally:
         save()
-        publish_inventory(graph, Path(workspace))
+        publish_inventory(graph, Path(workspace), commit=commit)
         commit()
     return state
 
 
-def publish_inventory(graph, workspace):
+def publish_inventory(graph, workspace, *, commit=lambda: None):
     """Exact complete dependency closure, including nested checkpoints and logs."""
-    base = workspace / 'experiments' / graph['experiment_id']
-    rows, total = [], 0
-    for owner in [base, *(workspace / 'runs' / n['run_id'] for n in graph['nodes'])]:
-        if not owner.exists():
-            continue
-        for path in sorted(owner.rglob('*')):
-            if path.is_symlink():
-                raise ValueError('Symlink in experiment artifacts')
-            if not path.is_file() or path == base / 'inventory.json' or path.name.endswith('.part'):
-                continue
-            size = path.stat().st_size
-            total += size
-            if size > 128 * 1024**2 or total > 8 * 1024**3 or len(rows) >= 20000:
-                raise ValueError('Whole-experiment transfer inventory exceeds declared limits')
-            rows.append({'path': path.relative_to(workspace).as_posix(), 'bytes': size})
-    result = {'schema': 'experiment_inventory_v1', 'experiment_id': graph['experiment_id'],
-              'files': rows, 'bytes': total}
-    write_json(base / 'inventory.json', result, replace=True)
-    return result
+    from .experiment_export import publish_shards
+    return publish_shards(graph, workspace, commit=commit)
 
 
 def cli():

@@ -26,10 +26,11 @@ class GraphTransferLimits:
     listing_seconds: int = 45
     file_seconds: int = 90
     download_seconds: int = 7200
-    max_entries: int = 20000
+    max_entries: int = 250000
     max_file_bytes: int = 128 * 1024 * 1024
-    max_total_bytes: int = 8 * 1024 * 1024 * 1024
-    max_inventory_bytes: int = 16 * 1024 * 1024
+    max_total_bytes: int = 24 * 1024 * 1024 * 1024
+    max_inventory_bytes: int = 64 * 1024 * 1024
+    max_shard_bytes: int = 128 * 1024 * 1024
 
     def __post_init__(self):
         if any(type(value) is not int or value <= 0 for value in asdict(self).values()):
@@ -76,7 +77,7 @@ def _confined(root, relative):
 
 
 def _inventory(value, experiment_id, limits):
-    if (type(value) is not dict or value.get('schema') != 'experiment_inventory_v1'
+    if (type(value) is not dict or value.get('schema') not in ('experiment_inventory_v1', 'experiment_inventory_v2')
             or value.get('experiment_id') != experiment_id or type(value.get('files')) is not list
             or not 2 <= len(value['files']) <= limits.max_entries
             or type(value.get('bytes')) is not int):
@@ -92,8 +93,8 @@ def _inventory(value, experiment_id, limits):
         if parts[0] == 'runs' and len(parts) >= 3:
             safe_run_id(parts[1])
         elif parts[:2] == ('experiments', experiment_id) and len(parts) >= 3:
-            if parts[2] == 'inventory.json':
-                raise ValueError('Inventory cannot include itself')
+            if parts[2] in ('inventory.json', 'export', 'shards', 'tmp'):
+                raise ValueError('Inventory cannot include export metadata')
             if parts[2] == 'nodes':
                 if len(parts) < 5:
                     raise ValueError('Exact experiment node file required')
@@ -119,6 +120,34 @@ def _inventory(value, experiment_id, limits):
     required = {f'experiments/{experiment_id}/snapshot.json', f'experiments/{experiment_id}/state.json'}
     if total != value['bytes'] or not required <= seen:
         raise ValueError('Incomplete experiment inventory or byte total mismatch')
+    if value['schema'] == 'experiment_inventory_v2':
+        shards = value.get('shards')
+        if type(shards) is not list or not 1 <= len(shards) <= limits.max_entries:
+            raise ValueError('Invalid bounded experiment shards')
+        covered, shard_paths, archive_bytes = set(), set(), 0
+        sizes = {row['path']: row['bytes'] for row in files}
+        for shard in shards:
+            if (type(shard) is not dict or set(shard) != {'path', 'bytes', 'members'}
+                    or type(shard['bytes']) is not int or not 0 < shard['bytes'] <= limits.max_shard_bytes
+                    or type(shard['members']) is not list or not shard['members']):
+                raise ValueError('Invalid experiment shard/size')
+            path = _path(shard['path'])
+            if (path.parts[:3] != ('experiments', experiment_id, 'export')
+                    or len(path.parts) != 4 or path.suffix != '.tar'
+                    or shard['path'].casefold() in shard_paths):
+                raise ValueError('Unsafe or duplicate experiment shard')
+            shard_paths.add(shard['path'].casefold())
+            payload = 0
+            for member in shard['members']:
+                if type(member) is not str or member not in seen or member in covered:
+                    raise ValueError('Unlisted/duplicate experiment shard member')
+                covered.add(member)
+                payload += sizes[member]
+            if payload > shard['bytes']:
+                raise ValueError('Shard payload exceeds archive size')
+            archive_bytes += shard['bytes']
+        if covered != seen or archive_bytes > limits.max_total_bytes + limits.max_entries * 4096:
+            raise ValueError('Incomplete or excessive experiment shards')
     return files
 
 
@@ -249,9 +278,43 @@ def collect_experiment(volume_name, experiment_id, destination, *, limits=None,
             raise ValueError('Inventory run is not bound by the experiment snapshot')
         if parts[0] == 'experiments' and parts[2] == 'nodes' and parts[3] not in node_ids:
             raise ValueError('Inventory node is not bound by the experiment snapshot')
-    for index, row in enumerate(files):
-        if index != snapshot_index:
-            transfer(row, index)
+    if inventory['schema'] == 'experiment_inventory_v2':
+        by_path = {row['path']: row for row in files}
+        for index, shard in enumerate(inventory['shards']):
+            remaining = limits.download_seconds - (time.monotonic() - started)
+            if remaining <= 0:
+                raise TimeoutError('Experiment transfer deadline; completed shards retained')
+            target = _check_local(stage / PurePosixPath(shard['path']).name)
+            receipt = _check_local(stage / f'shard-{index:05d}.receipt.json')
+            row = {'path': shard['path'], 'name': target.name, 'bytes': shard['bytes']}
+            if not _restore_file(row, target, receipt):
+                worker([*common, '--action', 'read', '--remote-path', row['path'], '--bytes', str(row['bytes']),
+                        '--output', str(target), '--receipt', str(receipt)],
+                       min(limits.file_seconds, remaining), stage / f'shard-{index:05d}-{uuid.uuid4().hex}.log')
+                if not _restore_file(row, target, receipt):
+                    raise ValueError('Shard worker did not publish complete receipt')
+            remaining = limits.download_seconds - (time.monotonic() - started)
+            if remaining <= 0:
+                raise TimeoutError('Experiment transfer deadline before extraction')
+            members = [{key: by_path[path][key] for key in ('path', 'bytes')} for path in shard['members']]
+            member_path = _check_local(stage / f'shard-{index:05d}.members.json')
+            write_json(member_path, members, replace=True)
+            worker([*common, '--action', 'extract', '--output', str(target),
+                    '--members', str(member_path), '--destination', str(root),
+                    '--receipt', str(stage / f'shard-{index:05d}.extract.json'),
+                    '--seconds', str(min(limits.file_seconds, remaining))], min(limits.file_seconds, remaining),
+                   stage / f'extract-{index:05d}-{uuid.uuid4().hex}.log')
+            extracted = read_json(stage / f'shard-{index:05d}.extract.json')
+            if extracted != {'complete': True, 'members': members}:
+                raise ValueError('Missing exact extraction receipt')
+            write_json(progress_path, {'experiment_id': experiment_id, 'completed_shards': index + 1,
+                                      'total_shards': len(inventory['shards']),
+                                      'transport_complete': False}, replace=True)
+        completed, completed_bytes = len(files), inventory['bytes']
+    else:
+        for index, row in enumerate(files):
+            if index != snapshot_index:
+                transfer(row, index)
     state = read_json(_confined(root, f'experiments/{experiment_id}/state.json'))
     if type(state) is not dict or state.get('experiment_id') != experiment_id:
         raise ValueError('Experiment state identity mismatch')
@@ -290,7 +353,7 @@ def _read_inventory(chunks, limits):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--action', choices=('inventory', 'read'), required=True)
+    parser.add_argument('--action', choices=('inventory', 'read', 'extract'), required=True)
     parser.add_argument('--volume', required=True)
     parser.add_argument('--experiment-id', required=True)
     parser.add_argument('--environment', default='main')
@@ -299,15 +362,27 @@ def main(argv=None):
     parser.add_argument('--remote-path')
     parser.add_argument('--bytes', type=int)
     parser.add_argument('--receipt', type=Path)
+    parser.add_argument('--members', type=Path)
+    parser.add_argument('--destination', type=Path)
+    parser.add_argument('--seconds', type=float)
     args = parser.parse_args(argv)
     safe_run_id(args.experiment_id)
     limits = GraphTransferLimits(**_decode_json(args.limits))
     _check_local(args.output)
+    if args.action == 'extract':
+        if (args.members is None or args.destination is None or args.receipt is None
+                or args.seconds is None or not 0 < args.seconds <= limits.download_seconds):
+            raise ValueError('Exact bounded extraction required')
+        from .experiment_export import extract_shard
+        extract_shard(args.output, read_json(_check_local(args.members)), args.destination,
+                      args.receipt, seconds=args.seconds)
+        return
     if args.action == 'read':
         path = _path(args.remote_path)
         if (not ((path.parts[0] == 'runs' and len(path.parts) >= 3)
                  or (path.parts[:2] == ('experiments', args.experiment_id) and len(path.parts) >= 3))
-                or args.bytes is None or not 0 <= args.bytes <= limits.max_file_bytes
+                or args.bytes is None or not 0 <= args.bytes <= (limits.max_shard_bytes
+                    if path.parts[:3] == ('experiments', args.experiment_id, 'export') else limits.max_file_bytes)
                 or args.receipt is None or args.output.name != path.name):
             raise ValueError('Exact bounded experiment read required')
         _check_local(args.receipt)

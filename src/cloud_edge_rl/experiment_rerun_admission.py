@@ -115,17 +115,70 @@ def _history(descriptor, run_ids):
             raise ValueError('Distinct additional completed run/call identities required')
         extra_ids.add(row['run_id'])
         extra_calls.add(row['call_id'])
-        if row['run_id'] in evidence:
-            _equal(row, evidence[row['run_id']], 'Additional completed call evidence drift')
-        elif row['call_id'] in call_ids:
-            raise ValueError('Completed call identity assigned to another historical run')
-    for receipt in history.get('completed_receipts', []):
-        _descriptor(receipt)
+        if row['run_id'] not in evidence:
+            raise ValueError('Unaccounted additional completed scope call')
+        _equal(row, evidence[row['run_id']], 'Additional completed call evidence drift')
+    receipt_descriptors = history.get('completed_receipts', [])
+    if type(receipt_descriptors) is not list:
+        raise ValueError('Completed receipt descriptors must be a list')
+    receipt_runs = set()
+    for descriptor in receipt_descriptors:
+        receipt = _descriptor(descriptor)
+        if (receipt.get('schema') != 'fresh_primary_stage_receipt_v1'
+                or receipt.get('status') != 'completed'
+                or receipt.get('scope') != 'original_native_transport_local_only_training_recovery'
+                or type(receipt.get('physical_interactions')) is not int
+                or receipt['physical_interactions'] != 1000
+                or type(receipt.get('cumulative_interactions')) is not int
+                or receipt['cumulative_interactions'] != 1500
+                or type(receipt.get('jobs')) is not dict or len(receipt['jobs']) != 1):
+            raise ValueError('Exact completed native recovery receipt required')
+        for run_id, job in receipt['jobs'].items():
+            row = evidence.get(run_id)
+            verification = job.get('verification', {})
+            if (run_id not in extra_ids or run_id in receipt_runs or row is None
+                    or (row['method'], row['seed'], row['partition'], row['actual_interactions']) != ('dqn', 8101, 'train', 1000)
+                    or job.get('call_id') != row['call_id']
+                    or job.get('compute_completed') is not True or job.get('phase') != 'verified'
+                    or job.get('shutdown_verified') is not True
+                    or verification.get('run_id') != run_id
+                    or any(verification.get(k) is not True for k in
+                           ('verified', 'source_verified', 'source_data_verified', 'isolation_verified'))
+                    or any(type(verification.get(k)) is not int or verification[k] != 1000
+                           for k in ('actual_interactions', 'physical_interactions'))):
+                raise ValueError('Native completed receipt run/call/verification binding mismatch')
+            receipt_runs.add(run_id)
+    if receipt_runs != extra_ids:
+        raise ValueError('Every additional completed call requires actual native receipt')
     old_ids = evidence_runs | extra_ids
+    bound, seen_runs, seen_calls = set(), {}, {}
+    scope_fields = ('run_id', 'call_id', 'method', 'seed', 'partition', 'actual_interactions')
+    matching_groups = {(m, s, 'train') for m in ('dqn', 'ppo', 'pqn') for s in (8101, 8102, 8103)}
+    matching_groups |= {('round_robin', s, 'train') for s in (8301, 8302, 8303)}
+    matching_groups |= {(m, s, 'validation') for m in
+                        ('fixed', 'metacs', 'time_greedy', 'risk_greedy', 'dqn', 'ppo', 'pqn')
+                        for s in (8201, 8202, 8203)}
     for row in ledger:
-        if type(row) is not dict or type(row.get('run_id')) is not str or not row['run_id']:
+        if (type(row) is not dict or type(row.get('run_id')) is not str or not row['run_id']
+                or type(row.get('call_id')) is not str or not row['call_id']):
             raise ValueError('Historical ledger run identities required')
+        for identifier, index in ((row['run_id'], seen_runs), (row['call_id'], seen_calls)):
+            if identifier in index:
+                _equal(row, index[identifier], 'Conflicting duplicate historical ledger identity')
+            index[identifier] = row
         old_ids.add(row['run_id'])
+        expected_row = evidence.get(row['run_id'])
+        key = row.get('method'), row.get('seed'), row.get('partition')
+        if expected_row is not None or row['call_id'] in call_ids or key in matching_groups:
+            if expected_row is None:
+                raise ValueError('Unknown or extra matching-scope historical consumption')
+            _equal({k: row.get(k) for k in scope_fields},
+                   {k: expected_row[k] for k in scope_fields}, 'Historical call scope/amount binding mismatch')
+            if row.get('state') != 'completed' or row.get('consumption_verified') is not True:
+                raise ValueError('Verified completed ledger consumption required')
+            bound.add(row['run_id'])
+    if bound | receipt_runs != evidence_runs:
+        raise ValueError('Every claimed completed scope call requires ledger or native receipt evidence')
     if set(run_ids) & old_ids:
         raise ValueError('Rerun identities intersect retained historical runs')
     return groups, physical, ledger

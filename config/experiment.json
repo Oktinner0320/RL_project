@@ -892,11 +892,11 @@
       "output_directory": "output/training-pipeline"
     },
     "experiment": {
-      "directory": "output/unified-experiment-v1",
+      "directory": "output/fresh-seven-method-rerun-20261010-v1/experiment",
       "graph_timeout_seconds": 86400,
       "node_timeout_seconds": 1800,
       "verification_timeout_seconds": 90,
-      "controller_timeout_seconds": 300,
+      "controller_timeout_seconds": 1200,
       "prepare_enabled": true,
       "submission_enabled": true,
       "resume_enabled": false,
@@ -904,7 +904,7 @@
       "collection_enabled": true,
       "verification_enabled": true,
       "mode": "fresh",
-      "graph_admission": null
+      "graph_admission": "output/fresh-seven-method-rerun-20261010-v1/admission/graph-admission.json"
     }
   },
   "reference_benchmarks": {
@@ -2646,10 +2646,10 @@
     },
     "fresh_benchmark": {
       "schema": "fresh_seven_method_development_benchmark_v1",
-      "experiment_id": "fresh-seven-methods-20261010-v1",
+      "experiment_id": "fresh-seven-methods-rerun-20261010-v1",
       "status": "registered_before_new_scientific_inputs_pending_admission",
-      "output_root": "output/fresh-seven-method-benchmark-20261010-v1",
-      "volume_name": "cloud-edge-rl-fresh-seven-20261010-v1",
+      "output_root": "output/fresh-seven-method-rerun-20261010-v1",
+      "volume_name": "cloud-edge-rl-fresh-rerun-20261010-v1",
       "methods": [
         "dqn",
         "ppo",

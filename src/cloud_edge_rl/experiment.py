@@ -50,13 +50,17 @@ class Experiment:
         if (target / 'submission.json').exists():
             raise ValueError('Missing immutable snapshot after possible execution')
         dependencies = None
+        source_snapshot = None
         if specs is None:
             mode = controls['mode']
             if mode == 'fresh':
                 from .fresh_benchmark import build_plan, build_run_specs
                 plan = build_plan(config)
                 identities = {n['id']: f"{n['phase']}-{uuid.uuid4().hex}" for n in plan['nodes']}
-                specs = build_run_specs(config, root, identities, source_identity(root))
+                provenance = source_identity(root)
+                source_snapshot = provenance['source_contents']
+                provenance['source_contents_path'] = str(target / 'source-contents.json')
+                specs = build_run_specs(config, root, identities, provenance)
                 dependencies = {identities[n['id']]: [identities[d] for d in n['dependencies']]
                                 for n in plan['nodes']}
                 verifiers = verifiers or 'cloud_edge_rl.fresh_benchmark:verify_fresh_artifacts'
@@ -84,6 +88,13 @@ class Experiment:
                 raise ValueError('Partial preparation configuration changed')
         else:
             write_json(config_path, config)
+        if source_snapshot is not None:
+            source_path = target / 'source-contents.json'
+            if source_path.exists():
+                if read_json(source_path) != source_snapshot:
+                    raise ValueError('Partial preparation source contents changed')
+            else:
+                write_json(source_path, source_snapshot)
         write_json(target / 'snapshot.json', graph)
         prepared = cls(target, root)
         prepared._requested_controls = dict(controls)
