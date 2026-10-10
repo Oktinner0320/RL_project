@@ -6,6 +6,7 @@ import json
 import sys
 import time
 import uuid
+import unicodedata
 from dataclasses import asdict, dataclass
 from pathlib import Path, PurePosixPath
 
@@ -37,12 +38,17 @@ class GraphTransferLimits:
             raise ValueError('Graph transfer limits must be positive integers')
         if self.max_file_bytes > self.max_total_bytes:
             raise ValueError('Graph file limit exceeds total byte limit')
+        caps = {'download_seconds': 7200, 'max_entries': 250000,
+                'max_file_bytes': 128 * 1024**2, 'max_total_bytes': 24 * 1024**3,
+                'max_inventory_bytes': 64 * 1024**2, 'max_shard_bytes': 128 * 1024**2}
+        if any(getattr(self, key) > cap for key, cap in caps.items()):
+            raise ValueError('Graph transfer limit exceeds hard export bound')
 
 
 def _path(value):
     if (type(value) is not str or not value or '\\' in value or ':' in value
             or any(part in ('', '.', '..') for part in value.split('/'))
-            or any(ord(char) < 32 for char in value)):
+            or any(unicodedata.category(char) == 'Cc' for char in value)):
         raise ValueError('Unsafe experiment artifact path')
     path = PurePosixPath(value)
     if path.is_absolute() or path.as_posix() != value:

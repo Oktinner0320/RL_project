@@ -35,6 +35,15 @@ def _info(row):
     return info
 
 
+class _DeadlineReader:
+    def __init__(self, source, deadline):
+        self.source, self.deadline = source, deadline
+
+    def read(self, size=-1):
+        _check_deadline(self.deadline)
+        return self.source.read(size)
+
+
 def _matches(archive, rows, workspace, deadline):
     from .experiment_transfer import _confined
     with tarfile.open(archive, 'r:') as tar:
@@ -119,7 +128,7 @@ def publish_shards(graph, workspace, *, commit=lambda: None, seconds=EXPORT_SECO
                         _check_deadline(deadline)
                         source = _check_local(workspace / row['path'])
                         with source.open('rb') as file:
-                            tar.addfile(_info(row), file)
+                            tar.addfile(_info(row), _DeadlineReader(file, deadline))
                 stream.flush()
                 os.fsync(stream.fileno())
             if partial.stat().st_size > SHARD_BYTES or not _matches(partial, members, workspace, deadline):
