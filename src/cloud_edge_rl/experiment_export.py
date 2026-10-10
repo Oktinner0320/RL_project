@@ -7,7 +7,7 @@ import time
 import uuid
 from pathlib import Path
 
-from .transport import read_json, write_json
+from .transport import publish_file, read_json, write_json
 
 SHARD_BYTES = 128 * 1024**2
 EXPORT_SECONDS = 1800
@@ -181,8 +181,7 @@ def extract_shard(archive, rows, root, receipt, *, seconds):
                         remaining -= len(chunk)
                     stream.flush()
                     os.fsync(stream.fileno())
-                os.link(partial, target)
-                partial.unlink()
+                publish_file(partial, target)
         if tar.next() is not None:
             raise ValueError('Unlisted tar member')
     write_json(receipt, {'complete': True, 'members': rows}, replace=True)

@@ -79,6 +79,27 @@ def _decode_json(text):
                       parse_constant=invalid, parse_float=finite_float)
 
 
+def publish_file(partial: Path, path: Path, *, replace: bool = False):
+    """Rename a complete sibling file without requiring filesystem hard links.
+
+    The guard serializes publishers on one mounted filesystem, not across Modal
+    containers. A guard left by a killed writer requires explicit reconciliation.
+    """
+    partial, path = Path(partial), Path(path)
+    if partial.parent != path.parent or partial == path:
+        raise ValueError("Publication requires a distinct sibling temporary file")
+    guard = path.with_name(f".{path.name}.publish-lock")
+    guard.mkdir()
+    try:
+        if path.is_symlink():
+            raise ValueError("Refuse symbolic artifact path")
+        if not replace and path.exists():
+            raise FileExistsError(path)
+        os.replace(partial, path)
+    finally:
+        guard.rmdir()
+
+
 def write_json(path: Path, value, *, replace: bool = False):
     """Publish a complete fsynced document, never a half-written success marker."""
     path = Path(path)
@@ -90,11 +111,7 @@ def write_json(path: Path, value, *, replace: bool = False):
         json.dump(value, stream, ensure_ascii=False, allow_nan=False, indent=2)
         stream.flush()
         os.fsync(stream.fileno())
-    if replace:
-        os.replace(partial, path)
-    else:
-        os.link(partial, path)
-        partial.unlink()
+    publish_file(partial, path, replace=replace)
 
 
 def safe_run_id(run_id: str) -> str:
@@ -278,10 +295,9 @@ def receive_file(chunks, row: dict, target: Path, receipt: Path):
         raise ValueError("Artifact stream shorter than inventory")
     if target.suffix == ".json":
         read_json(partial)
-    # Record the completed stream first: a crash between link and receipt is recoverable.
+    # Record the completed stream first so interrupted publication is recoverable.
     write_json(receipt, {"file": row, "partial": str(partial), "complete_stream": True})
-    os.link(partial, target)
-    partial.unlink()
+    publish_file(partial, target)
 
 
 def _restore_file(row: dict, target: Path, receipt: Path) -> bool:
@@ -297,8 +313,7 @@ def _restore_file(row: dict, target: Path, receipt: Path) -> bool:
         if (partial.parent != target.parent or partial.is_symlink() or not partial.is_file()
                 or partial.stat().st_size != row["bytes"]):
             raise ValueError("Completed artifact publication cannot be recovered")
-        os.link(partial, target)
-        partial.unlink()
+        publish_file(partial, target)
     if target.is_symlink() or target.stat().st_size != row["bytes"]:
         raise ValueError("Completed artifact length changed")
     if target.suffix == ".json":
