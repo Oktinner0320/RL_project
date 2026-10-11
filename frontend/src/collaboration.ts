@@ -176,6 +176,7 @@ export function mountDecisionLab(host: HTMLElement, snapshot: Snapshot, initial:
   const play = button('播放记录', () => {
     if (timer !== undefined) { pause(); update(); return; }
     if (state.frame >= frames.length - 1) state.frame = 0;
+    state.preview = null;
     timer = setInterval(() => {
       if (state.frame >= frames.length - 1) { pause(); update(); return; }
       state.frame++; state.preview = null; update();

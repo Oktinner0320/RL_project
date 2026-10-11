@@ -154,7 +154,9 @@ export function mountParticles(host: HTMLElement, onPhase: (phase: Phase) => voi
     container = loaded; runtimes.set(container, runtime); container.canvas.setPointerEvents('none'); populate();
   }).catch(() => {
     if (disposed) return;
-    container?.destroy(); canvas.remove(); host.dataset.motion = 'unavailable'; host.dataset.particles = '0'; onPhase('static');
+    if (container) { runtimes.delete(container); container.destroy(); container = undefined; }
+    runtime.specs.clear(); resize.disconnect(); intersection.disconnect();
+    canvas.remove(); host.dataset.motion = 'unavailable'; host.dataset.particles = '0'; onPhase('static');
   });
   return {
     update(scene, nextPlaying, nextKey) {
