@@ -1,6 +1,8 @@
 # Third-Party Sources and Attribution
 
-[Project home](../README.md) | [Restore instructions](REPRODUCIBILITY.md)
+[Project home](../README.md) | [中文入口](../README.zh.md)
+
+Source download steps are in [Installation and Reproduction](REPRODUCIBILITY.md).
 
 Pinned versions and archive checksums are in
 [catalog.json](../reference_algorithms/catalog.json) and

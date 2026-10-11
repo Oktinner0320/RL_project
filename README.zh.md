@@ -26,7 +26,7 @@ uv run --locked --extra comparisons jupyter lab
 | 浏览已有图片与历史回放 | [visualization.ipynb](visualization.ipynb) |
 | 执行已获批准的实验、查询或下载 | [experiment.ipynb](experiment.ipynb) |
 | 使用可选 N1/N3 消融 | [消融说明](ablations/README.md) |
-| 检查课程交付内容 | [交付清单](docs/SUBMISSION.md) |
+| 安装与复现结果 | [复现说明](docs/REPRODUCIBILITY.md) |
 
 ## 文件位置
 

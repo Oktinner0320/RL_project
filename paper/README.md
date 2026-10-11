@@ -1,6 +1,6 @@
 # Written Report Materials
 
-[Project home](../README.md) | [Course checklist](../docs/SUBMISSION.md)
+[Project home](../README.md) | [Reproduction](../docs/REPRODUCIBILITY.md)
 
 - [main.typ](main.typ): English manuscript skeleton, **not a finished report**.
 - [course-acm.typ](course-acm.typ): supporting template.

@@ -34,11 +34,11 @@ reference_algorithms/results/**/leakpro_output/
 !/reference_algorithms/results/sota-screen-20261005/conformalopt/
 !/reference_algorithms/results/sota-screen-20261005/conformalopt/official_googl-scores.npz
 
-# Publish submission guides only; keep research notes local.
+# Publish reproduction and attribution only; keep checklists and notes local.
 /docs/**
 !/docs/REPRODUCIBILITY.md
-!/docs/SUBMISSION.md
 !/docs/THIRD_PARTY.md
+/docs/SUBMISSION.md
 tmp/
 # Keep only the English manuscript, template, and bibliography.
 /paper/**

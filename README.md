@@ -29,7 +29,7 @@ For local inspection, set all six operation switches to `false` as described in
 | View available images and recorded playback | [visualization.ipynb](visualization.ipynb) |
 | Train, check status, or collect an approved experiment | [experiment.ipynb](experiment.ipynb) |
 | Run the optional N1/N3 study | [Ablations guide](ablations/README.md) |
-| Prepare the course handoff | [Submission checklist](docs/SUBMISSION.md) |
+| Install and reproduce results | [Reproduction guide](docs/REPRODUCIBILITY.md) |
 
 ## Repository map
 
