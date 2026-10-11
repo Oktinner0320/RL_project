@@ -290,7 +290,7 @@ export function mountDecisionLab(host: HTMLElement, snapshot: Snapshot, initial:
     play.disabled = frames.length < 2; slider.disabled = !frames.length; slider.value = String(state.frame);
     play.textContent = timer !== undefined ? '暂停回放' : '播放记录';
     resetPreview.disabled = state.preview === null;
-    if (!frame) { stateBody.replaceChildren(el('p', '该运行没有逐轮指标记录。', 'empty')); graphHost.replaceChildren(el('p', '没有回放帧，不构造云边执行状态。', 'empty')); feedbackBody.replaceChildren(); notify(); return; }
+    if (!frame) { graphView.dispose(); stateBody.replaceChildren(el('p', '该运行没有逐轮指标记录。', 'empty')); graphHost.replaceChildren(el('p', '没有回放帧，不构造云边执行状态。', 'empty')); feedbackBody.replaceChildren(); notify(); return; }
     roundLabel.textContent = `Episode ${value(frame.episode)} · Round ${value(frame.round)} · ${state.frame + 1} / ${frames.length} · ${status(frame.row)}`;
     slider.setAttribute('aria-valuetext', roundLabel.textContent);
     stateBody.replaceChildren(el('span', '历史 observation 未导出', 'missing-tag'), el('p', '资源状态 / 参与窗口 / 候选成本', 'muted'));

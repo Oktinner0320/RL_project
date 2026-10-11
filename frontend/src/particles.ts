@@ -119,6 +119,8 @@ export function mountParticles(host: HTMLElement, onPhase: (phase: Phase) => voi
     host.dataset.motion = !enabled ? 'off' : runtime.animated ? 'playing' : 'static';
     if (!runtime.animated) { lastPhase = 'static'; host.dataset.phase = 'static'; onPhase('static'); }
     container.canvas.resize();
+    for (const particle of runtime.specs.keys()) paintParticle(container, particle, runtime);
+    container.canvas.render.clear();
     container.canvas.render.drawParticles({ value: 0, factor: 0 });
     if (runtime.animated) container.play();
   }
