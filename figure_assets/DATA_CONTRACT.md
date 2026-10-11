@@ -1,46 +1,61 @@
-# Results visualization contract — version 1
+# Presentation Data Format — v1
 
-This is a read-only presentation contract, not an experiment configuration or a new acceptance engine. Only `frontend/`, `figure_assets/`, and root `visualization.ipynb` may be created or changed by this work. Original scientific artifacts are never rewritten. No file hashes are calculated or compared.
+[Viewing and generation](README.md) | [Frontend](../frontend/README.md)
 
-## Shared snapshot
+Presentation records are read-only projections of saved results, not experiment
+configuration or a new research evaluator.
 
-`frontend/public/data/index.json` has `schema_version: "results_index_v1"`, `current_snapshot: string`, and `snapshots: [{snapshot_id, generated_at, path}]`. `path` is a confined relative URL such as `<snapshot_id>/results.json`. Export a complete snapshot first, then atomically update the index. IDs are timestamps plus a random suffix, not content identities.
+## Files
 
-`results.json` contains:
+| File | Required content |
+|---|---|
+| `frontend/public/data/index.json` | `schema_version="results_index_v1"`, `current_snapshot`, and `snapshots` with `snapshot_id`, `generated_at`, `path` |
+| Snapshot `results.json` | `schema_version="results_visualization_v1"`, `snapshot_id`, `generated_at`, `experiments`, `runs`, `audits`, `calibration`, `acceptance_reports`, `warnings`, `metric_definitions` |
+| `figure_assets/manifest.json` | `schema_version="figure_manifest_v1"`, snapshot identity, figure captions/descriptions/source IDs/file paths, and skipped-family reasons |
 
-- `schema_version: "results_visualization_v1"`, `snapshot_id: string`, `generated_at: string`.
-- `experiments: Experiment[]`, `runs: Run[]`, `audits: Audit[]`, `calibration: Calibration[]`, `acceptance_reports: object[]`.
-- `warnings: string[]`, `metric_definitions: object` (units, weighting and scope).
+Index paths are confined relative URLs. Figure paths are relative to
+`figure_assets/`: images under `main/`, source records under `reports/figure-data/`.
+The notebook reads images separately; the web app needs the snapshot index but
+does not fetch the figure manifest.
 
-`Experiment` has `experiment_id`, `name`, `kind`, `evidence_scope`, `sources: Source[]`, `status: {compute, transport, verification, acceptance}`, `actual_cloud_cost_usd: number | null`, `counts: {physical_train_interactions: number | null, physical_validation_interactions: number | null, training_seed_count: number}`, `evidence_gaps: string[]`.
+## Record identifiers and fields
 
-`Run` has `run_id`, `experiment_id`, `method`, `arm: string | null`, `phase`, `stage`, `train_seed: number | null`, `eval_seed: number | null`, `partition`, `risk_measurement`, `risk_version: string | null`, `evidence_scope`, `status: {compute, transport, verification, acceptance}`, `budget: {new_interactions: number | null, cumulative_interactions: number | null, warmup_interactions: number | null}`, `summary: object`, `config_summary: object`, `metrics: object[]`, `training: object[]`, `decisions: object[]`, `uploads: object[]`, `sources: Source[]`, `warnings: string[]`.
+- Experiments retain `experiment_id`, evidence scope, sources, separate compute /
+  transport / verification / acceptance status, interaction counts, and nullable
+  actual cloud cost.
+- Runs retain `run_id`, experiment/method/arm, phase/stage, training and evaluation
+  seeds, partition, risk version/measurement, budget, summary, safe configuration,
+  metrics, training rows, decisions, uploads, and warnings.
+- Sources use project-relative `path`, optionally `record` or `line`, never private
+  absolute paths.
+- Metrics keep original keys and units: `validation_accuracy` is a fraction,
+  `elapsed_seconds` simulated seconds, and `energy_joules` simulated joules.
+  Training rows keep `environment_steps`; decisions keep `episode`, `round`,
+  `kind`, and saved `values`. Do not relabel Q values as probabilities.
+- Action maps use `action_id`, `client_ids`, and `batch_size`. Unknown maps stay
+  unavailable. Uploads retain only safe IDs and recorded display metadata.
+- Audit records match exact run/upload identities and retain model and scope;
+  calibration records retain model/fit/panel identities and their sources.
 
-`Source` has only `path: string` (project-relative, never private absolute paths), optional `record: number` and optional `line: number`.
+## Data handling rules
 
-Use original metric keys: `validation_accuracy` (fraction), `validation_loss`, `elapsed_seconds` (simulated s), `energy_joules` (simulated J), `predicted_exposure_risk`, `risk_exposures`, `action_id`, `round`, `episode`, `is_warmup`, `reward`, `terminated`, `truncated`, `c0_participations`, etc. Empty CSV values are null, booleans stay booleans, and nonfinite values cannot enter JSON. Each row has `source_index` if useful for provenance. Training rows retain `environment_steps`, `td_loss`, `q_mean`, `updates`. Decision rows retain `episode`, `round`, `kind`, `values`, `margin`. Uploads expose only IDs, episode/round, action/client/batch, prediction/uncertainty, warmup and decision metadata; exclude features, packet/reference paths, sample identities and payloads.
+1. Missing values remain `null` or explicitly unavailable; JSON contains no
+   nonfinite numbers. Missing risk or cost is not zero.
+2. Keep predicted risk separate from audited risk and partial audit coverage
+   separate from whole-policy claims. Display recorded verdicts only.
+3. Reject contradictory copies. Deduplicate by run and recorded row identity;
+   resumed logs can contain earlier history. Do not add copied prefixes twice.
+4. Compare only compatible splits, stages, risk versions, and budgets. A single
+   seed's rounds do not provide independent statistical replicates.
+5. Exclude credentials, raw gradients, weights, private features, sample IDs,
+   packet paths, and trusted reference records from public projections.
+6. Historical replay remains a separately dated supplement. It must not replace
+   newer records or imply current-batch results.
 
-`config_summary` includes safe display fields: `dataset`, `partition`, `num_clients`, `gamma`, `n_step`, `warmup_rounds`, `max_rounds`, and `action_space: [{action_id, client_ids: number[], batch_size: number}]`. An unknown action mapping must remain unavailable, not guessed.
+<details>
+<summary>中文说明（可选）</summary>
 
-`Audit` has `run_id`, `upload_id`, `trajectory_id`, `model_id: string | null`, `fit_seed: number | null`, `panel_seed: number | null`, `prediction: number | null`, `raw_prediction: number | null`, `calibrated_prediction: number | null`, `truth: number | null`, `batch_size: number | null`, `is_warmup: boolean | null`, `scope`, `source: Source`. Match labels by exact documented IDs. Partial labels are not a complete-policy risk.
+保留来源、标识、单位和缺失值；预测风险与真实审计风险分开。复制记录和恢复日志
+不能重复计数。网页不读取图片清单，图片由笔记本单独展示；历史回放不替代当前结果。
 
-`Calibration` has `group_id`, `fit_seed: number | null`, `model_id: string | null`, `scope`, `raw_u: number | null`, `cal_u: number | null`, `raw_ewmae: number | null`, `cal_ewmae: number | null`, `panel_ids: string[]`, `sources: Source[]`. Never mix different models or developer panels to imply formal passage.
-
-## Rendering outputs
-
-`figure_assets/manifest.json` contains `schema_version: "figure_manifest_v1"`, `snapshot_id`, `generated_at`, `figures: [{id, title, scope, caption, description, files: {png, data}, source_run_ids: string[]}]`, `skipped: [{id, reason}]`. Paths are relative to `figure_assets/` and confined: images are `main/<id>.png`, provenance is `reports/figure-data/<id>.data.json`. `main/` is the single image asset directory and contains only PNGs. Re-rendering replaces the current image set; it never creates per-snapshot asset directories, PDF, SVG or caption files. The frontend offers only PNG links and reads the current manifest through the read-only `/figure-assets/` endpoint. An old snapshot must not display another snapshot's figures.
-
-## Evidence rules
-
-- Distinguish compute, transport, semantic verification and algorithm acceptance. Existing reports are displayed; never recompute an official acceptance verdict in TypeScript.
-- No missing-cost or missing-risk zero imputation. Predicted risk and audited risk are different measures.
-- Deduplicate copied runs by `run_id` plus content comparison of safe actual results; reject contradictory copies. A resumed training log may contain its predecessor's history; use declared cumulative interaction counters and exact row identity, not blind concatenation.
-- First supported source is `ablations/output/N-cloud-v1/phases/{pilot,continue}`: each N1/N3 arm has train 500 then 700 (cumulative 1200), one validation trajectory, training seed 96101 and evaluation seed 96201. Training diagnostics in train700 already include train500 diagnostics. Total physical new training is 2400 and validation is 60, not totals summed across copied directories.
-- Only compare compatible experiment/split/stage/risk-version/interaction budgets. Exploratory baseline selection is not a frozen official reference.
-- Do not manufacture statistical uncertainty from rounds of one training seed. Preserve all failures and original denominators.
-
-## Interfaces for independent implementation
-
-- Export CLI: `python figure_assets/scripts/export_results.py --root <project> [--source ablations/output/N-cloud-v1] [--snapshot-id <id>]`; default writes snapshots to `frontend/public/data/`. `export_snapshot(root: Path, *, sources: list[Path] | None = None, snapshot_id: str | None = None) -> dict` returns `snapshot_id`, `data_path`, `index_path`, `report_path`.
-- Figure CLI: `python figure_assets/scripts/render_figures.py --root <project> [--snapshot <results.json>] [--width single|double]`. `render_snapshot(root: Path, *, snapshot: Path | None = None, width: str = "double") -> dict` returns `manifest_path`, `figures`, `skipped`. Read current index when snapshot is omitted.
-- Notebook helpers are primary-owned. They invoke the above APIs and serve only built frontend files plus generated figures, with loopback binding, an explicit lease/deadline, identity-bound stop, and no training/cloud callbacks.
+</details>

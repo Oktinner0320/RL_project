@@ -1,80 +1,64 @@
-# 独立消融入口
+# Optional Ablation Study
 
-与原实验共用 `.venv`、分支和只读 `config/experiment.json`。原 `src/`、配置文件、
-`experiment.ipynb`、依赖和旧产物不变。新源码位于顶层目录，旧源码快照不包含它；
-本目录单独保存源码全文、基础科学配置、每臂有效配置，核对内容而不计算文件哈希。
+[Project home](../README.md) | [Reproduction](../docs/REPRODUCIBILITY.md)
 
-## 使用
+This separate entry supports the N1/N3 study. It uses the project environment
+and reads `config/experiment.json` without changing the main experiment.
+Study motivation and algorithm justification belong in the report.
 
-用项目 `.venv` 的**独立内核**打开 `ablations/experiment.ipynb`，按顺序运行：
+## Prerequisites
 
-1. 定位项目、检查 Python 导入路径。
-2. 打开 `N` 研究计划与两臂配置，默认目录 `ablations/output/N-cloud-v1/`。
-3. 运行 90 秒进程树看门狗保护的本地合成回归。
-4. 提交所选阶段（已有调用会复用），随后有界等待完成。
-5. 自动下载到阶段的 `artifacts/`，逐节点本地核验并显示结果。
+- Install the project environment with the `comparisons` extra.
+- Supply the matching `ablations/test/` supplement; tests are not in Git.
+- Supply the approved `ablations/output/N-cloud-v1/` execution package, including
+  its frozen source, risk inputs, and approval records.
+- Authenticate Modal and check the budget before any submission.
 
-默认 `PHASE='pilot'`：N1/N3 各500次。完成回传核验后，可显式改为 `continue`，
-首对各续700次并验证；再选择 `replicate` 执行其余两对。阶段选择是执行控制，
-不改变冻结的科学配置；不自动扩大实验。当前只批准首对1000次云端预检。
-重新运行同一阶段不会再训练。关闭 Notebook 后，可打开同一目录继续等待或下载。
-已完成的首对记录为 `output/N-cloud-v1/phases/pilot/closure.json`：N1/N3 各500次，
-4501个文件已回传并通过本地核验。保持 `PHASE='pilot'` 会复用该结果。
-等待分别限4800/9000/27000秒，节点计算限1800秒；下载限2小时，支持归档级续传。
-需要终止时执行 `session.cancel(PHASE)`；失败和未知消费会保留，不自动重试。
+A clean clone lacks these local records and tests; its preflight cannot be
+presented as a successful execution. Preparing a new directory does not grant
+additional execution or cost approval.
 
-也可从项目根目录使用：
+## Use the notebook
+
+Open [experiment.ipynb](experiment.ipynb) in a **separate project `.venv` kernel**.
+Inspect the phase before running cells: the checked-in notebook currently sets
+`PHASE="continue"`, not `pilot`.
+
+| Phase | Scope |
+|---|---|
+| `pilot` | First paired seed; 500 training interactions per arm |
+| `continue` | First pair; add 700 per arm, reaching 1,200, then validate |
+| `replicate` | Remaining paired seeds; separately approved work |
+
+Run **Locate → Open plan → Preflight → Submit/Wait → Collect/Verify/Results**.
+An existing recorded call is reused; only a verified stage record establishes
+completion. Check the same workspace when reopening the notebook.
+Do not invoke internal workers as an alternative to approval.
+
+From the project root, inspect local preparation status (not cloud call status):
 
 ```powershell
-.venv/Scripts/python.exe -m ablations.runner prepare
-.venv/Scripts/python.exe -m ablations.runner preflight
-.venv/Scripts/python.exe -m ablations.runner status
+uv run --locked --extra comparisons python -m ablations.runner status --name N-cloud-v1
 ```
 
-重复准备复用同一记录；科学配置或源码变化时拒绝覆盖。新的未提交准备可用 `--name` 指定新目录，
-这不授予任何新交互、调参名额或费用额度。未完成目录会保留，不能被当作成功准备。
+Local preflight has a 90-second watchdog; phase waits are bounded at
+4,800 / 9,000 / 27,000 seconds, node computation at 1,800 seconds, and download
+at two hours. To stop the selected stage, call `session.cancel(PHASE)` in the
+notebook. Preserve failures and unknown consumption; do not retry blindly.
 
-## 当前实现
+## Outputs and limits
 
-| 内容 | 状态 |
-|---|---|
-| N1 / N3 Double DQN | 已实现 |
-| 500 → 1200 累计训练、完整验证回合 | 内部 worker 已实现，有显式先前检查点 |
-| 准备 / 风险输入 / 预检 / 提交 / 等待 / 下载 / 核验 | Notebook 已连接 |
-| 实际云端验证记录 | 见 `output/N-cloud-v1/phases/pilot/closure.json`；只有存在且 verified 才表示完成 |
-| L / Q / E / W | 仅研究定义，尚未实现 |
+Records are stored under `ablations/output/N-cloud-v1/phases/<phase>/`, including
+status, downloaded artifacts, and `closure.json`. The notebook displays available
+closure records; these artifacts are not shipped in Git. Results use **predicted
+risk**, not complete audited privacy risk, and do not load the official test set.
+Other L/Q/E/W studies remain definitions, not implemented alternatives.
 
-`variants/dqn_nstep.py` 复用旧 Agent、网络、优化设置和终止掩码，新增多步回报与待处理队列。
-真实终止后不 bootstrap；截断保持 bootstrap，但不跨回合拼接；阶段预算边界保存队列。
-优化器、目标网络、回放、环境、随机数和累计计数一并恢复。
+<details>
+<summary>中文说明（可选）</summary>
 
-`execution.py` 是准入之后调用的内部 worker，不是 Notebook 提交入口。它复用原
-`RunStore`、环境构造和 `RecordingEnv`，仅允许独立工作区内的训练／验证输入；
-不调用旧 fresh graph 或旧审批。其核验检查实际计数、预热、配置、检查点及原生 CSV，
-不代表真实风险审计或正式验收。任意直接调用内部 worker 不构成执行许可。
+使用项目环境的独立内核，并提供测试、已冻结输入和有效审批。当前笔记本阶段为
+`continue`，不是 `pilot`，运行前先检查。已有调用复用，不通过直接调用内部 worker
+绕过审批；阶段结果以核验记录为准，风险仍为预测值。
 
-## 科学控制与预算
-
-- 基础参数取实际 `fresh_benchmark.reward_config / risk_config / rl_configs`，而非顶层历史参数。
-- 两臂唯一算法差异为 `n_step=1/3`；共享拟合风险模型、种子配对、固定终点、资源和奖励设置。
-- 首对每臂 500 次仅检验执行／数值／恢复；后续需独立批准，续至每臂累计 1200 次。
-- 三对训练种子：96101–96103；验证种子：96201–96203。实际历史核对与授权见
-  `output/N-cloud-v1/admission/`，累计保留在 `output/execution-ledger.jsonl`。
-- 两臂合计每训练种子 2400 次（含预热），在原 3000 上限下保留 600 次共享采集分摊空间。
-  三对训练物理上限 7200；六条 30-round 验证轨迹物理上限 180。未核实的历史／共享消费不记零。
-- 现有风险模型只有 33 个标签、3 个运行组；暂存保留这项限制，不把它当共同独立面板或强攻击证明。
-- 所有已实现风险指标均为 **predicted risk**；不报告为完整审计真实风险，官方测试不加载。
-
-首对是链路和数值预检，不作算法优劣选择。后续完整开发结果仍需冻结开发参考、
-完整真实审计及独立共同面板才能回答首版验收问题。历史超限与未知费用保留；
-新增名额仅针对 N3，N1 是既有对照。新的 Volume 与输出独立，不复用旧执行许可。
-
-## 验证与可移植性
-
-测试位于按项目规定忽略的 `ablations/test/`，包括旧 N1 等价、N3 目标与恢复、
-真实 `RecordingEnv` 的 500→1200→30 流程、Notebook 和原配置不变。
-本地已有完整测试；仅克隆已跟踪文件时没有这些测试，预检会明确停止而非声称通过。
-本目录没有改项目打包／依赖设置；云端使用原锁文件并显式包含 `ablations/` 源码。
-原生小文件先写容器本地盘，再以不可变归档提交 Volume，避免逐小文件远程 I/O。
-实际云端源码固定在准备目录的 `runtime/sources.json`，本地控制器修复不会替换已经使用的云端代码；
-修复前的源码和失败记录保留在 `recovery/`。本地检查点核验使用 CPU，不要求本机安装 CUDA。
+</details>

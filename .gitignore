@@ -1,0 +1,61 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+data/
+runs/
+/output/**
+# Publish only the six latest visualization data files.
+!/output/fresh-seven-method-rerun-20261010-v1/
+!/output/fresh-seven-method-rerun-20261010-v1/report-analysis-20261010-v1/
+!/output/fresh-seven-method-rerun-20261010-v1/report-analysis-20261010-v1/final_rows.csv
+!/output/fresh-seven-method-rerun-20261010-v1/report-analysis-20261010-v1/evaluation_rows.csv
+!/output/fresh-seven-method-rerun-20261010-v1/report-analysis-20261010-v1/attack_diagnostics.csv
+!/output/fresh-seven-method-rerun-20261010-v1/report-analysis-20261010-v1/analysis.json
+!/output/fresh-seven-method-rerun-20261010-v1/report-analysis-20261010-v1/diagnostics.json
+!/output/fresh-seven-method-rerun-20261010-v1/report-analysis-20261010-v1/analysis-validation.json
+*.egg-info/
+.env
+.modal.toml
+reference_algorithms/repos/
+reference_algorithms/runtime/.venv/
+reference_algorithms/pqn_runtime/.venv/
+reference_algorithms/results/*/checkpoints/
+reference_algorithms/results/*/cache/
+reference_algorithms/results/*/leakpro_output/
+reference_algorithms/results/**/checkpoints/
+reference_algorithms/results/**/leakpro_output/
+
+# Generated reference results; retain the Notebook's saved score input.
+/reference_algorithms/results/**
+!/reference_algorithms/results/sota-screen-20261005/
+!/reference_algorithms/results/sota-screen-20261005/conformalopt/
+!/reference_algorithms/results/sota-screen-20261005/conformalopt/official_googl-scores.npz
+
+# Publish submission guides only; keep research notes local.
+/docs/**
+!/docs/REPRODUCIBILITY.md
+!/docs/SUBMISSION.md
+!/docs/THIRD_PARTY.md
+tmp/
+# Keep only the English manuscript, template, and bibliography.
+/paper/**
+!/paper/main.typ
+!/paper/course-acm.typ
+!/paper/refs/
+!/paper/refs/refs.bib
+!/paper/README.md
+
+# Local tests
+test/
+tests/
+test.py
+tests.py
+test_*.py
+*_test.py
+*_tests.py
+
+# Local project configuration
+.serena/
