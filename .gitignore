@@ -69,13 +69,8 @@ reference_algorithms/results/**/leakpro_output/
 !/docs/THIRD_PARTY.zh.md
 /docs/SUBMISSION.md
 tmp/
-# Keep only the English manuscript, template, and bibliography.
-/paper/**
-!/paper/main.typ
-!/paper/course-acm.typ
-!/paper/refs/
-!/paper/refs/refs.bib
-/paper/README.md
+# Manuscripts are maintained on the paper branch; keep local copies ignored here.
+/paper/
 
 # Local tests
 test/
