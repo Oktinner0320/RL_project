@@ -1,0 +1,11 @@
+{
+  "verified": true,
+  "experiment_id": "fresh-seven-methods-rerun-20261010-v1",
+  "run_id": "validate-d75479b778454b6ba0c2c4a3acb09a41",
+  "physical_interactions": 30,
+  "actual_interactions": 30,
+  "source_data_verified": true,
+  "source_verified": true,
+  "formal_acceptance": "not_evaluated",
+  "actual_cloud_cost_usd": null
+}

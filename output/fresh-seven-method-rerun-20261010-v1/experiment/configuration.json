@@ -1,0 +1,2868 @@
+{
+  "experiment": {
+    "tag": "pilot-001",
+    "variant": "setup"
+  },
+  "data": {
+    "url": "https://archive.ics.uci.edu/static/public/2/adult.zip",
+    "validation_fraction": 0.2,
+    "split_seed": 42,
+    "partition_seed": 73,
+    "num_clients": 3,
+    "partition": "iid",
+    "label_concentration": 0.5
+  },
+  "model": {
+    "hidden_sizes": [
+      64,
+      64
+    ],
+    "activation": "relu",
+    "output_size": 1,
+    "loss": "binary_cross_entropy_with_logits",
+    "learning_rate": 0.01,
+    "optimizer": "sgd",
+    "device": "cuda",
+    "dtype": "float32",
+    "normalization": "none",
+    "dropout": 0.0,
+    "binary_pos_weight": null,
+    "momentum": 0.0,
+    "weight_decay": 0.0,
+    "evaluation_batch_size": 1024,
+    "classification_threshold": 0.5
+  },
+  "environment": {
+    "client_sets": [
+      [
+        0,
+        1
+      ],
+      [
+        0,
+        2
+      ],
+      [
+        1,
+        2
+      ],
+      [
+        0,
+        1,
+        2
+      ]
+    ],
+    "batch_sizes": [
+      8,
+      32,
+      64
+    ],
+    "max_rounds": 30,
+    "time_budget_seconds": 120.0,
+    "sample_budget": 3000,
+    "target_validation_loss": 0.3,
+    "utility_prior": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "utility_ema_decay": 0.8,
+    "history_window": 5
+  },
+  "resources": {
+    "interval_seconds": 2.0,
+    "bandwidth_mbps": [
+      5.0,
+      10.0,
+      20.0
+    ],
+    "download_mbps": [
+      20.0,
+      40.0,
+      60.0
+    ],
+    "samples_per_second": [
+      400.0,
+      800.0,
+      1200.0
+    ],
+    "compute_watts": [
+      5.0,
+      8.0,
+      12.0
+    ],
+    "transmit_watts": [
+      1.0,
+      1.5,
+      2.0
+    ],
+    "receive_watts": [
+      0.5,
+      0.7,
+      1.0
+    ],
+    "bandwidth_jitter": 0.3,
+    "load_range": [
+      0.0,
+      0.6
+    ],
+    "aggregation_seconds": 0.005,
+    "server_watts": 30.0
+  },
+  "reward": {
+    "time_weight": 0.05,
+    "energy_weight": 0.01,
+    "risk_weight": 0.0,
+    "uncertainty_weight": 0.0,
+    "time_scale": 1.0,
+    "energy_scale": 10.0,
+    "protocol": "exposure_v1",
+    "accuracy_weight": 1.0
+  },
+  "baseline": {
+    "fixed_action": 4,
+    "round_robin_actions": [
+      1,
+      4,
+      7
+    ]
+  },
+  "risk": {
+    "mode": "unavailable",
+    "ensemble_size": 5,
+    "hidden_sizes": [
+      32,
+      32
+    ],
+    "learning_rate": 0.001,
+    "epochs": 20,
+    "batch_size": 64,
+    "device": "cuda",
+    "validation_group_fraction": 0.2,
+    "validation_fraction": 0.2,
+    "weight_decay": 0.0001
+  },
+  "rl": {
+    "algorithm": "dqn",
+    "device": "cuda",
+    "hidden_sizes": [
+      128,
+      128
+    ],
+    "total_steps": 3000,
+    "learning_rate": 0.0003,
+    "gamma": 1.0,
+    "batch_size": 64,
+    "buffer_size": 20000,
+    "learning_starts": 256,
+    "train_frequency": 1,
+    "target_update_interval": 100,
+    "epsilon_start": 1.0,
+    "epsilon_end": 0.05,
+    "epsilon_decay_steps": 2000,
+    "checkpoint_interval": 500,
+    "ppo": {
+      "rollout_steps": 128,
+      "epochs": 4,
+      "clip_ratio": 0.2,
+      "gae_lambda": 0.95,
+      "entropy_weight": 0.01
+    },
+    "max_grad_norm": 10.0,
+    "double_dqn": true,
+    "rollout_steps": 128,
+    "ppo_epochs": 4,
+    "clip_range": 0.2,
+    "gae_lambda": 0.95,
+    "entropy_coefficient": 0.01,
+    "value_coefficient": 0.5,
+    "normalize_advantage": true
+  },
+  "attack": {
+    "method": "gradient_matching",
+    "iterations": 200,
+    "restarts": 1,
+    "learning_rate": 0.1,
+    "learning_rate_schedule": "linear",
+    "learning_rate_end_factor": 0.1,
+    "labels_known": true,
+    "device": "cuda"
+  },
+  "audit": {
+    "policy": "periodic",
+    "max_calls": 24,
+    "max_seconds": 120.0,
+    "period": 2,
+    "ranking_floor": 0.01,
+    "numeric_tolerance": 0.05,
+    "device": "cuda",
+    "estimated_seconds_by_batch": null,
+    "exclude_warmup": true
+  },
+  "execution": {
+    "split": "train",
+    "save_updates": true,
+    "warmup_actions": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11
+    ]
+  },
+  "seeds": {
+    "pilot": [
+      7
+    ],
+    "train": [
+      101,
+      102,
+      103,
+      104,
+      105
+    ],
+    "validation": [
+      201,
+      202
+    ],
+    "test": [
+      301,
+      302,
+      303,
+      304,
+      305
+    ],
+    "comparison_train": [
+      7,
+      17
+    ],
+    "comparison_policy_train": [
+      7
+    ],
+    "comparison_validation": [
+      107
+    ],
+    "comparison_test": [
+      1007
+    ]
+  },
+  "modal": {
+    "app_name": "cloud-edge-rl",
+    "volume_name": "cloud-edge-rl-artifacts",
+    "gpu": "H100",
+    "cpu": 16.0,
+    "memory_mb": 65536,
+    "timeout_seconds": 600,
+    "max_containers": 1,
+    "scaledown_window": 2,
+    "persistent_compiler_cache": true,
+    "budget_usd": null,
+    "detach": true,
+    "startup_timeout_seconds": 180,
+    "retries": 0,
+    "transport": {
+      "listing_seconds": 45,
+      "file_seconds": 45,
+      "download_seconds": 600,
+      "cleanup_seconds": 90,
+      "verification_seconds": 60,
+      "status_reads": 6,
+      "status_interval_seconds": 2,
+      "read_attempts": 2,
+      "max_entries": 32,
+      "max_file_bytes": 67108864,
+      "max_total_bytes": 134217728
+    }
+  },
+  "variants": {
+    "setup": {
+      "method": "fixed",
+      "risk_mode": "unavailable",
+      "risk_weight": 0.0,
+      "uncertainty_weight": 0.0
+    },
+    "round-robin": {
+      "method": "round_robin",
+      "risk_mode": "unavailable",
+      "risk_weight": 0.0,
+      "uncertainty_weight": 0.0
+    },
+    "fixed": {
+      "method": "fixed",
+      "risk_mode": "fitted",
+      "risk_weight": 0.1,
+      "uncertainty_weight": 0.0
+    },
+    "time-greedy": {
+      "method": "time_greedy",
+      "risk_mode": "fitted",
+      "risk_weight": 0.1,
+      "uncertainty_weight": 0.0
+    },
+    "risk-greedy": {
+      "method": "risk_greedy",
+      "risk_mode": "fitted",
+      "risk_weight": 0.1,
+      "uncertainty_weight": 0.0
+    },
+    "conservative-greedy": {
+      "method": "risk_greedy",
+      "risk_mode": "fitted",
+      "risk_weight": 0.1,
+      "uncertainty_weight": 1.0
+    },
+    "dqn-no-privacy": {
+      "method": "dqn",
+      "risk_mode": "fitted",
+      "risk_weight": 0.0,
+      "uncertainty_weight": 0.0
+    },
+    "dqn": {
+      "method": "dqn",
+      "risk_mode": "fitted",
+      "risk_weight": 0.1,
+      "uncertainty_weight": 0.0
+    },
+    "conservative-dqn": {
+      "method": "dqn",
+      "risk_mode": "fitted",
+      "risk_weight": 0.1,
+      "uncertainty_weight": 1.0
+    },
+    "ppo": {
+      "method": "ppo",
+      "risk_mode": "fitted",
+      "risk_weight": 0.1,
+      "uncertainty_weight": 0.0
+    },
+    "reference-setup": {
+      "method": "fixed",
+      "risk_mode": "unavailable",
+      "risk_weight": 0.0,
+      "uncertainty_weight": 0.0,
+      "components": {
+        "backend": "tabular_mlp",
+        "risk": "tabm",
+        "attack": "tabular_gia"
+      }
+    },
+    "reference-setup-mlp": {
+      "method": "fixed",
+      "risk_mode": "unavailable",
+      "risk_weight": 0.0,
+      "uncertainty_weight": 0.0,
+      "components": {
+        "backend": "tabular_mlp",
+        "risk": "mlp",
+        "attack": "tabular_gia"
+      }
+    },
+    "reference-round-robin": {
+      "method": "round_robin",
+      "risk_mode": "unavailable",
+      "risk_weight": 0.0,
+      "uncertainty_weight": 0.0,
+      "components": {
+        "backend": "tabular_mlp",
+        "risk": "tabm",
+        "attack": "tabular_gia"
+      }
+    },
+    "reference-fixed": {
+      "method": "fixed",
+      "risk_mode": "fitted",
+      "risk_weight": 0.1,
+      "uncertainty_weight": 0.0,
+      "components": {
+        "backend": "tabular_mlp",
+        "risk": "tabm",
+        "attack": "tabular_gia"
+      }
+    },
+    "reference-time-greedy": {
+      "method": "time_greedy",
+      "risk_mode": "fitted",
+      "risk_weight": 0.1,
+      "uncertainty_weight": 0.0,
+      "components": {
+        "backend": "tabular_mlp",
+        "risk": "tabm",
+        "attack": "tabular_gia"
+      }
+    },
+    "reference-risk-greedy": {
+      "method": "risk_greedy",
+      "risk_mode": "fitted",
+      "risk_weight": 0.1,
+      "uncertainty_weight": 0.0,
+      "components": {
+        "backend": "tabular_mlp",
+        "risk": "tabm",
+        "attack": "tabular_gia"
+      }
+    },
+    "reference-conservative-greedy": {
+      "method": "risk_greedy",
+      "risk_mode": "fitted",
+      "risk_weight": 0.1,
+      "uncertainty_weight": 1.0,
+      "components": {
+        "backend": "tabular_mlp",
+        "risk": "tabm",
+        "attack": "tabular_gia"
+      }
+    },
+    "reference-risk-mlp": {
+      "method": "fixed",
+      "risk_mode": "fitted",
+      "risk_weight": 0.1,
+      "uncertainty_weight": 0.0,
+      "components": {
+        "backend": "tabular_mlp",
+        "risk": "mlp",
+        "attack": "tabular_gia"
+      }
+    },
+    "metacs": {
+      "method": "metacs",
+      "risk_mode": "fitted",
+      "risk_weight": 0.1,
+      "uncertainty_weight": 0.0,
+      "components": {
+        "backend": "tabular_mlp",
+        "risk": "tabm",
+        "attack": "tabular_gia"
+      }
+    },
+    "pqn": {
+      "method": "pqn",
+      "risk_mode": "fitted",
+      "risk_weight": 0.1,
+      "uncertainty_weight": 0.0,
+      "components": {
+        "backend": "tabular_mlp",
+        "risk": "tabm",
+        "attack": "tabular_gia"
+      }
+    }
+  },
+  "tuning": {
+    "learning_rate": [
+      0.0001,
+      0.0003,
+      0.001
+    ],
+    "risk_weight": [
+      0.03,
+      0.1,
+      0.3
+    ],
+    "uncertainty_weight": [
+      0.0,
+      0.5,
+      1.0
+    ],
+    "trials": 6,
+    "seed": 9001
+  },
+  "analysis": {
+    "run_ids": [],
+    "audit_run_ids": [],
+    "reference_method": "risk-greedy",
+    "metric": "validation_loss",
+    "x_axis": "elapsed_seconds",
+    "risk_threshold": 0.5
+  },
+  "workflow": {
+    "reuse_completed": true,
+    "jobs": {
+      "runtime": {
+        "enabled": true,
+        "stage": "runtime_check",
+        "backend": "local",
+        "variants": [
+          "setup"
+        ],
+        "seed_group": "pilot",
+        "risk_version": "unavailable",
+        "split": "train",
+        "inputs": {}
+      },
+      "data": {
+        "enabled": true,
+        "stage": "prepare_data",
+        "backend": "local",
+        "variants": [
+          "setup"
+        ],
+        "seed_group": "pilot",
+        "risk_version": "unavailable",
+        "split": "train",
+        "inputs": {}
+      },
+      "modal_check": {
+        "enabled": false,
+        "stage": "runtime_check",
+        "backend": "modal",
+        "variants": [
+          "setup"
+        ],
+        "seed_group": "pilot",
+        "risk_version": "unavailable",
+        "split": "train",
+        "inputs": {}
+      },
+      "collect": {
+        "enabled": false,
+        "stage": "collect",
+        "backend": "modal",
+        "variants": [
+          "round-robin"
+        ],
+        "seed_group": "pilot",
+        "risk_version": "unavailable",
+        "split": "train",
+        "inputs": {}
+      },
+      "benchmark": {
+        "enabled": false,
+        "stage": "benchmark_attack",
+        "backend": "modal",
+        "variants": [
+          "setup"
+        ],
+        "seed_group": "pilot",
+        "risk_version": "unavailable",
+        "split": "train",
+        "inputs": {
+          "source_run_ids": []
+        }
+      },
+      "audit": {
+        "enabled": false,
+        "stage": "audit",
+        "backend": "modal",
+        "variants": [
+          "setup"
+        ],
+        "seed_group": "pilot",
+        "risk_version": "unavailable",
+        "split": "train",
+        "inputs": {
+          "source_run_ids": [],
+          "benchmark_run_id": null
+        }
+      },
+      "fit_risk": {
+        "enabled": false,
+        "stage": "fit_risk",
+        "backend": "modal",
+        "variants": [
+          "setup"
+        ],
+        "seed_group": "pilot",
+        "risk_version": "risk-v1",
+        "split": "train",
+        "inputs": {
+          "audit_run_ids": []
+        }
+      },
+      "train": {
+        "enabled": false,
+        "stage": "train_policy",
+        "backend": "modal",
+        "variants": [
+          "dqn"
+        ],
+        "seed_group": "pilot",
+        "risk_version": "risk-v1",
+        "split": "train",
+        "inputs": {
+          "risk_checkpoint": null,
+          "previous_training_checkpoint": null
+        }
+      },
+      "tune": {
+        "enabled": false,
+        "stage": "train_policy",
+        "backend": "modal",
+        "variants": [
+          "dqn"
+        ],
+        "seed_group": "pilot",
+        "risk_version": "risk-v1",
+        "split": "train",
+        "inputs": {
+          "risk_checkpoint": null,
+          "previous_training_checkpoint": null
+        }
+      },
+      "validate": {
+        "enabled": false,
+        "stage": "validate",
+        "backend": "modal",
+        "variants": [
+          "dqn"
+        ],
+        "seed_group": "validation",
+        "risk_version": "risk-v1",
+        "split": "validation",
+        "inputs": {
+          "training_run_ids": []
+        }
+      },
+      "calibrate": {
+        "enabled": false,
+        "stage": "calibrate_risk",
+        "backend": "modal",
+        "variants": [
+          "setup"
+        ],
+        "seed_group": "pilot",
+        "risk_version": "risk-v2",
+        "split": "train",
+        "inputs": {
+          "audit_run_ids": []
+        }
+      },
+      "evaluate": {
+        "enabled": false,
+        "stage": "evaluate",
+        "backend": "modal",
+        "variants": [
+          "dqn"
+        ],
+        "seed_group": "test",
+        "risk_version": "risk-v1",
+        "split": "test",
+        "inputs": {
+          "training_run_ids": []
+        }
+      },
+      "evaluate_audits": {
+        "enabled": false,
+        "stage": "evaluate_audits",
+        "backend": "modal",
+        "variants": [
+          "setup"
+        ],
+        "seed_group": "test",
+        "risk_version": "risk-v1",
+        "split": "test",
+        "inputs": {
+          "source_run_ids": [],
+          "benchmark_run_id": null
+        }
+      },
+      "evaluate_baselines": {
+        "enabled": false,
+        "stage": "evaluate",
+        "backend": "modal",
+        "variants": [
+          "fixed",
+          "time-greedy",
+          "risk-greedy",
+          "conservative-greedy"
+        ],
+        "seed_group": "test",
+        "risk_version": "risk-v1",
+        "split": "test",
+        "inputs": {
+          "risk_checkpoint": null
+        }
+      },
+      "comparison_collect": {
+        "enabled": false,
+        "stage": "collect",
+        "backend": "modal",
+        "variants": [
+          "reference-round-robin"
+        ],
+        "seed_group": "comparison_train",
+        "risk_version": "reference-risk-v1",
+        "split": "train",
+        "inputs": {}
+      },
+      "comparison_benchmark": {
+        "enabled": false,
+        "stage": "benchmark_attack",
+        "backend": "modal",
+        "variants": [
+          "reference-setup"
+        ],
+        "seed_group": "pilot",
+        "risk_version": "reference-risk-v1",
+        "split": "train",
+        "inputs": {
+          "source_run_ids": []
+        }
+      },
+      "comparison_audit": {
+        "enabled": false,
+        "stage": "audit",
+        "backend": "modal",
+        "variants": [
+          "reference-setup"
+        ],
+        "seed_group": "pilot",
+        "risk_version": "reference-risk-v1",
+        "split": "train",
+        "inputs": {
+          "source_run_ids": [],
+          "benchmark_run_id": null
+        }
+      },
+      "comparison_fit_risk": {
+        "enabled": false,
+        "stage": "fit_risk",
+        "backend": "modal",
+        "variants": [
+          "reference-setup",
+          "reference-setup-mlp"
+        ],
+        "seed_group": "pilot",
+        "risk_version": "reference-risk-v1",
+        "split": "train",
+        "inputs": {
+          "audit_run_ids": []
+        }
+      },
+      "comparison_train": {
+        "enabled": false,
+        "stage": "train_policy",
+        "backend": "modal",
+        "variants": [
+          "pqn"
+        ],
+        "seed_group": "comparison_policy_train",
+        "risk_version": "reference-risk-v1",
+        "split": "train",
+        "inputs": {
+          "risk_checkpoint": null,
+          "previous_training_checkpoint": null
+        }
+      },
+      "comparison_validate_collect": {
+        "enabled": false,
+        "stage": "collect",
+        "backend": "modal",
+        "variants": [
+          "reference-fixed"
+        ],
+        "seed_group": "comparison_validation",
+        "risk_version": "reference-risk-v1",
+        "split": "validation",
+        "inputs": {
+          "risk_checkpoint": null
+        }
+      },
+      "comparison_validate_audit": {
+        "enabled": false,
+        "stage": "audit",
+        "backend": "modal",
+        "variants": [
+          "reference-setup"
+        ],
+        "seed_group": "pilot",
+        "risk_version": "reference-risk-v1",
+        "split": "validation",
+        "inputs": {
+          "source_run_ids": [],
+          "benchmark_run_id": null
+        }
+      },
+      "comparison_test_collect": {
+        "enabled": false,
+        "stage": "collect",
+        "backend": "modal",
+        "variants": [
+          "reference-fixed"
+        ],
+        "seed_group": "comparison_test",
+        "risk_version": "reference-risk-v1",
+        "split": "test",
+        "inputs": {
+          "risk_checkpoint": null
+        }
+      },
+      "comparison_test_audit": {
+        "enabled": false,
+        "stage": "evaluate_audits",
+        "backend": "modal",
+        "variants": [
+          "reference-setup"
+        ],
+        "seed_group": "pilot",
+        "risk_version": "reference-risk-v1",
+        "split": "test",
+        "inputs": {
+          "source_run_ids": [],
+          "benchmark_run_id": null
+        }
+      },
+      "comparison_evaluate_risk": {
+        "enabled": false,
+        "stage": "evaluate_risk",
+        "backend": "modal",
+        "variants": [
+          "reference-fixed",
+          "reference-risk-mlp"
+        ],
+        "seed_group": "pilot",
+        "risk_version": "reference-risk-v1",
+        "split": "test",
+        "inputs": {
+          "audit_run_ids": [],
+          "risk_checkpoint": null
+        }
+      },
+      "comparison_evaluate_schedulers": {
+        "enabled": false,
+        "stage": "evaluate",
+        "backend": "modal",
+        "variants": [
+          "reference-fixed",
+          "reference-time-greedy",
+          "reference-risk-greedy",
+          "reference-conservative-greedy",
+          "metacs",
+          "pqn"
+        ],
+        "seed_group": "comparison_test",
+        "risk_version": "reference-risk-v1",
+        "split": "test",
+        "inputs": {
+          "risk_checkpoint": null,
+          "agent_checkpoint": null
+        }
+      },
+      "comparison_scheduler_audits": {
+        "enabled": false,
+        "stage": "evaluate_audits",
+        "backend": "modal",
+        "variants": [
+          "reference-fixed",
+          "reference-time-greedy",
+          "reference-risk-greedy",
+          "reference-conservative-greedy",
+          "metacs",
+          "pqn"
+        ],
+        "seed_group": "comparison_test",
+        "risk_version": "reference-risk-v1",
+        "split": "test",
+        "inputs": {
+          "source_run_ids": [],
+          "benchmark_run_id": null
+        }
+      },
+      "comparison_calibration": {
+        "enabled": false,
+        "stage": "compare_calibration",
+        "backend": "modal",
+        "variants": [
+          "reference-setup"
+        ],
+        "seed_group": "pilot",
+        "risk_version": "reference-risk-v1",
+        "split": "test",
+        "inputs": {
+          "audit_run_ids": []
+        }
+      }
+    },
+    "training_pipeline": {
+      "registered_spec_paths": [],
+      "output_directory": "output/training-pipeline"
+    },
+    "experiment": {
+      "directory": "output/fresh-seven-method-rerun-20261010-v1/experiment",
+      "graph_timeout_seconds": 86400,
+      "node_timeout_seconds": 1800,
+      "verification_timeout_seconds": 90,
+      "controller_timeout_seconds": 1200,
+      "prepare_enabled": true,
+      "submission_enabled": true,
+      "resume_enabled": false,
+      "refresh_enabled": true,
+      "collection_enabled": true,
+      "verification_enabled": true,
+      "mode": "fresh",
+      "graph_admission": "output/fresh-seven-method-rerun-20261010-v1/admission/graph-admission.json"
+    }
+  },
+  "reference_benchmarks": {
+    "tag": "sota-screen-20261005",
+    "enabled": {
+      "tabular_gia": false,
+      "tabm": false,
+      "conformalopt": false,
+      "metacs_fl": false,
+      "pqn": false,
+      "pqn_paper": false,
+      "ocp_unlock": false,
+      "conformalopt_small_lr": false,
+      "tabm_modal": false
+    },
+    "tabular_gia": {
+      "seeds": [
+        7,
+        17,
+        27
+      ],
+      "batch_sizes": [
+        1,
+        8,
+        32,
+        64
+      ],
+      "training_steps": [
+        0,
+        20
+      ],
+      "training_batch_size": 64,
+      "training_learning_rate": 0.01,
+      "attack_iterations": 1000,
+      "attack_learning_rate": 0.1,
+      "restarts": 1,
+      "threads": 2,
+      "device": "cpu",
+      "hidden_size": 64,
+      "hidden_layers": 2,
+      "activation": "relu",
+      "normalization": "none",
+      "dropout": 0.0,
+      "numeric_tolerance": 0.2,
+      "evaluation_seed_offset": 1729,
+      "tv_reg": 0.0,
+      "epochs": 1,
+      "label_known": true,
+      "median_pooling": false,
+      "top10norms": false
+    },
+    "tabm": {
+      "seeds": [
+        7,
+        17,
+        27
+      ],
+      "train_rows": 4096,
+      "validation_rows": 1024,
+      "epochs": 15,
+      "batch_size": 256,
+      "learning_rate": 0.001,
+      "weight_decay": 0.0001,
+      "n_blocks": 2,
+      "d_block": 64,
+      "dropout": 0.0,
+      "k": 8,
+      "threads": 2,
+      "device": "cpu",
+      "classification_threshold": 0.5,
+      "subset_seed": 42,
+      "arch_type": "tabm",
+      "activation": "ReLU",
+      "start_scaling_init": "random-signs",
+      "risk_kappa": 1.0
+    },
+    "conformalopt": {
+      "seed": 7,
+      "source": "official_googl",
+      "source_data_name": "GOOGL_theta_absolute-residual_scores",
+      "warmup_scores": 30,
+      "score_scale": 10000.0,
+      "validation_fraction": 0.3,
+      "test_break_fraction": 0.5,
+      "alpha": 0.1,
+      "quantile_method": "higher",
+      "tracker_order": 1,
+      "tracker_bias": 1.0,
+      "learning_rate": 0.05,
+      "learning_rate_type": "fixed",
+      "feedback_delay": 0,
+      "clip_low": 0.0,
+      "clip_high": 1.0,
+      "scorecaster": null
+    },
+    "metacs_fl": {
+      "seeds": [
+        7,
+        17,
+        27
+      ],
+      "cases_per_seed": 5,
+      "num_clients": 3,
+      "total_tasks": 12,
+      "capacities": [
+        [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12
+        ],
+        [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12
+        ],
+        [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12
+        ]
+      ],
+      "time_per_task_range": [
+        0.2,
+        1.5
+      ],
+      "startup_seconds_range": [
+        0.1,
+        0.5
+      ],
+      "power_watts_range": [
+        1.0,
+        8.0
+      ],
+      "idle_watts_range": [
+        0.01,
+        0.1
+      ],
+      "battery_joules": 1000.0,
+      "class_count": 2,
+      "class_capacity": 24,
+      "class_dirichlet_alpha": 0.5,
+      "utility_range": [
+        0.0,
+        1.0
+      ],
+      "history_rounds": 5,
+      "history_selection_probability": 0.6,
+      "utility_alpha": 0.5,
+      "class_beta": 0.5,
+      "deadline_seconds": 20.0,
+      "iterations": 100,
+      "destroy": {
+        "sf": 0.67,
+        "rf_min": 0.2,
+        "rf_max": 0.8
+      },
+      "accept": {
+        "D_pc_min": -100.0,
+        "M_pc_max": 10000.0,
+        "E_pc_max": 10000.0,
+        "bl_min": 0.0
+      },
+      "weights": {
+        "M_weight": 0.3,
+        "E_weight": 0.3,
+        "D_weight": 0.1,
+        "K_weight": 0.1,
+        "U_weight": 0.2
+      },
+      "normalization_bounds": {
+        "min_M_X": 0.1,
+        "max_M_X": 20.0,
+        "min_E_X": 0.1,
+        "max_E_X": 500.0
+      },
+      "class_distribution": "locally_balanced",
+      "optimality_tolerance": 1e-09
+    },
+    "pqn": {
+      "seeds": [
+        7,
+        17,
+        27
+      ],
+      "num_eval_episodes": 32,
+      "max_eval_steps": 500,
+      "eval_seed_offset": 1729,
+      "upstream": {
+        "ALG_NAME": "pqn",
+        "ENV_NAME": "CartPole-v1",
+        "TOTAL_TIMESTEPS": 32768,
+        "TOTAL_TIMESTEPS_DECAY": 32768,
+        "NUM_ENVS": 16,
+        "NUM_STEPS": 32,
+        "NUM_MINIBATCHES": 4,
+        "NUM_EPOCHS": 2,
+        "HIDDEN_SIZE": 64,
+        "NUM_LAYERS": 2,
+        "NORM_TYPE": "layer_norm",
+        "NORM_INPUT": false,
+        "LR": 0.0003,
+        "MAX_GRAD_NORM": 10.0,
+        "LR_LINEAR_DECAY": true,
+        "REW_SCALE": 1.0,
+        "GAMMA": 0.99,
+        "LAMBDA": 0.95,
+        "EPS_START": 1.0,
+        "EPS_FINISH": 0.05,
+        "EPS_DECAY": 0.5,
+        "TEST_DURING_TRAINING": true,
+        "TEST_INTERVAL": 0.25,
+        "TEST_NUM_ENVS": 16,
+        "TEST_NUM_STEPS": 500,
+        "EPS_TEST": 0.0,
+        "WANDB_MODE": "disabled",
+        "WANDB_LOG_ALL_SEEDS": false
+      }
+    },
+    "pqn_paper": {
+      "seeds": [
+        7,
+        17,
+        27
+      ],
+      "num_eval_episodes": 32,
+      "max_eval_steps": 500,
+      "eval_seed_offset": 1729,
+      "upstream": {
+        "ALG_NAME": "pqn",
+        "ENV_NAME": "CartPole-v1",
+        "TOTAL_TIMESTEPS": 500000,
+        "TOTAL_TIMESTEPS_DECAY": 500000,
+        "NUM_ENVS": 32,
+        "NUM_STEPS": 64,
+        "NUM_MINIBATCHES": 16,
+        "NUM_EPOCHS": 4,
+        "HIDDEN_SIZE": 256,
+        "NUM_LAYERS": 2,
+        "NORM_TYPE": "layer_norm",
+        "NORM_INPUT": false,
+        "LR": 0.0001,
+        "MAX_GRAD_NORM": 10.0,
+        "LR_LINEAR_DECAY": true,
+        "REW_SCALE": 0.1,
+        "GAMMA": 0.99,
+        "LAMBDA": 0.95,
+        "EPS_START": 1.0,
+        "EPS_FINISH": 0.2,
+        "EPS_DECAY": 0.2,
+        "TEST_DURING_TRAINING": true,
+        "TEST_INTERVAL": 0.05,
+        "TEST_NUM_ENVS": 128,
+        "TEST_NUM_STEPS": 500,
+        "EPS_TEST": 0.0,
+        "WANDB_MODE": "disabled",
+        "WANDB_LOG_ALL_SEEDS": false,
+        "ENV_KWARGS": {}
+      }
+    },
+    "ocp_unlock": {
+      "seeds": [
+        7,
+        17,
+        27
+      ],
+      "score_archive": "reference_algorithms/results/sota-screen-20261005/conformalopt/official_googl-scores.npz",
+      "alpha": 0.1,
+      "arms": 20,
+      "calibration_upper_multiplier": 2.5,
+      "score_lower_bound": 0.0,
+      "lambda": 1.0,
+      "delta": 1.0,
+      "function": "lin",
+      "displeasure": "abs",
+      "loss_type": "new",
+      "C": 20.0,
+      "version": 0,
+      "ot_power": 0.25,
+      "power_const_option": 10.0,
+      "variants": {
+        "OCP-Bandit": 0,
+        "OCP-Unlock": 3,
+        "OCP-Unlock+": 4
+      },
+      "test_break_fraction": 0.5,
+      "quantile_method": "higher",
+      "warmup_bandit": true
+    },
+    "conformalopt_small_lr": {
+      "seed": 7,
+      "source": "official_googl",
+      "source_data_name": "GOOGL_theta_absolute-residual_scores",
+      "warmup_scores": 30,
+      "score_scale": 10000.0,
+      "validation_fraction": 0.3,
+      "test_break_fraction": 0.5,
+      "alpha": 0.1,
+      "quantile_method": "higher",
+      "tracker_order": 1,
+      "tracker_bias": 1.0,
+      "learning_rate": 0.0005,
+      "learning_rate_type": "fixed",
+      "feedback_delay": 0,
+      "clip_low": 0.0,
+      "clip_high": 1.0,
+      "scorecaster": null
+    },
+    "tabm_modal": {
+      "seeds": [
+        7,
+        17,
+        27
+      ],
+      "train_rows": 4096,
+      "validation_rows": 1024,
+      "epochs": 15,
+      "batch_size": 256,
+      "learning_rate": 0.001,
+      "weight_decay": 0.0001,
+      "n_blocks": 2,
+      "d_block": 64,
+      "dropout": 0.0,
+      "k": 8,
+      "threads": 2,
+      "device": "cuda",
+      "classification_threshold": 0.5,
+      "subset_seed": 42,
+      "arch_type": "tabm",
+      "activation": "ReLU",
+      "start_scaling_init": "random-signs",
+      "risk_kappa": 1.0
+    }
+  },
+  "components": {
+    "backend": "researcher",
+    "risk": "researcher",
+    "attack": "researcher"
+  },
+  "comparisons": {
+    "modal_source_root": "/opt/cloud-edge-study",
+    "risk": {
+      "threads": 2,
+      "epochs": 20,
+      "batch_size": 16,
+      "learning_rate": 0.001,
+      "weight_decay": 0.0001,
+      "n_blocks": 2,
+      "d_block": 64,
+      "dropout": 0.0,
+      "k": 8,
+      "arch_type": "tabm",
+      "activation": "ReLU",
+      "start_scaling_init": "random-signs",
+      "validation_fraction": 0.2,
+      "output_transform": "sigmoid"
+    },
+    "attack": {
+      "tv_reg": 0.0,
+      "epochs": 1,
+      "median_pooling": false,
+      "top10norms": false
+    },
+    "metacs": {
+      "history_window": 5,
+      "utility_scale": 0.01,
+      "weights": {
+        "M_weight": 0.3,
+        "E_weight": 0.3,
+        "D_weight": 0.2,
+        "K_weight": 0.0,
+        "U_weight": 0.2
+      },
+      "normalization_bounds": {
+        "min_M_X": 0.001,
+        "max_M_X": 20.0,
+        "min_E_X": 0.01,
+        "max_E_X": 500.0
+      }
+    },
+    "pqn": {
+      "device": "cuda",
+      "hidden_width": 128,
+      "num_layers": 2,
+      "layer_norm_epsilon": 1e-05,
+      "learning_rate": 0.0001,
+      "adam_betas": [
+        0.9,
+        0.999
+      ],
+      "adam_epsilon": 1e-08,
+      "weight_decay": 0.0,
+      "gamma": 1.0,
+      "lambda": 0.95,
+      "reward_scale": 0.1,
+      "total_steps": 3000,
+      "rollout_steps": 16,
+      "num_minibatches": 4,
+      "epochs": 4,
+      "epsilon_start": 1.0,
+      "epsilon_finish": 0.2,
+      "epsilon_decay_steps": 2000,
+      "linear_lr_decay": true,
+      "lr_decay_steps": 3000,
+      "min_learning_rate": 0.0,
+      "max_grad_norm": 10.0,
+      "checkpoint_interval_updates": 1,
+      "budget_includes_warmup": true
+    },
+    "calibration": {
+      "calibration_run_ids": [],
+      "evaluation_run_ids": [],
+      "methods": [
+        "static_quantile",
+        "conformal_sqt",
+        "conformal_lqt",
+        "ocp_bandit",
+        "ocp_unlock",
+        "ocp_unlock_plus"
+      ],
+      "alpha": 0.1,
+      "quantile_method": "higher",
+      "conformal": {
+        "learning_rate": 0.05,
+        "learning_rate_type": "fixed",
+        "tracker_order": 1,
+        "tracker_bias": 1.0,
+        "scorecaster": null,
+        "feedback_delay": 0
+      },
+      "ocp": {
+        "seed": 7,
+        "arms": 2,
+        "score_upper_bound": 1.0,
+        "lambda": 1.0,
+        "delta": 1.0,
+        "function": "lin",
+        "displeasure": "abs",
+        "loss_type": "new",
+        "C": 20.0,
+        "version": 0,
+        "ot_power": 0.25,
+        "power_const_option": 10.0,
+        "warmup_bandit": true,
+        "variants": {
+          "ocp_bandit": 0,
+          "ocp_unlock": 3,
+          "ocp_unlock_plus": 4
+        }
+      }
+    },
+    "workflow": {
+      "enabled": false,
+      "tag": "integrated-baselines-20261005-v3",
+      "backend": "modal",
+      "resume_manifest": "",
+      "policy_seed_pairs": [
+        {
+          "train_seed": 7,
+          "evaluation_seed": 1007
+        }
+      ],
+      "job_order": [
+        "comparison_collect",
+        "comparison_benchmark",
+        "comparison_audit",
+        "comparison_fit_risk",
+        "comparison_train",
+        "comparison_validate_collect",
+        "comparison_validate_audit",
+        "comparison_test_collect",
+        "comparison_test_audit",
+        "comparison_evaluate_risk",
+        "comparison_evaluate_schedulers",
+        "comparison_scheduler_audits",
+        "comparison_calibration"
+      ]
+    }
+  },
+  "native_acceptance": {
+    "enabled": false,
+    "tag": "first-acceptance-v1-20261009",
+    "version": "first-acceptance-v1",
+    "artifact_verification": "json_snapshot_no_hash",
+    "required_paired_seeds": 3,
+    "minimum_feasible_improving_seeds": 2,
+    "risk_multiplier": 0.95,
+    "proxy_mae_multiplier": 1.1,
+    "calibration_underestimation_multiplier": 0.95,
+    "calibration_mae_multiplier": 1.1,
+    "interaction_limit": 3000,
+    "require_complete_audit": true,
+    "confirmation": {
+      "status": "registered_only",
+      "frozen": false,
+      "freeze_id": null,
+      "main_method": null,
+      "scheduler_reference": null,
+      "risk_reference": null,
+      "training_seeds": [
+        1101,
+        1102,
+        1103
+      ],
+      "evaluation_seeds": {
+        "1101": 2101,
+        "1102": 2102,
+        "1103": 2103
+      },
+      "risk_fit_seeds": [
+        3101,
+        3102,
+        3103
+      ],
+      "panel_seeds": [
+        4101,
+        4102,
+        4103
+      ],
+      "dataset": "adult",
+      "partition": "iid",
+      "resources": "normal",
+      "freeze_manifest": null,
+      "evidence_manifest": null
+    },
+    "reference_selection": {
+      "scheduler_candidates": [
+        "fixed",
+        "time_greedy",
+        "risk_greedy",
+        "metacs",
+        "pqn"
+      ],
+      "scheduler_rule": "max_validation_accuracy_then_min_time_then_min_energy_then_min_audited_risk",
+      "risk_candidates": [
+        "mlp",
+        "tabm"
+      ],
+      "risk_rule": "min_development_panel_exposure_weighted_mae",
+      "main_rule": "min_audited_validation_risk_among_feasible_dqn_ppo"
+    },
+    "research_protocol": {
+      "path": "C:/Users/42155/Downloads/PLAN (1).md",
+      "verification": "direct_read_no_hash"
+    },
+    "development": {
+      "hypothesis_id": "R3-positive-half-postclip",
+      "diagnostic_only": true,
+      "status": "training_precheck_passed_independent_panel_blocked",
+      "change": "half_interpolation_after_clip_only_same_signed_fit",
+      "risk_candidate": "width64-100-b16-batch-positive-half",
+      "base_risk_candidate": "width64-100-b16-batch-calibrated",
+      "risk_fit_seeds": [
+        501,
+        502,
+        503
+      ],
+      "panel_seeds": [
+        31,
+        32,
+        33
+      ],
+      "shared_fit_source_root": "output/first-acceptance-v1-20261009/risk-R1-raw-vs-batch-cpu-v1",
+      "training_sources": [
+        "output/native-acceptance-20261008/common-panel-audit-s11-v2/runs/audit-fixed-s7-9cb359cb30d4/audits.jsonl",
+        "output/native-acceptance-20261008/common-panel-audit-s12/runs/audit-fixed-s7-4bd283753162/audits.jsonl",
+        "output/native-acceptance-20261008/common-panel-audit-s13/runs/audit-fixed-s7-7f453410e4dd/audits.jsonl",
+        "output/native-acceptance-20261008/common-panel-audit-s14/runs/audit-fixed-s7-e66d778ffab7/audits.jsonl"
+      ],
+      "collection_configs": {
+        "collect-round_robin-s11-653e5cf8df02": "output/native-acceptance-20261008/common-panel-s11/runs/collect-round_robin-s11-653e5cf8df02/config.json",
+        "collect-round_robin-s12-9c0dc9e658b0": "output/native-acceptance-20261008/common-panel-s12/runs/collect-round_robin-s12-9c0dc9e658b0/config.json",
+        "collect-round_robin-s13-86c899c5752a": "output/native-acceptance-20261008/common-panel-s13/runs/collect-round_robin-s13-86c899c5752a/config.json",
+        "collect-round_robin-s14-ed1415a9c01d": "output/native-acceptance-20261008/common-panel-s14/runs/collect-round_robin-s14-ed1415a9c01d/config.json"
+      },
+      "panel_sources": [],
+      "prohibit_old_panel_reads": true,
+      "allow_new_fedsgd_interactions": false,
+      "allow_new_audit_calls": false,
+      "device": "cpu",
+      "threads": 2,
+      "precheck_seed": 501,
+      "preflight_timeout_seconds": 90,
+      "mechanism_timeout_seconds": 90,
+      "new_interaction_limit": 0,
+      "new_audit_call_limit": 0,
+      "output_root": "output/first-acceptance-v1-20261009/risk-R3-positive-half-cpu-v1",
+      "decision_rule": "fixed_half_no_strength_sweep_training_gate_then_unused_development_panel",
+      "full_step_candidate": "width64-100-b16-batch-nonnegative",
+      "prediction_absolute_tolerance": 5e-07,
+      "metric_envelope_tolerance": 5e-07
+    },
+    "budget_reconciliation": {
+      "status": "monetary_cap_removed_by_user_history_unclosed",
+      "approved_new_paid_usd": null,
+      "monetary_cap_enforced": false,
+      "historical_total_budget_usd": 100.0,
+      "authorization": "explicit_user_removed_budget_cap_2026-10-09",
+      "actual_historical_usd": null,
+      "remaining_usd": null,
+      "ledger_path": "output/first-acceptance-v1-20261009/historical-budget-ledger.json",
+      "ledger_manifest": null,
+      "ledger_schema_status": "historical_inventory_not_acceptance_call_rows",
+      "historical_inventory_manifest": {
+        "path": "output/first-acceptance-v1-20261009/historical-budget-ledger.json",
+        "role": "unreconciled_inventory_not_call_ledger"
+      },
+      "audit_manifest": {
+        "path": "output/first-acceptance-v1-20261009/resume-20261009-budget-audit/audit.json",
+        "role": "historical_readonly_audit_not_final_billing"
+      },
+      "observed_workspace_gross_usd": 1.81065343,
+      "paid_execution_blocked": true,
+      "paid_execution_blocked_reason": "unverified_interactions_and_data_isolation_no_stage_approval"
+    },
+    "stop_conditions": [
+      "unverified_cumulative_interactions",
+      "unverified_data_isolation",
+      "interaction_limit_reached",
+      "tuning_config_limit_reached",
+      "no_evidence_supported_candidate",
+      "ineffective_or_incomplete_attack_evidence",
+      "confirmation_complete_no_further_tuning"
+    ],
+    "research_stop": {
+      "active": true,
+      "scope": "new_configuration_search_and_unverified_execution",
+      "conditions": [
+        "unverified_cumulative_interactions",
+        "unverified_data_isolation",
+        "ineffective_or_incomplete_attack_evidence",
+        "tuning_config_limit_reached"
+      ],
+      "permit_new_training": false,
+      "permit_new_audits": false,
+      "permit_new_calibration_search": false,
+      "permit_attack_validity_precheck": false,
+      "decision_path": "output/first-acceptance-v1-20261009/quota-amendment-nine-20261009-v3/amended-state.json"
+    },
+    "sample_seed": 7,
+    "seeds": [
+      101,
+      102,
+      103,
+      104,
+      105
+    ],
+    "sample_action": 0,
+    "model_rounds": [
+      0,
+      12
+    ],
+    "iterations": 1000,
+    "restarts": 3,
+    "ratio": 0.95,
+    "sample_timeout_seconds": 600,
+    "preflight_timeout_seconds": 120,
+    "controller_timeout_seconds": 900,
+    "max_containers": 1,
+    "policy_sample_timeout_seconds": 300,
+    "policy_sample_interactions": 500,
+    "sample_budget_usd": null,
+    "total_budget_usd": null,
+    "estimated_l4_container_usd_per_second": 0.0003,
+    "estimated_container_usd_per_second": 0.0016,
+    "hardware_benchmark": {
+      "status": "hardware_probe_verified_formal_budget_unreconciled",
+      "future_runs_only": true,
+      "verification_artifact": "output/first-acceptance-v1-20261009/modal-h100-hardware-probe-v1/verified-result.json",
+      "sample_timeout_seconds": 120,
+      "controller_timeout_seconds": 180,
+      "price_checked_on": "2026-10-09",
+      "price_source": "https://modal.com/pricing",
+      "published_base_compute_usd_per_second": 0.00144868,
+      "speedup_verified": false,
+      "allow_gpu_fallback": false,
+      "probe": {
+        "app_name": "cloud-edge-rl-h100-hardware-probe-20261009",
+        "environment": "main",
+        "profile": "oktinner0320",
+        "seed": 9101,
+        "fedsgd_rounds": 2,
+        "startup_timeout_seconds": 45,
+        "result_timeout_seconds": 90,
+        "approved_sample_usd": 0.5,
+        "authorization": "explicit_user_hardware_test_only_2026-10-09",
+        "diagnostic_only": true,
+        "formal_training_enabled": false,
+        "output_root": "output/first-acceptance-v1-20261009/modal-h100-hardware-probe-v1"
+      }
+    },
+    "absolute_tolerance_zero_reference": null,
+    "collection_seeds": [
+      11,
+      12,
+      13,
+      14
+    ],
+    "collection_timeout_seconds": 120,
+    "validation_timeout_seconds": 120,
+    "validation_startup_wait_seconds": 300,
+    "policy_validation_seeds": {
+      "101": 201,
+      "102": 202,
+      "103": 203,
+      "104": 204,
+      "105": 205
+    },
+    "partitions": [
+      "iid"
+    ],
+    "diagnostic_partitions": [
+      "label_skew"
+    ],
+    "scheduler_methods": [
+      "dqn",
+      "ppo",
+      "pqn",
+      "metacs",
+      "fixed",
+      "time_greedy",
+      "risk_greedy"
+    ],
+    "max_tuning_configs": 9,
+    "attack_candidates": {
+      "categorical-softmax-v1": {
+        "input_parameterization": "categorical_softmax",
+        "categorical_temperature": 1.0
+      },
+      "categorical-softmax-vectorized-v1": {
+        "input_parameterization": "categorical_softmax",
+        "categorical_temperature": 1.0,
+        "restart_execution": "vectorized_analytic"
+      },
+      "categorical-softmax-compiled-v1": {
+        "input_parameterization": "categorical_softmax",
+        "categorical_temperature": 1.0,
+        "restart_execution": "vectorized_analytic",
+        "compile_gradient_objective": true
+      },
+      "categorical-softmax-cudagraph-v1": {
+        "input_parameterization": "categorical_softmax",
+        "categorical_temperature": 1.0,
+        "restart_execution": "vectorized_analytic",
+        "compile_gradient_objective": true,
+        "compile_mode": "reduce-overhead"
+      },
+      "public-gradient-prior-v1": {
+        "input_parameterization": "categorical_softmax",
+        "categorical_temperature": 1.0,
+        "restart_execution": "vectorized_analytic",
+        "compile_gradient_objective": true,
+        "compile_mode": "reduce-overhead",
+        "initialization": "public_gradient_prior"
+      }
+    },
+    "attack_sample_profiles": {
+      "strong-softmax-v1": {
+        "attack_candidate": "categorical-softmax-v1",
+        "iterations": 10000,
+        "learning_rate": 0.06,
+        "timeout_seconds": 1200
+      },
+      "strong-softmax-vectorized-v1": {
+        "attack_candidate": "categorical-softmax-vectorized-v1",
+        "iterations": 10000,
+        "learning_rate": 0.06,
+        "timeout_seconds": 1200
+      },
+      "strong-softmax-compiled-v1": {
+        "attack_candidate": "categorical-softmax-compiled-v1",
+        "iterations": 10000,
+        "learning_rate": 0.06,
+        "timeout_seconds": 1200
+      },
+      "strong-softmax-cudagraph-v1": {
+        "attack_candidate": "categorical-softmax-cudagraph-v1",
+        "iterations": 10000,
+        "learning_rate": 0.06,
+        "timeout_seconds": 1200
+      },
+      "strong-public-gradient-prior-v1": {
+        "attack_candidate": "public-gradient-prior-v1",
+        "iterations": 10000,
+        "learning_rate": 0.06,
+        "timeout_seconds": 1200
+      }
+    },
+    "risk_candidates": {
+      "epochs-100": {
+        "epochs": 100
+      },
+      "epochs-100-b16": {
+        "epochs": 100,
+        "batch_size": 16
+      },
+      "width64-100-b16": {
+        "epochs": 100,
+        "batch_size": 16,
+        "hidden_sizes": [
+          64,
+          64
+        ]
+      },
+      "width64-k3-100-b16": {
+        "epochs": 100,
+        "batch_size": 16,
+        "hidden_sizes": [
+          64,
+          64
+        ],
+        "ensemble_size": 3
+      },
+      "width64-100-b16-mean-calibrated": {
+        "epochs": 100,
+        "batch_size": 16,
+        "hidden_sizes": [
+          64,
+          64
+        ],
+        "mean_calibration": true
+      },
+      "width64-100-b16-batch-calibrated": {
+        "epochs": 100,
+        "batch_size": 16,
+        "hidden_sizes": [
+          64,
+          64
+        ],
+        "mean_calibration": true,
+        "calibration_feature_index": 1
+      },
+      "width64-100-b16-batch-nonnegative": {
+        "epochs": 100,
+        "batch_size": 16,
+        "hidden_sizes": [
+          64,
+          64
+        ],
+        "mean_calibration": true,
+        "calibration_feature_index": 1,
+        "calibration_nonnegative": true
+      },
+      "width64-100-b16-batch-positive-half": {
+        "epochs": 100,
+        "batch_size": 16,
+        "hidden_sizes": [
+          64,
+          64
+        ],
+        "mean_calibration": true,
+        "calibration_feature_index": 1,
+        "calibration_nonnegative": true,
+        "calibration_strength": 0.5
+      }
+    },
+    "policy_candidates": {
+      "public-budget-scaling-v1": {
+        "observation_divisors": {
+          "history": [
+            30,
+            3000,
+            3000
+          ],
+          "risk_ledger": 3000,
+          "resources": [
+            [
+              6.5,
+              26.0,
+              1.0
+            ],
+            [
+              13.0,
+              52.0,
+              1.0
+            ],
+            [
+              26.0,
+              78.0,
+              1.0
+            ]
+          ],
+          "candidates": [
+            1.0,
+            1.0,
+            10.0,
+            1.0,
+            1.0
+          ]
+        }
+      },
+      "scaled-ppo-lr3e3-v1": {
+        "observation_divisors": {
+          "history": [
+            30,
+            3000,
+            3000
+          ],
+          "risk_ledger": 3000,
+          "resources": [
+            [
+              6.5,
+              26.0,
+              1.0
+            ],
+            [
+              13.0,
+              52.0,
+              1.0
+            ],
+            [
+              26.0,
+              78.0,
+              1.0
+            ]
+          ],
+          "candidates": [
+            1.0,
+            1.0,
+            10.0,
+            1.0,
+            1.0
+          ]
+        },
+        "learning_rate": 0.003
+      }
+    },
+    "reward_candidates": {
+      "accuracy-feasibility-v1": {
+        "accuracy_weight": 4.0
+      }
+    },
+    "backend_numerical_tolerance": 1e-06,
+    "accuracy_slack": 0.01,
+    "cost_multiplier": 1.15,
+    "budget_by_stage_usd": {
+      "baseline": null,
+      "risk": null,
+      "policy": null,
+      "formal": null
+    },
+    "shock": {
+      "start_seconds": 2.0,
+      "end_seconds": 8.0,
+      "client_ids": [
+        0
+      ],
+      "bandwidth_factor": 0.25,
+      "load_increment": 0.3
+    },
+    "collection_validation_seeds": [
+      21,
+      22
+    ],
+    "audit_shard_calls": 12,
+    "audit_shard_seconds": 480,
+    "audit_timeout_seconds": 600,
+    "fit_timeout_seconds": 180,
+    "development_history": {
+      "R1-raw-vs-batch": {
+        "hypothesis_id": "R1-raw-vs-batch",
+        "diagnostic_only": true,
+        "status": "existing_artifacts_reviewed_development_gates_pass_formal_insufficient",
+        "aggregate_manifest": {
+          "path": "output/first-acceptance-v1-20261009/resume-20261009-R1-aggregate/aggregate.json",
+          "role": "historical_development_only"
+        },
+        "risk_fit_seeds": [
+          501,
+          502,
+          503
+        ],
+        "panel_seeds": [
+          21,
+          22
+        ],
+        "change": "same_network_raw_vs_existing_batch_calibration",
+        "allow_new_fedsgd_interactions": false,
+        "risk_candidate": "width64-100-b16-batch-calibrated",
+        "device": "cpu",
+        "threads": 2,
+        "output_root": "output/first-acceptance-v1-20261009/risk-R1-raw-vs-batch-cpu-v1",
+        "training_sources": [
+          "output/native-acceptance-20261008/common-panel-audit-s11-v2/runs/audit-fixed-s7-9cb359cb30d4/audits.jsonl",
+          "output/native-acceptance-20261008/common-panel-audit-s12/runs/audit-fixed-s7-4bd283753162/audits.jsonl",
+          "output/native-acceptance-20261008/common-panel-audit-s13/runs/audit-fixed-s7-7f453410e4dd/audits.jsonl",
+          "output/native-acceptance-20261008/common-panel-audit-s14/runs/audit-fixed-s7-e66d778ffab7/audits.jsonl"
+        ],
+        "panel_sources": [
+          "output/native-acceptance-20261008/common-panel-audit-v21/runs/audit-fixed-s7-7c5c99a761f0/audits.jsonl",
+          "output/native-acceptance-20261008/common-panel-audit-v22/runs/audit-fixed-s7-dc756d1ae80e/audits.jsonl"
+        ],
+        "collection_configs": {
+          "collect-round_robin-s11-653e5cf8df02": "output/native-acceptance-20261008/common-panel-s11/runs/collect-round_robin-s11-653e5cf8df02/config.json",
+          "collect-round_robin-s12-9c0dc9e658b0": "output/native-acceptance-20261008/common-panel-s12/runs/collect-round_robin-s12-9c0dc9e658b0/config.json",
+          "collect-round_robin-s13-86c899c5752a": "output/native-acceptance-20261008/common-panel-s13/runs/collect-round_robin-s13-86c899c5752a/config.json",
+          "collect-round_robin-s14-ed1415a9c01d": "output/native-acceptance-20261008/common-panel-s14/runs/collect-round_robin-s14-ed1415a9c01d/config.json",
+          "collect-round_robin-s21-25abe8e44217": "output/native-acceptance-20261008/common-panel-v21/runs/collect-round_robin-s21-25abe8e44217/config.json",
+          "collect-round_robin-s22-f195078d2b76": "output/native-acceptance-20261008/common-panel-v22/runs/collect-round_robin-s22-f195078d2b76/config.json"
+        }
+      },
+      "R2-batch-positive-part": {
+        "hypothesis_id": "R2-batch-positive-part",
+        "diagnostic_only": true,
+        "status": "rejected_training_precheck_ewmae_no_expansion",
+        "change": "correction_max_zero_only_same_signed_fit",
+        "risk_candidate": "width64-100-b16-batch-nonnegative",
+        "base_risk_candidate": "width64-100-b16-batch-calibrated",
+        "risk_fit_seeds": [
+          501,
+          502,
+          503
+        ],
+        "panel_seeds": [
+          31,
+          32,
+          33
+        ],
+        "shared_fit_source_root": "output/first-acceptance-v1-20261009/risk-R1-raw-vs-batch-cpu-v1",
+        "training_sources": [
+          "output/native-acceptance-20261008/common-panel-audit-s11-v2/runs/audit-fixed-s7-9cb359cb30d4/audits.jsonl",
+          "output/native-acceptance-20261008/common-panel-audit-s12/runs/audit-fixed-s7-4bd283753162/audits.jsonl",
+          "output/native-acceptance-20261008/common-panel-audit-s13/runs/audit-fixed-s7-7f453410e4dd/audits.jsonl",
+          "output/native-acceptance-20261008/common-panel-audit-s14/runs/audit-fixed-s7-e66d778ffab7/audits.jsonl"
+        ],
+        "collection_configs": {
+          "collect-round_robin-s11-653e5cf8df02": "output/native-acceptance-20261008/common-panel-s11/runs/collect-round_robin-s11-653e5cf8df02/config.json",
+          "collect-round_robin-s12-9c0dc9e658b0": "output/native-acceptance-20261008/common-panel-s12/runs/collect-round_robin-s12-9c0dc9e658b0/config.json",
+          "collect-round_robin-s13-86c899c5752a": "output/native-acceptance-20261008/common-panel-s13/runs/collect-round_robin-s13-86c899c5752a/config.json",
+          "collect-round_robin-s14-ed1415a9c01d": "output/native-acceptance-20261008/common-panel-s14/runs/collect-round_robin-s14-ed1415a9c01d/config.json"
+        },
+        "panel_sources": [],
+        "prohibit_old_panel_reads": true,
+        "allow_new_fedsgd_interactions": false,
+        "allow_new_audit_calls": false,
+        "device": "cpu",
+        "threads": 2,
+        "precheck_seed": 501,
+        "preflight_timeout_seconds": 90,
+        "mechanism_timeout_seconds": 90,
+        "new_interaction_limit": 0,
+        "new_audit_call_limit": 0,
+        "output_root": "output/first-acceptance-v1-20261009/risk-R2-positive-part-cpu-v1",
+        "decision_rule": "mechanism_precheck_then_fresh_development_panel_or_reject_no_retuning"
+      }
+    },
+    "admission_preflight": {
+      "id": "seed31-json-attribution-v1",
+      "output_root": "output/first-acceptance-v1-20261009/resume-seed31-admission-20261009-v1",
+      "target_method": "round_robin",
+      "target_seed": 31,
+      "target_split": "validation",
+      "purpose": "R3_fixed_half_candidate_development_panel_admission_only",
+      "max_native_manifests": 80,
+      "max_critical_events": 12,
+      "max_auxiliary_json": 16,
+      "max_file_bytes": 8388608,
+      "max_total_read_bytes": 67108864,
+      "timeout_seconds": 90,
+      "new_cloud_calls": 0,
+      "new_interactions": 0,
+      "probe_record": "output/first-acceptance-v1-20261009/resume-20261009-budget-audit/audit.json",
+      "stop_rule": "stop_after_critical_sample_if_required_attribution_is_unresolved_no_full_manifest_crawl",
+      "same_validation_partition_is_not_itself_group_overlap": true,
+      "status": "critical_sample_stopped_no_full_expansion"
+    },
+    "admission_followup": {
+      "id": "original-probe-and-global-quota-v2",
+      "output_root": "output/first-acceptance-v1-20261009/resume-original-probe-quota-20261009-v2",
+      "probe_root": "output/first-acceptance-v1-20261009/modal-h100-hardware-probe-v1",
+      "probe_run_id": "collect-round_robin-s9101-ba19794136ab",
+      "max_json_files": 24,
+      "max_file_bytes": 8388608,
+      "max_total_read_bytes": 67108864,
+      "timeout_seconds": 90,
+      "new_cloud_calls": 0,
+      "new_interactions": 0,
+      "stop_rule": "no_paid_execution_until_global_configuration_and_group_quota_closed",
+      "configuration_scope": "global_including_actual_policy_and_risk_tuning_not_registration_count",
+      "configuration_count_rule": "user_confirmed_global_per_component_actual_settings",
+      "seeds_retraining_resume_and_fixed_denominators_not_new_configurations": true,
+      "quota_stop_rule": "no_new_settings_at_or_above_native_max_fixed_evaluation_requires_other_gates",
+      "policy_manifest_witnesses": [
+        "output/native-acceptance-20261008/policy-pilot-dqn-s101/manifest.json",
+        "output/native-acceptance-20261008/policy-scaled-dqn-s102/manifest.json",
+        "output/native-acceptance-20261008/policy-accuracy4-dqn-s103-sample/manifest.json",
+        "output/native-acceptance-20261008/policy-ppo-lr3e3-s104-sample-v2/manifest.json"
+      ],
+      "risk_manifest_witnesses": [
+        "output/native-acceptance-20261008/risk-pilot3-native/manifest.json",
+        "output/native-acceptance-20261008/risk-fourgroup-native/manifest.json",
+        "output/native-acceptance-20261008/risk-calibrated-fourgroup-native-v4/manifest.json"
+      ],
+      "status": "historical_original_cap_8_exceeded_current_cap_9_amended"
+    },
+    "protocol_amendment": {
+      "id": "quota-eight-to-nine-user-20261009",
+      "authorization": "explicit_user_amendment_to_nine_preserve_formal_test",
+      "status": "quota_revision_only_not_experiment_approval",
+      "historical_max_tuning_configs": 8,
+      "verified_actual_configuration_lower_bound": 9,
+      "exact_actual_configuration_count_closed": false,
+      "verified_new_configuration_slots": 0,
+      "allow_additional_tuning": false,
+      "allow_premature_official_test": false,
+      "development_evaluation_policy": "fixed_existing_candidate_after_usage_isolation_and_bounded_stage_approval",
+      "original_eight_limit_breach_preserved": true,
+      "output_root": "output/first-acceptance-v1-20261009/quota-amendment-nine-20261009-v3"
+    },
+    "fixed_validation": {
+      "id": "R3-independent-development-v4",
+      "output_root": "output/first-acceptance-v1-20261009/independent-development-validation-20261009-v4",
+      "status": "ordinary_results_delivered_partial_panel_stopped_waiting_user",
+      "stop_decision_path": "output/first-acceptance-v1-20261009/independent-development-validation-20261009-v4/audit-s31-precheck-stage-v2/stop-state.json",
+      "authorization": "explicit_user_fixed_validation_despite_retained_historical_configuration_overshoot",
+      "historical_configuration_lower_bound": 10,
+      "historical_configuration_total": null,
+      "historical_overshoot_blocks_fixed_evaluation": false,
+      "allow_new_tuning": false,
+      "candidate": "width64-100-b16-batch-positive-half",
+      "risk_fit_seeds": [
+        501,
+        502,
+        503
+      ],
+      "panel_method": "round_robin",
+      "panel_seeds": [
+        31,
+        32,
+        33
+      ],
+      "panel_split": "validation",
+      "collection_profile": {
+        "source_manifest": "output/native-acceptance-20261008/common-panel-s11/manifest.json",
+        "round_robin_actions": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11
+        ],
+        "risk_mode": "unavailable"
+      },
+      "modal_environment_name": "main",
+      "official_test_allowed": false,
+      "allow_refit_or_parameter_changes": false,
+      "admission_timeout_seconds": 90,
+      "max_json_files": 120,
+      "max_file_bytes": 8388608,
+      "max_total_read_bytes": 67108864,
+      "sample_native_manifests": 12,
+      "max_native_manifests": 80,
+      "training_shard_interactions": 100,
+      "training_shard_timeout_seconds": 900,
+      "audit_shard_uploads": 12,
+      "audit_shard_timeout_seconds": 1200,
+      "max_containers": 1,
+      "paid_stage_approved": false,
+      "approved_scope": "collection_seed31_only_no_attacks_no_policy_training",
+      "stage_dir": "output/first-acceptance-v1-20261009/independent-development-validation-20261009-v4/collect-s31-stage-v2",
+      "collection_startup_timeout_seconds": 180,
+      "scoped_historical_ledger_path": "output/first-acceptance-v1-20261009/independent-development-validation-20261009-v4/collect-s31-stage/scoped-historical-ledger.json",
+      "max_new_interactions_this_stage": 30,
+      "source_identity": "exact_content_snapshot_no_hash",
+      "approval_max_file_bytes": 33554432,
+      "approval_max_total_read_bytes": 134217728,
+      "audit_profile": {
+        "id": "R3-matched-training-attack-development-only",
+        "prototype_manifest": "output/native-acceptance-20261008/common-panel-audit-s11-v2/manifest.json",
+        "attack": {
+          "method": "gradient_matching",
+          "iterations": 1000,
+          "restarts": 3,
+          "learning_rate": 0.1,
+          "learning_rate_schedule": "linear",
+          "learning_rate_end_factor": 0.1,
+          "labels_known": true,
+          "device": "cuda"
+        },
+        "backend": "researcher",
+        "attack_component": "tabular_gia",
+        "attack_seed": 7,
+        "comparisons_attack": {
+          "tv_reg": 0.0,
+          "epochs": 1,
+          "median_pooling": false,
+          "top10norms": false
+        },
+        "execution_backend": "modal",
+        "selection": "earliest_four_postwarm_uploads_per_batch_size_before_labels",
+        "batch_sizes": [
+          8,
+          32,
+          64
+        ],
+        "per_batch_uploads": 4,
+        "precheck_uploads": 3,
+        "precheck_timeout_seconds": 900,
+        "precheck_attack_seconds": 480,
+        "remainder_uploads": 9,
+        "max_panel_uploads": 12,
+        "new_interactions": 0,
+        "new_fits": 0,
+        "formal_attack_strength_claim": false,
+        "paid_precheck_approved": false,
+        "paid_remainder_approved": false,
+        "approval_scope": "stopped_after_ordinary_results_no_third_compute_call",
+        "selection_plan_path": "output/first-acceptance-v1-20261009/independent-development-validation-20261009-v4/audit-s31-precheck-stage/selection-plan.json",
+        "precheck_stage_dir": "output/first-acceptance-v1-20261009/independent-development-validation-20261009-v4/ordinary-results-20261009-v1/precheck-stage",
+        "stop_if": [
+          "timeout_or_failure",
+          "truth_leakage",
+          "invalid_nonfinite_labels",
+          "no_attack_diagnostics"
+        ],
+        "expand_only_after": "completed_three_batch_precheck_with_valid_labels_and_primary_approval_no_automatic_retry",
+        "remainder_policy": "panel"
+      },
+      "stop_rule": "stop_if_relevant_counters_dependencies_or_isolation_unresolved_no_automatic_retry",
+      "retain_failures_and_all_denominators": true
+    },
+    "ordinary_results": {
+      "id": "ordinary-development-first-results-v1",
+      "output_root": "output/first-acceptance-v1-20261009/independent-development-validation-20261009-v4/ordinary-results-20261009-v1",
+      "reuse_training_seed": 101,
+      "reuse_validation_seed": 201,
+      "methods": [
+        "dqn",
+        "ppo",
+        "pqn",
+        "fixed",
+        "time_greedy",
+        "risk_greedy",
+        "metacs"
+      ],
+      "independent_panel_seeds": [
+        31
+      ],
+      "risk_fit_seeds": [
+        501,
+        502,
+        503
+      ],
+      "no_new_tuning": true,
+      "no_new_training_or_collection": true,
+      "official_test_allowed": false,
+      "formal_confirmation_deferred": true,
+      "save_failed_numerical_results": true,
+      "stop_after_results_and_analysis": true,
+      "maximum_new_attack_calls": 12,
+      "maximum_new_compute_calls": 2,
+      "preflight_timeout_seconds": 90,
+      "precheck_timeout_seconds": 900,
+      "remainder_timeout_seconds": 1200,
+      "download_timeout_seconds": 180,
+      "evaluation_timeout_seconds": 90,
+      "max_containers": 1,
+      "new_interactions": 0,
+      "new_fits": 0,
+      "stop_affected_path_if": [
+        "execution_failure",
+        "truth_leakage",
+        "invalid_artifacts",
+        "unresolved_relevant_interactions",
+        "ineffective_attack"
+      ],
+      "own_true_risk_requires_complete_audit": true,
+      "historical_cost_unknown_not_zero": true
+    },
+    "constraint_ppo": {
+      "id": "ppo-resource-feedback-v1",
+      "status": "stopped_fixed_continuation_readonly_download_timeout_no_auto_retry",
+      "hypothesis": "stage_frozen_observed_resource_feedback_improves_joint_time_energy_feasibility",
+      "approved_additional_policy_slots": 2,
+      "approval_scope": "closed_after_new_download_timeout_fresh_scoped_approval_required",
+      "historical_configuration_lower_bound": 10,
+      "historical_exact_configuration_count": null,
+      "actual_new_tuning_executions": 0,
+      "new_cloud_budget_usd": 6.0,
+      "new_real_interaction_limit": 2400,
+      "new_cloud_call_limit": 4,
+      "validation_timeout_seconds": 90,
+      "paid_stage_approved": false,
+      "actual_training_approved": false,
+      "official_test_allowed": false,
+      "resource_feedback": {
+        "mode": "dual",
+        "stage_episodes": 8,
+        "dual_step_size": 1.0,
+        "time_limit": 4.36313614867802,
+        "energy_limit": 30.070671189069326
+      },
+      "control_mode": "fixed",
+      "shared_stage_flush": true,
+      "control_protocol_counting_requires_review_before_execution": false,
+      "target_multiplier": 1.15,
+      "frozen_scheduler_reference": null,
+      "frozen_risk_version": "risk-r3-positive-half-fit501-constraint-pair-v1",
+      "same_risk_and_calibration_in_both_arms": true,
+      "allow_r3_strength_tuning": false,
+      "canonical_pair_interaction_limit": 3000,
+      "pair_limit_is_combined_not_per_arm": true,
+      "developer_seed_and_counter_admission": "pending",
+      "formal_confirmation_allowed": false,
+      "artifact_dir": "output/first-acceptance-v1-20261009/constraint-ppo-paired-20261009-v1",
+      "budget_bound_kind": "estimated_reservation_not_bill_or_hard_charge_cap",
+      "developer_seed": 1201,
+      "total_steps_per_arm": 1200,
+      "precheck_interactions_per_arm": 30,
+      "remaining_train_interactions_per_arm": 1170,
+      "shared_allocation_max": 600,
+      "precheck_timeout_seconds": 180,
+      "continuation_timeout_seconds": 900,
+      "startup_timeout_seconds": 180,
+      "max_containers": 1,
+      "gpu": "H100",
+      "cpu": 16.0,
+      "memory_mb": 65536,
+      "configuration_ids_by_mode": {
+        "fixed": "constraint-ppo-matched-fixed-v1",
+        "dual": "constraint-ppo-resource-dual-v1"
+      },
+      "policy_candidate": "scaled-ppo-lr3e3-v1",
+      "reward_candidate": "accuracy-feasibility-v1",
+      "frozen_risk_source": "output/first-acceptance-v1-20261009/risk-R1-raw-vs-batch-cpu-v1/fit-s501/risk.pt",
+      "frozen_risk_volume_path": "inputs/constraint-ppo-paired-20261009-v1/risk-fit501-positive-half.pt",
+      "resource_anchor_scope": "frozen_development_resource_anchor_not_formal_reference",
+      "resource_anchor_method": "time_greedy",
+      "resource_anchor_training_seed": 101,
+      "resource_anchor_validation_seed": 201,
+      "resource_anchor_source": "output/first-acceptance-v1-20261009/independent-development-validation-20261009-v4/ordinary-results-20261009-v1/ordinary-results.json",
+      "local_preparation_artifact_dir": "output/first-acceptance-v1-20261009/constraint-ppo-local-20261009-v1",
+      "executed_policy_settings": 2,
+      "stage_end_configuration_count_lower_bound": 12,
+      "completed_compute_calls": 3,
+      "unsubmitted_original_compute_calls": 1,
+      "returned_new_real_interactions": 1230,
+      "shared_allocated_once": 120,
+      "returned_canonical_interactions": 1350,
+      "unsubmitted_original_interactions": 1170,
+      "latest_stop_state": "output/first-acceptance-v1-20261009/constraint-ppo-paired-20261009-v1/admission-shared-source-v2/latest-stop-state.json"
+    },
+    "parameter_selection": {
+      "id": "dqn-ppo-parameter-selection-20261010-v1",
+      "status": "approved_full_20_after_verified_zero_failure",
+      "output_directory": "output/parameter-selection-dqn-ppo-20261010-v1/execution-v2",
+      "paid_execution_approved": false,
+      "tuning_configuration_slots_approved": 20,
+      "groups_per_algorithm": 10,
+      "environment_interactions_per_group": 500,
+      "training_seed": 5101,
+      "evaluation_seeds": [
+        6201,
+        6202
+      ],
+      "interaction_limit": 5120,
+      "historical_configuration_lower_bound": 12,
+      "historical_configuration_total": null,
+      "historical_interactions": {
+        "dqn": 0,
+        "ppo": 0
+      },
+      "historical_direct_count_scope": "verified unused method/seed5101/train groups only; unknown global history retained",
+      "allocated_collection_interactions": {
+        "dqn": 120,
+        "ppo": 120
+      },
+      "frozen_risk_checkpoint": "inputs/constraint-ppo-paired-20261009-v1/risk-fit501-positive-half.pt",
+      "frozen_risk_local_checkpoint": "output/first-acceptance-v1-20261009/constraint-ppo-paired-20261009-v1/frozen-risk.pt",
+      "frozen_risk_version": "risk-r3-positive-half-fit501-constraint-pair-v1",
+      "frozen_risk_config": {
+        "mode": "unavailable",
+        "ensemble_size": 5,
+        "hidden_sizes": [
+          64,
+          64
+        ],
+        "learning_rate": 0.001,
+        "epochs": 100,
+        "batch_size": 16,
+        "device": "cpu",
+        "validation_group_fraction": 0.2,
+        "validation_fraction": 0.2,
+        "weight_decay": 0.0001,
+        "mean_calibration": true,
+        "calibration_feature_index": 1,
+        "seed": 501,
+        "calibration_nonnegative": true,
+        "calibration_strength": 0.5
+      },
+      "registered_spec_paths": [
+        "output/parameter-selection-dqn-ppo-20261010-v1/execution-v2/specs/train-D00.json",
+        "output/parameter-selection-dqn-ppo-20261010-v1/execution-v2/specs/train-D01.json",
+        "output/parameter-selection-dqn-ppo-20261010-v1/execution-v2/specs/train-D02.json",
+        "output/parameter-selection-dqn-ppo-20261010-v1/execution-v2/specs/train-D03.json",
+        "output/parameter-selection-dqn-ppo-20261010-v1/execution-v2/specs/train-D04.json",
+        "output/parameter-selection-dqn-ppo-20261010-v1/execution-v2/specs/train-D05.json",
+        "output/parameter-selection-dqn-ppo-20261010-v1/execution-v2/specs/train-D06.json",
+        "output/parameter-selection-dqn-ppo-20261010-v1/execution-v2/specs/train-D07.json",
+        "output/parameter-selection-dqn-ppo-20261010-v1/execution-v2/specs/train-D08.json",
+        "output/parameter-selection-dqn-ppo-20261010-v1/execution-v2/specs/train-D09.json",
+        "output/parameter-selection-dqn-ppo-20261010-v1/execution-v2/specs/train-P00.json",
+        "output/parameter-selection-dqn-ppo-20261010-v1/execution-v2/specs/train-P01.json",
+        "output/parameter-selection-dqn-ppo-20261010-v1/execution-v2/specs/train-P02.json",
+        "output/parameter-selection-dqn-ppo-20261010-v1/execution-v2/specs/train-P03.json",
+        "output/parameter-selection-dqn-ppo-20261010-v1/execution-v2/specs/train-P04.json",
+        "output/parameter-selection-dqn-ppo-20261010-v1/execution-v2/specs/train-P05.json",
+        "output/parameter-selection-dqn-ppo-20261010-v1/execution-v2/specs/train-P06.json",
+        "output/parameter-selection-dqn-ppo-20261010-v1/execution-v2/specs/train-P07.json",
+        "output/parameter-selection-dqn-ppo-20261010-v1/execution-v2/specs/train-P08.json",
+        "output/parameter-selection-dqn-ppo-20261010-v1/execution-v2/specs/train-P09.json",
+        "output/parameter-selection-dqn-ppo-20261010-v1/execution-v2/specs/validate-D00-6201.json",
+        "output/parameter-selection-dqn-ppo-20261010-v1/execution-v2/specs/validate-D00-6202.json",
+        "output/parameter-selection-dqn-ppo-20261010-v1/execution-v2/specs/validate-D01-6201.json",
+        "output/parameter-selection-dqn-ppo-20261010-v1/execution-v2/specs/validate-D01-6202.json",
+        "output/parameter-selection-dqn-ppo-20261010-v1/execution-v2/specs/validate-D02-6201.json",
+        "output/parameter-selection-dqn-ppo-20261010-v1/execution-v2/specs/validate-D02-6202.json",
+        "output/parameter-selection-dqn-ppo-20261010-v1/execution-v2/specs/validate-D03-6201.json",
+        "output/parameter-selection-dqn-ppo-20261010-v1/execution-v2/specs/validate-D03-6202.json",
+        "output/parameter-selection-dqn-ppo-20261010-v1/execution-v2/specs/validate-D04-6201.json",
+        "output/parameter-selection-dqn-ppo-20261010-v1/execution-v2/specs/validate-D04-6202.json",
+        "output/parameter-selection-dqn-ppo-20261010-v1/execution-v2/specs/validate-D05-6201.json",
+        "output/parameter-selection-dqn-ppo-20261010-v1/execution-v2/specs/validate-D05-6202.json",
+        "output/parameter-selection-dqn-ppo-20261010-v1/execution-v2/specs/validate-D06-6201.json",
+        "output/parameter-selection-dqn-ppo-20261010-v1/execution-v2/specs/validate-D06-6202.json",
+        "output/parameter-selection-dqn-ppo-20261010-v1/execution-v2/specs/validate-D07-6201.json",
+        "output/parameter-selection-dqn-ppo-20261010-v1/execution-v2/specs/validate-D07-6202.json",
+        "output/parameter-selection-dqn-ppo-20261010-v1/execution-v2/specs/validate-D08-6201.json",
+        "output/parameter-selection-dqn-ppo-20261010-v1/execution-v2/specs/validate-D08-6202.json",
+        "output/parameter-selection-dqn-ppo-20261010-v1/execution-v2/specs/validate-D09-6201.json",
+        "output/parameter-selection-dqn-ppo-20261010-v1/execution-v2/specs/validate-D09-6202.json",
+        "output/parameter-selection-dqn-ppo-20261010-v1/execution-v2/specs/validate-P00-6201.json",
+        "output/parameter-selection-dqn-ppo-20261010-v1/execution-v2/specs/validate-P00-6202.json",
+        "output/parameter-selection-dqn-ppo-20261010-v1/execution-v2/specs/validate-P01-6201.json",
+        "output/parameter-selection-dqn-ppo-20261010-v1/execution-v2/specs/validate-P01-6202.json",
+        "output/parameter-selection-dqn-ppo-20261010-v1/execution-v2/specs/validate-P02-6201.json",
+        "output/parameter-selection-dqn-ppo-20261010-v1/execution-v2/specs/validate-P02-6202.json",
+        "output/parameter-selection-dqn-ppo-20261010-v1/execution-v2/specs/validate-P03-6201.json",
+        "output/parameter-selection-dqn-ppo-20261010-v1/execution-v2/specs/validate-P03-6202.json",
+        "output/parameter-selection-dqn-ppo-20261010-v1/execution-v2/specs/validate-P04-6201.json",
+        "output/parameter-selection-dqn-ppo-20261010-v1/execution-v2/specs/validate-P04-6202.json",
+        "output/parameter-selection-dqn-ppo-20261010-v1/execution-v2/specs/validate-P05-6201.json",
+        "output/parameter-selection-dqn-ppo-20261010-v1/execution-v2/specs/validate-P05-6202.json",
+        "output/parameter-selection-dqn-ppo-20261010-v1/execution-v2/specs/validate-P06-6201.json",
+        "output/parameter-selection-dqn-ppo-20261010-v1/execution-v2/specs/validate-P06-6202.json",
+        "output/parameter-selection-dqn-ppo-20261010-v1/execution-v2/specs/validate-P07-6201.json",
+        "output/parameter-selection-dqn-ppo-20261010-v1/execution-v2/specs/validate-P07-6202.json",
+        "output/parameter-selection-dqn-ppo-20261010-v1/execution-v2/specs/validate-P08-6201.json",
+        "output/parameter-selection-dqn-ppo-20261010-v1/execution-v2/specs/validate-P08-6202.json",
+        "output/parameter-selection-dqn-ppo-20261010-v1/execution-v2/specs/validate-P09-6201.json",
+        "output/parameter-selection-dqn-ppo-20261010-v1/execution-v2/specs/validate-P09-6202.json",
+        "output/parameter-selection-dqn-ppo-20261010-v1/execution-v2/specs/reference-time_greedy-6201.json",
+        "output/parameter-selection-dqn-ppo-20261010-v1/execution-v2/specs/reference-time_greedy-6202.json"
+      ],
+      "official_test_allowed": false,
+      "scoped_quota_amendment": {
+        "approved": true,
+        "scope_id": "dqn-ppo-parameter-selection-20261010-v1",
+        "additional_configuration_slots": 20,
+        "training_interactions_by_algorithm": {
+          "dqn": 5000,
+          "ppo": 5000
+        },
+        "cumulative_interaction_limit": 5120,
+        "historical_unknowns_retained": true,
+        "official_test_access": false,
+        "monetary_cap_waived_by_user": true,
+        "historical_actual_cloud_cost_usd": null,
+        "max_development_validation_interactions": 1260,
+        "maximum_compute_calls": 62,
+        "scope": "this frozen twenty-configuration development batch only; other quotas unchanged"
+      },
+      "shared_execution_descriptors": {
+        "source": "output/parameter-selection-dqn-ppo-20261010-v1/execution-v2/source-descriptor.json",
+        "admission": "output/parameter-selection-dqn-ppo-20261010-v1/execution-v2/admission-descriptor.json"
+      },
+      "reservation_log": "output/parameter-selection-dqn-ppo-20261010-v1/execution-v1/reservations.jsonl",
+      "retained_failed_execution": {
+        "run_id": "train_policy-dqn-D00-s5101-9c46b2ac735a42e5bcdba057b58856ca",
+        "directory": "output/parameter-selection-dqn-ppo-20261010-v1/execution-v1/failed-D00-recovery-20261010-v1",
+        "new_user_approval_scope": "Complete all 20 registered candidates and all paired development validation; preserve failed call and costs, official test sealed"
+      },
+      "stage_execution": {
+        "max_new_jobs": 3,
+        "watchdog_seconds": 5400,
+        "automatic_retry": false,
+        "freeze_preflight_seconds": 90,
+        "max_json_files": 120,
+        "max_json_file_bytes": 67108864,
+        "max_json_total_bytes": 134217728
+      },
+      "baseline_rl": {
+        "hidden_sizes": [
+          128,
+          128
+        ],
+        "learning_rate": 0.0003,
+        "gamma": 1.0,
+        "batch_size": 64,
+        "buffer_size": 20000,
+        "learning_starts": 256,
+        "train_frequency": 1,
+        "target_update_interval": 100,
+        "epsilon_start": 1.0,
+        "epsilon_end": 0.05,
+        "epsilon_decay_steps": 2000,
+        "max_grad_norm": 10.0,
+        "double_dqn": true,
+        "rollout_steps": 128,
+        "ppo_epochs": 4,
+        "clip_range": 0.2,
+        "gae_lambda": 0.95,
+        "entropy_coefficient": 0.01,
+        "value_coefficient": 0.5,
+        "normalize_advantage": true,
+        "ppo": {
+          "rollout_steps": 128,
+          "epochs": 4,
+          "clip_ratio": 0.2,
+          "gae_lambda": 0.95,
+          "entropy_weight": 0.01
+        }
+      },
+      "baseline_reward": {
+        "protocol": "exposure_v1",
+        "accuracy_weight": 1.0,
+        "time_weight": 0.05,
+        "energy_weight": 0.01,
+        "risk_weight": 0.1,
+        "uncertainty_weight": 0.0,
+        "time_scale": 1.0,
+        "energy_scale": 10.0
+      },
+      "selection": {
+        "accuracy_slack": 0.01,
+        "cost_multiplier": 1.15,
+        "reference_method": "time_greedy",
+        "ordering": [
+          "accuracy_desc",
+          "time_asc",
+          "energy_asc",
+          "configuration_id_asc"
+        ]
+      },
+      "candidates": [
+        {
+          "id": "D00",
+          "algorithm": "dqn",
+          "override": {},
+          "hypothesis": "short_budget_historical_hyperparameter_control"
+        },
+        {
+          "id": "D01",
+          "algorithm": "dqn",
+          "override": {
+            "learning_starts": 64
+          },
+          "hypothesis": "earlier_updates_improve_short_budget_learning"
+        },
+        {
+          "id": "D02",
+          "algorithm": "dqn",
+          "override": {
+            "epsilon_decay_steps": 300
+          },
+          "hypothesis": "faster_exploration_decay_improves_deployment"
+        },
+        {
+          "id": "D03",
+          "algorithm": "dqn",
+          "override": {
+            "target_update_interval": 20
+          },
+          "hypothesis": "frequent_targets_propagate_short_budget_values"
+        },
+        {
+          "id": "D04",
+          "algorithm": "dqn",
+          "override": {
+            "batch_size": 32
+          },
+          "hypothesis": "smaller_batches_improve_small_replay_learning"
+        },
+        {
+          "id": "D05",
+          "algorithm": "dqn",
+          "override": {
+            "learning_rate": 0.0001
+          },
+          "hypothesis": "lower_learning_rate_limits_q_instability"
+        },
+        {
+          "id": "D06",
+          "algorithm": "dqn",
+          "override": {
+            "learning_rate": 0.001
+          },
+          "hypothesis": "higher_learning_rate_accelerates_q_learning"
+        },
+        {
+          "id": "D07",
+          "algorithm": "dqn",
+          "override": {
+            "epsilon_decay_steps": 500
+          },
+          "hypothesis": "intermediate_decay_balances_coverage_and_exploitation"
+        },
+        {
+          "id": "D08",
+          "algorithm": "dqn",
+          "override": {
+            "target_update_interval": 40
+          },
+          "hypothesis": "intermediate_target_clock_balances_feedback_and_stability"
+        },
+        {
+          "id": "D09",
+          "algorithm": "dqn",
+          "override": {
+            "batch_size": 128
+          },
+          "hypothesis": "larger_batches_reduce_q_gradient_noise"
+        },
+        {
+          "id": "P00",
+          "algorithm": "ppo",
+          "override": {},
+          "hypothesis": "short_budget_historical_hyperparameter_control"
+        },
+        {
+          "id": "P01",
+          "algorithm": "ppo",
+          "override": {
+            "rollout_steps": 64
+          },
+          "hypothesis": "shorter_rollouts_refresh_policy_more_often"
+        },
+        {
+          "id": "P02",
+          "algorithm": "ppo",
+          "override": {
+            "learning_rate": 0.001
+          },
+          "hypothesis": "higher_learning_rate_accelerates_policy_adaptation"
+        },
+        {
+          "id": "P03",
+          "algorithm": "ppo",
+          "override": {
+            "clip_range": 0.1
+          },
+          "hypothesis": "tighter_clip_limits_small_sample_policy_drift"
+        },
+        {
+          "id": "P04",
+          "algorithm": "ppo",
+          "override": {
+            "gae_lambda": 0.9
+          },
+          "hypothesis": "shorter_gae_limits_early_critic_error_propagation"
+        },
+        {
+          "id": "P05",
+          "algorithm": "ppo",
+          "override": {
+            "learning_rate": 0.0001
+          },
+          "hypothesis": "lower_learning_rate_stabilizes_policy_updates"
+        },
+        {
+          "id": "P06",
+          "algorithm": "ppo",
+          "override": {
+            "clip_range": 0.3
+          },
+          "hypothesis": "wider_clip_allows_useful_local_policy_adjustment"
+        },
+        {
+          "id": "P07",
+          "algorithm": "ppo",
+          "override": {
+            "entropy_coefficient": 0.0
+          },
+          "hypothesis": "no_entropy_bonus_reduces_persistent_exploration"
+        },
+        {
+          "id": "P08",
+          "algorithm": "ppo",
+          "override": {
+            "ppo_epochs": 8
+          },
+          "hypothesis": "more_epochs_improve_fixed_sample_use"
+        },
+        {
+          "id": "P09",
+          "algorithm": "ppo",
+          "override": {
+            "rollout_steps": 256
+          },
+          "hypothesis": "longer_rollouts_reduce_advantage_estimation_noise"
+        }
+      ]
+    },
+    "fresh_benchmark": {
+      "schema": "fresh_seven_method_development_benchmark_v1",
+      "experiment_id": "fresh-seven-methods-rerun-20261010-v1",
+      "status": "registered_before_new_scientific_inputs_pending_admission",
+      "output_root": "output/fresh-seven-method-rerun-20261010-v1",
+      "volume_name": "cloud-edge-rl-fresh-rerun-20261010-v1",
+      "methods": [
+        "dqn",
+        "ppo",
+        "pqn",
+        "metacs",
+        "fixed",
+        "time_greedy",
+        "risk_greedy"
+      ],
+      "training_seeds": [
+        8101,
+        8102,
+        8103
+      ],
+      "validation_seeds": [
+        8201,
+        8202,
+        8203
+      ],
+      "collection_seeds": [
+        8301,
+        8302,
+        8303
+      ],
+      "risk_fit_seed": 8401,
+      "data_split_seed": 8501,
+      "partition_seed": 8502,
+      "policy_interactions_per_group": 3000,
+      "shared_collection_limit": 90,
+      "group_limit": 3090,
+      "interaction_authorization": "explicit_user_3000_policy_plus_90_new_collection_scope_only",
+      "allocation_rule": "entire_actual_new_shared_pool_conservatively_charged_to_each_beneficiary_physical_once",
+      "historical_consumption_retained": true,
+      "unknown_consumption_is_zero": false,
+      "historical_configuration_exact_count": null,
+      "new_tuning_search": false,
+      "scientific_inputs": "new_experiment_only_except_public_raw_adult",
+      "official_test_access": false,
+      "formal_confirmation": false,
+      "policy_snapshots_enabled": true,
+      "checkpoint_steps": [
+        500,
+        1000,
+        1500,
+        2000,
+        2500,
+        3000
+      ],
+      "native_stage_interactions": [
+        500,
+        1000,
+        1000,
+        500
+      ],
+      "collection_rounds_per_seed": 30,
+      "panel_uploads_per_batch": 4,
+      "collection_actions": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11
+      ],
+      "risk_config": {
+        "mode": "learned",
+        "ensemble_size": 5,
+        "hidden_sizes": [
+          64,
+          64
+        ],
+        "learning_rate": 0.001,
+        "epochs": 100,
+        "batch_size": 16,
+        "device": "cuda",
+        "validation_group_fraction": 0.2,
+        "validation_fraction": 0.2,
+        "weight_decay": 0.0001,
+        "mean_calibration": true,
+        "calibration_feature_index": 1,
+        "seed": 8401,
+        "calibration_nonnegative": true,
+        "calibration_strength": 0.5
+      },
+      "reward_config": {
+        "protocol": "exposure_v1",
+        "accuracy_weight": 1.0,
+        "time_weight": 0.05,
+        "energy_weight": 0.01,
+        "risk_weight": 0.1,
+        "uncertainty_weight": 0.0,
+        "time_scale": 1.0,
+        "energy_scale": 10.0
+      },
+      "rl_configs": {
+        "dqn": {
+          "hidden_sizes": [
+            128,
+            128
+          ],
+          "learning_rate": 0.001,
+          "gamma": 1.0,
+          "batch_size": 64,
+          "buffer_size": 20000,
+          "learning_starts": 256,
+          "train_frequency": 1,
+          "target_update_interval": 100,
+          "epsilon_start": 1.0,
+          "epsilon_end": 0.05,
+          "epsilon_decay_steps": 2000,
+          "max_grad_norm": 10.0,
+          "double_dqn": true,
+          "rollout_steps": 128,
+          "ppo_epochs": 4,
+          "clip_range": 0.2,
+          "gae_lambda": 0.95,
+          "entropy_coefficient": 0.01,
+          "value_coefficient": 0.5,
+          "normalize_advantage": true,
+          "ppo": {
+            "rollout_steps": 128,
+            "epochs": 4,
+            "clip_ratio": 0.2,
+            "gae_lambda": 0.95,
+            "entropy_weight": 0.01
+          },
+          "algorithm": "dqn",
+          "total_steps": 3000,
+          "device": "cuda",
+          "checkpoint_interval": 500
+        },
+        "ppo": {
+          "hidden_sizes": [
+            128,
+            128
+          ],
+          "learning_rate": 0.0003,
+          "gamma": 1.0,
+          "batch_size": 64,
+          "buffer_size": 20000,
+          "learning_starts": 256,
+          "train_frequency": 1,
+          "target_update_interval": 100,
+          "epsilon_start": 1.0,
+          "epsilon_end": 0.05,
+          "epsilon_decay_steps": 2000,
+          "max_grad_norm": 10.0,
+          "double_dqn": true,
+          "rollout_steps": 64,
+          "ppo_epochs": 4,
+          "clip_range": 0.2,
+          "gae_lambda": 0.95,
+          "entropy_coefficient": 0.01,
+          "value_coefficient": 0.5,
+          "normalize_advantage": true,
+          "ppo": {
+            "rollout_steps": 64,
+            "epochs": 4,
+            "clip_ratio": 0.2,
+            "gae_lambda": 0.95,
+            "entropy_weight": 0.01
+          },
+          "algorithm": "ppo",
+          "total_steps": 3000,
+          "device": "cuda",
+          "checkpoint_interval": 500
+        }
+      },
+      "attack_profile": {
+        "component": "tabular_gia",
+        "iterations": 1000,
+        "restarts": 3,
+        "learning_rate": 0.1,
+        "learning_rate_schedule": "linear",
+        "learning_rate_end_factor": 0.1,
+        "labels_known": true,
+        "device": "cuda",
+        "audit_max_seconds": 1200
+      },
+      "execution_limits": {
+        "function_timeout_seconds": 1800,
+        "startup_timeout_seconds": 180,
+        "stage_timeout_seconds": 3600,
+        "max_containers": 1,
+        "retries": 0,
+        "gpu": "H100",
+        "cpu": 16.0,
+        "memory_mb": 65536
+      },
+      "preflight_limits": {
+        "timeout_seconds": 90,
+        "max_json_files": 256,
+        "max_file_bytes": 67108864,
+        "max_total_bytes": 134217728
+      },
+      "paid_stage_approved": false,
+      "approval_scope": "no_compute_before_new_stage_admission",
+      "hypothesis": "Under fixed new data, risk and resources, the longer registered interaction budget tests D06/P01 learning effect and common-step convergence against all seven methods; no guaranteed accuracy or safety gain.",
+      "stop_conditions": [
+        "unverified_scope_or_consumption",
+        "stage_failure_or_timeout",
+        "incomplete_or_invalid_new_attack_sample",
+        "invalid_fresh_risk_fit",
+        "unexpected_historical_input",
+        "interaction_or_stage_limit",
+        "all_registered_development_tests_complete"
+      ]
+    }
+  }
+}
