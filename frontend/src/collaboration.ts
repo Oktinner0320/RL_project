@@ -4,12 +4,11 @@ import { graphGeometry, buildParticleScene, mountParticles, phaseLabels, type Ph
 import { replayTraces, color } from './charts.ts';
 import { el, button, select, panel, records, format, table } from './ui.ts';
 
-export interface LabState { run: string; episode: string; frame: number; preview: number | null }
+export interface LabState { run: string; episode: string; frame: number }
 type Inspect = 'state' | 'agent' | 'action' | 'cloud' | 'reward' | 'upload' | 'download' | `client:${number}`;
 const NS = 'http://www.w3.org/2000/svg';
 const value = (v: unknown): string => v === null || v === undefined ? 'Not exported' : format(v);
 const clients = (action: JointAction): string => action.client_ids.map(id => `C${id}`).join(' + ');
-const actionName = (action: JointAction): string => `A${action.action_id} · ${clients(action)} · batch ${action.batch_size}`;
 function svg<K extends keyof SVGElementTagNameMap>(tag: K, attrs: Record<string, string | number> = {}, text?: string): SVGElementTagNameMap[K] {
   const node = document.createElementNS(NS, tag);
   for (const [key, val] of Object.entries(attrs)) node.setAttribute(key, String(val));
@@ -116,7 +115,7 @@ function mountGraph(host: HTMLElement, run: Run, inspect: (target: Inspect) => v
 export function mountDecisionLab(host: HTMLElement, snapshot: Snapshot, initial: LabState, onChange: (state: LabState) => void, onReset: () => void): () => void {
   const run = preferredDecisionRun(snapshot.runs, initial.run);
   if (!run) { host.append(el('p', 'No validation runs were exported in this snapshot; frozen-policy replay is unavailable.', 'empty')); return () => {}; }
-  const state: LabState = { ...initial, run: run.run_id, preview: null };
+  const state: LabState = { ...initial, run: run.run_id };
   const episodes = episodeKeys(run);
   if (!episodes.includes(state.episode)) state.episode = episodes[0] ?? 'unreported';
   const frames = replayFrames(run, state.episode, snapshot.audits);
@@ -139,11 +138,11 @@ export function mountDecisionLab(host: HTMLElement, snapshot: Snapshot, initial:
   controls.append(select('Policy / method', methods.map(m => [m, m]), methodKey(run), method => {
     const next = preferredDecisionRun(runs.filter(r => methodKey(r) === method), '');
     if (!next) return;
-    pause(); onChange({ run: next.run_id, episode: '', frame: 0, preview: null }); onReset();
+    pause(); onChange({ run: next.run_id, episode: '', frame: 0 }); onReset();
   }), select('Run / seed / checkpoint', runs.filter(r => methodKey(r) === methodKey(run)).sort((a, b) => Number(hasReplay(b)) - Number(hasReplay(a))).map(r => [r.run_id, replayRunLabel(r)]), run.run_id, id => {
-    pause(); onChange({ run: id, episode: '', frame: 0, preview: null }); onReset();
+    pause(); onChange({ run: id, episode: '', frame: 0 }); onReset();
   }), select('Episode', episodes.map(e => [e, e === 'unreported' ? 'Not exported · summary record' : `Episode ${e}`]), state.episode, ep => {
-    pause(); onChange({ ...state, episode: ep, frame: 0, preview: null }); onReset();
+    pause(); onChange({ ...state, episode: ep, frame: 0 }); onReset();
   }));
   const runIdentity = el('details', undefined, 'run-identity');
   runIdentity.append(el('summary', `train ${value(run.train_seed)} / eval ${value(run.eval_seed)} · training budget ${value(run.config_summary.training_interaction_budget)} · ${run.partition}`),
@@ -162,10 +161,9 @@ export function mountDecisionLab(host: HTMLElement, snapshot: Snapshot, initial:
   const play = button('Play records', () => {
     if (timer !== undefined) { pause(); update(); return; }
     if (state.frame >= frames.length - 1) state.frame = 0;
-    state.preview = null;
     timer = setInterval(() => {
       if (state.frame >= frames.length - 1) { pause(); update(); return; }
-      state.frame++; state.preview = null; update();
+      state.frame++; update();
       if (state.frame >= frames.length - 1) { pause(); update(); }
     }, 1000);
     update();
@@ -210,7 +208,7 @@ export function mountDecisionLab(host: HTMLElement, snapshot: Snapshot, initial:
   const dialogBody = el('div'); dialog.append(dialogHead, dialogBody); host.append(dialog);
 
   function pause(): void { if (timer !== undefined) clearInterval(timer); timer = undefined; play.textContent = 'Play records'; }
-  function go(index: number): void { if (disposed || !frames.length) return; pause(); state.frame = Math.min(Math.max(0, index), frames.length - 1); state.preview = null; update(); }
+  function go(index: number): void { if (disposed || !frames.length) return; pause(); state.frame = Math.min(Math.max(0, index), frames.length - 1); update(); }
   function openInspector(target: Inspect): void { pause(); inspectTarget = target; update(); const frame = current(); if (!frame) return; fillInspector(frame); if (!dialog.open) dialog.showModal(); }
   function fillInspector(frame: ReplayFrame): void {
     const id = inspectTarget.startsWith('client:') ? Number(inspectTarget.slice(7)) : null;

@@ -13,12 +13,11 @@ let cleanup: (() => void) | undefined;
 let runId = params.get('run') ?? '';
 let episode = params.get('episode') ?? '';
 let frame = Number(params.get('frame')) || 0;
-let preview = params.has('preview') && Number.isInteger(Number(params.get('preview'))) ? Number(params.get('preview')) : null;
 const content = el('main'); content.id = 'main';
 function persist(): void {
   const q = new URLSearchParams(); q.set('page','decision');
   if(data) q.set('snapshot',data.snapshot_id); if(runId) q.set('run',runId); if(episode) q.set('episode',episode);
-  q.set('frame',String(frame)); if(preview!==null) q.set('preview',String(preview));
+  q.set('frame',String(frame));
   history.replaceState(null,'',`${location.pathname}?${q}`);
 }
 function stop(): void { cleanup?.(); cleanup = undefined; }
@@ -37,7 +36,7 @@ async function load(id?: string): Promise<void> {
 function render(): void {
   stop(); clearCharts(); content.replaceChildren(); if(!data)return;
   content.append(el('p',`${data.snapshot_id} · ${data.generated_at}`,'eyebrow'),el('h1','Cloud–Edge Lab'));
-  cleanup=mountDecisionLab(content,data,{run:runId,episode,frame,preview},s=>{runId=s.run;episode=s.episode;frame=s.frame;preview=s.preview;persist();},render);
+  cleanup=mountDecisionLab(content,data,{run:runId,episode,frame},s=>{runId=s.run;episode=s.episode;frame=s.frame;persist();},render);
   persist();
 }
 window.addEventListener('pagehide',()=>{stop();request.abort();clearCharts();});
