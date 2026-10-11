@@ -42,7 +42,7 @@ For local inspection, set all six operation switches to `false` as described in
 | [pyproject.toml](pyproject.toml), [uv.lock](uv.lock) | Python requirements and locked dependencies |
 | [reference_algorithms/](reference_algorithms/) | Pinned source records, downloader, and reference runtimes |
 | [frontend/](frontend/README.md), [figure_assets/](figure_assets/README.md) | Interactive viewer and figure tools |
-| [paper/](paper/README.md) | Manuscript entry and bibliography |
+| [paper/](paper/) | Manuscript entry and bibliography |
 
 ## Reproduction and limitations
 

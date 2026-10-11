@@ -75,7 +75,7 @@ tmp/
 !/paper/course-acm.typ
 !/paper/refs/
 !/paper/refs/refs.bib
-!/paper/README.md
+/paper/README.md
 
 # Local tests
 test/
