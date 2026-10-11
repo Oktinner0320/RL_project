@@ -121,9 +121,6 @@ input[type=range] { display: block; width: 100%; margin: 12px 0 8px; }
 .edge-node:hover > rect:first-child { fill: #e1f1ef; }
 .preview-link { fill: none; stroke: #b67625; stroke-width: 2; stroke-dasharray: 5 5; }
 .preview-outline { fill: none; stroke: #b67625; stroke-width: 2; stroke-dasharray: 5 4; }
-.is-playing .client-link.selected { stroke-dasharray: 6 5; animation: flow 1.3s linear infinite; }
-.is-playing .client-link.up.selected { animation-direction: reverse; }
-@keyframes flow { to { stroke-dashoffset: -22; } }
 .graph-legend { display: flex; flex-wrap: wrap; gap: 14px; justify-content: center; margin-top: 9px; color: #5f7b8e; font-size: 10px; }
 .graph-legend span::before { content: ''; display: inline-block; width: 17px; margin-right: 6px; vertical-align: middle; border-top: 2px solid #168776; }
 .graph-legend .legend-preview::before { border-color: #b67625; border-top-style: dashed; }
@@ -212,6 +209,45 @@ tbody tr:hover { background: #1b232c; }
 .action-cell.preview { outline-color: #efb766; }
 .preview-summary { background: #251e13; border-color: #9b773d; color: #f2cc8d; }
 .inspector::backdrop { background: #000a; }
+/* Local particle stage: stable SVG targets above a shared, deterministic coordinate system. */
+.lab-grid { grid-template-columns: minmax(160px, .65fr) minmax(0, 2.7fr) minmax(170px, .7fr); gap: 16px; }
+.environment-panel { background: #090d12; border-color: #253443; padding: 22px 18px 16px; }
+.graph-scene { position: relative; min-width: 640px; isolation: isolate; }
+.graph-scene .collaboration-graph { width: 100%; min-width: 0; position: relative; z-index: 1; }
+.particle-canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 2; filter: drop-shadow(0 0 3px #c6f2ff80); }
+.graph-scene[data-motion='off'] .particle-canvas { visibility: hidden; }
+.graph-scene .cloud-zone { fill: #0f1720; stroke: #23323f; stroke-width: 1; }
+.node-core { fill: #142331; stroke: #5483a3; stroke-width: 1.3; }
+.node-orbit { fill: none; stroke: #7abcf070; stroke-width: 1; stroke-dasharray: 3 7; }
+.node-glyph { font-size: 22px; font-weight: 500; fill: #dcecf7; }
+.edge-node .node-core { fill: #111921; stroke: #586b7c; }
+.edge-node .node-halo { opacity: .2; }
+.edge-node .node-orbit { stroke: #63758860; }
+.edge-node.actual .node-core { fill: #102820; stroke: var(--teal); }
+.edge-node.actual .node-halo { opacity: 1; }
+.edge-node.actual .node-orbit { stroke: #65d4b780; }
+.cloud-node:hover .node-orbit, .cloud-node:focus-visible .node-orbit,
+.edge-node:hover .node-orbit, .edge-node:focus-visible .node-orbit, .edge-node.hover-linked .node-orbit { stroke: #efb766; stroke-width: 2; stroke-dasharray: none; }
+.edge-node.hover-linked .node-halo { opacity: .8; }
+.policy-link { fill: none; stroke: #7abcf070; stroke-width: 1.5; }
+.graph-scene .client-link { stroke: #334453; stroke-width: 1; }
+.graph-scene .client-link.selected { stroke-width: 1.5; }
+.graph-scene .client-link.down.selected { stroke: #7abcf085; }
+.graph-scene .client-link.up.selected { stroke: #65d4b785; }
+.graph-scene .svg-title { font-size: 14px; }
+.graph-scene .svg-note { font-size: 12px; }
+.graph-scene .svg-footnote { font-size: 11px; fill: #95a9bb; }
+.graph-scene .preview-outline { stroke-width: 1.5; }
+.graph-status { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 14px; border-top: 1px solid #26303a; padding-top: 12px; }
+.phase-label { color: var(--teal); font-size: 11px; letter-spacing: .5px; }
+.graph-status button { font-size: 10px; padding: 5px 9px; background: transparent; }
+.rl-loop button.phase-active { border-color: #65d4b7; box-shadow: inset 0 -2px 0 #65d4b7; }
+.reward-panel.phase-active { border-color: #65d4b7; }
+.graph-scene[data-phase='agent'] .node-agent .node-orbit,
+.graph-scene[data-phase='down'] .node-action .node-orbit,
+.graph-scene[data-phase='aggregate'] .node-cloud .node-orbit,
+.graph-scene[data-phase='reward'] .node-cloud .node-orbit { stroke: #b6e3ff; stroke-width: 2; }
+.graph-scene[data-phase='local'] .edge-node.actual .node-orbit { stroke: var(--teal); stroke-width: 2; }
 @media (min-width: 1550px) { .lab-traces { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 1250px) {
   .lab-grid { grid-template-columns: 1fr 1fr; }

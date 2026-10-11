@@ -1,5 +1,6 @@
 import { number, runLabel, type Run, type Snapshot, type Row } from './model.ts';
-import { jointActions, clientIds, episodeKeys, preferredDecisionRun, decisionRuns, replayFrames, actionRanking, type ReplayFrame, type JointAction } from './replay.ts';
+import { jointActions, episodeKeys, preferredDecisionRun, decisionRuns, replayFrames, actionRanking, type ReplayFrame, type JointAction } from './replay.ts';
+import { graphGeometry, buildParticleScene, mountParticles, phaseLabels, type Phase, type Point } from './particles.ts';
 import { replayTraces, color } from './charts.ts';
 import { el, button, select, panel, records, format, table } from './ui.ts';
 
@@ -39,73 +40,89 @@ function status(row: Row): string {
   return '非预热记录';
 }
 
-function drawGraph(host: HTMLElement, run: Run, frame: ReplayFrame, preview: JointAction | null, playing: boolean, inspect: (target: Inspect) => void): void {
-  preserveFocus(host, () => {
-    host.replaceChildren();
-    const ids = clientIds(run);
-    const width = Math.max(760, ids.length * 190 + 50);
-    const graph = svg('svg', { viewBox: `0 0 ${width} 410`, class: `collaboration-graph${playing ? ' is-playing' : ''}`, 'aria-label': 'RL 调度器选择客户端与批量大小，边端本地计算并上传，云端聚合产生奖励反馈' });
-    const defs = svg('defs');
-    for (const [name, fill] of [['up', '#65d4b7'], ['down', '#7abcf0'], ['preview', '#efb766']] as const) {
-      const marker = svg('marker', { id: `arrow-${name}`, viewBox: '0 0 10 10', refX: 8, refY: 5, markerWidth: 5, markerHeight: 5, orient: 'auto-start-reverse' });
-      marker.append(svg('path', { d: 'M 0 0 L 10 5 L 0 10 Z', fill })); defs.append(marker);
-    }
-    graph.append(defs, svg('rect', { x: 12, y: 10, width: width - 24, height: 128, rx: 16, class: 'cloud-zone' }),
-      svg('text', { x: 30, y: 34, class: 'svg-zone-label' }, 'CLOUD / 云端决策与聚合'));
-    const boxes: { x: number; title: string; sub: string; target: Inspect }[] = [
-      { x: width * .08, title: `${run.method.toUpperCase()}${run.arm ? ` / ${run.arm}` : ''} 调度器`, sub: `${frame.scoreLabel} · γ ${value(run.config_summary.gamma)}`, target: 'agent' },
-      { x: width * .38, title: frame.action ? `联合动作 A${frame.action.action_id}` : '动作映射缺失', sub: frame.action ? `${clients(frame.action)} · batch ${frame.action.batch_size}` : `记录 action_id ${value(frame.row.action_id)}`, target: 'action' },
-      { x: width * .68, title: '全局模型聚合', sub: `准确率 ${value(frame.row.validation_accuracy)}`, target: 'cloud' },
-    ];
-    for (const box of boxes) {
-      const g = svg('g', { class: 'cloud-node' });
-      g.append(svg('rect', { x: box.x, y: 49, width: width * .245, height: 68, rx: 10 }),
-        svg('text', { x: box.x + 14, y: 77, class: 'svg-title' }, box.title),
-        svg('text', { x: box.x + 14, y: 99, class: 'svg-note' }, box.sub));
-      svgButton(g, `检查${box.title}`, box.target, () => inspect(box.target)); graph.append(g);
-    }
-    graph.append(svg('text', { x: width * .35, y: 88, class: 'svg-arrow' }, '→'), svg('text', { x: width * .65, y: 88, class: 'svg-arrow' }, '→'));
-    const trunk = width * .5;
-    if (ids.length) {
-      const firstX = width / (ids.length + 1), lastX = firstX * ids.length;
-      graph.append(svg('path', { d: `M${trunk} 138 L${trunk} 180 M${firstX - 9} 180 L${lastX + 22} 180`, class: 'bus-link' }));
-      const down = svg('g', { class: 'link-summary' });
-      down.append(svg('rect', { x: 20, y: 154, width: 213, height: 33, rx: 7 }),
-        svg('text', { x: 32, y: 175, class: 'svg-note' }, `↓ 模型下发 · ${value(frame.row.round_download_bytes)} B`));
-      svgButton(down, '检查本轮模型下发总量', 'download', () => inspect('download'));
-      const up = svg('g', { class: 'link-summary' });
-      up.append(svg('rect', { x: width - 238, y: 154, width: 218, height: 33, rx: 7 }),
-        svg('text', { x: width - 226, y: 175, class: 'svg-note' }, `↑ 梯度上传 · ${value(frame.row.round_upload_bytes)} B`));
-      svgButton(up, '检查本轮梯度上传总量和安全元数据', 'upload', () => inspect('upload'));
-      graph.append(down, up);
-    }
-    ids.forEach((id, i) => {
-      const x = (width / (ids.length + 1)) * (i + 1);
-      const actual = frame.action?.client_ids.includes(id) === true;
-      const explored = preview?.client_ids.includes(id) === true;
-      for (const [offset, direction, start, end] of [[-9, 'down', 180, 285], [9, 'up', 285, 180]] as const) {
-        const path = svg('path', { d: `M${x + offset} ${start} L${x + offset} ${end}`, class: `client-link ${direction}${actual ? ' selected' : ''}`, 'marker-end': actual ? `url(#arrow-${direction})` : '' });
-        const hit = svg('path', { d: `M${x + offset} 185 L${x + offset} 280`, class: 'link-hit' });
-        svgButton(hit, `C${id} ${direction === 'up' ? '上传' : '下发'}链路 · ${actual ? '实际动作参与' : '未在实际动作中参与'}`, `link-${id}-${direction}`, () => inspect(direction === 'up' ? 'upload' : 'download'));
-        graph.append(path, hit);
-      }
-      if (explored) graph.append(svg('path', { d: `M${x + 22} 180 L${x + 22} 281`, class: 'preview-link', 'marker-end': 'url(#arrow-preview)' }));
-      const node = svg('g', { class: `edge-node${actual ? ' actual' : ''}`, 'data-client': id, 'data-actual': String(actual), 'data-preview': String(explored) });
-      node.append(svg('rect', { x: x - 83, y: 288, width: 166, height: 91, rx: 12 }),
-        svg('text', { x: x - 65, y: 314, class: 'svg-title' }, `C${id} / 边端客户端`),
-        svg('text', { x: x - 65, y: 337, class: 'svg-note' }, actual ? `实际参与 · batch ${frame.action!.batch_size}` : frame.action ? '本轮未选中' : '参与动作未知'),
-        svg('text', { x: x - 65, y: 360, class: 'svg-note' }, `累计参与 ${value(frame.row[`c${id}_participations`])} 次`));
-      if (explored) node.append(svg('rect', { x: x - 88, y: 283, width: 176, height: 101, rx: 14, class: 'preview-outline' }));
-      svgButton(node, `检查客户端 C${id} 的本轮上传和参与记录`, `client-${id}`, () => inspect(`client:${id}`)); graph.append(node);
-      const upload = frame.uploads.filter(u => u.client_id === id);
-      graph.append(svg('rect', { x: x - 66, y: 205, width: 132, height: 57, rx: 7, class: 'link-caption', 'pointer-events': 'none' }),
-        svg('text', { x, y: 223, 'text-anchor': 'middle', class: 'svg-note', 'pointer-events': 'none' }, actual ? '本地计算' : frame.action ? '未参与' : '参与状态未知'),
-        svg('text', { x, y: 248, 'text-anchor': 'middle', class: 'svg-note', 'pointer-events': 'none' }, upload.length ? `${upload.length} 条上传记录` : '无本轮上传记录'));
-    });
-    if (!ids.length) graph.append(svg('text', { x: width / 2, y: 265, 'text-anchor': 'middle', class: 'svg-note' }, '客户端身份未导出，不构造假想拓扑'));
-    graph.append(svg('text', { x: width / 2, y: 403, 'text-anchor': 'middle', class: 'svg-footnote' }, '边端保留本地数据，只展示安全上传元数据 · 链路为机制示意，不代表真实时序'));
-    host.append(graph);
+function mountGraph(host: HTMLElement, run: Run, inspect: (target: Inspect) => void, onPhase: (phase: Phase) => void) {
+  const geometry = graphGeometry(run), { width, height } = geometry;
+  const scene = el('div', undefined, 'graph-scene');
+  const graph = svg('svg', { viewBox: `0 0 ${width} ${height}`, class: 'collaboration-graph', 'aria-label': 'RL 调度器选择客户端与批量大小，边端本地计算并上传，云端聚合产生奖励反馈' });
+  const pathOf = (points: Point[]) => points.map((p, i) => `${i ? 'L' : 'M'}${p.x} ${p.y}`).join(' ');
+  const centered = (x: number, y: number, cls: string, text = '') => svg('text', { x, y, class: cls, 'text-anchor': 'middle' }, text);
+  const defs = svg('defs');
+  for (const [name, fill] of [['up', '#65d4b7'], ['down', '#7abcf0'], ['preview', '#efb766']] as const) {
+    const marker = svg('marker', { id: `arrow-${name}`, viewBox: '0 0 10 10', refX: 8, refY: 5, markerWidth: 5, markerHeight: 5, orient: 'auto-start-reverse' });
+    marker.append(svg('path', { d: 'M 0 0 L 10 5 L 0 10 Z', fill })); defs.append(marker);
+    const gradient = svg('radialGradient', { id: `glow-${name}` });
+    gradient.append(svg('stop', { offset: '0%', 'stop-color': fill, 'stop-opacity': .27 }), svg('stop', { offset: '100%', 'stop-color': fill, 'stop-opacity': 0 })); defs.append(gradient);
+  }
+  graph.append(defs, svg('rect', { x: 12, y: 10, width: width - 24, height: 204, rx: 20, class: 'cloud-zone' }),
+    svg('text', { x: 32, y: 37, class: 'svg-zone-label' }, 'CLOUD / 策略与全局模型'));
+  const node = (point: Point, cls: string, glyph: string) => {
+    const group = svg('g', { class: cls });
+    group.append(svg('circle', { cx: point.x, cy: point.y, r: 64, fill: 'url(#glow-down)', class: 'node-halo' }),
+      svg('circle', { cx: point.x, cy: point.y, r: 43, class: 'node-orbit' }),
+      svg('circle', { cx: point.x, cy: point.y, r: 30, class: 'node-core' }), centered(point.x, point.y + 7, 'node-glyph', glyph));
+    return group;
+  };
+  const cloudNodes = [
+    { point: geometry.agent, target: 'agent' as const, glyph: 'π', label: `${run.method.toUpperCase()}${run.arm ? ` / ${run.arm}` : ''} 调度器` },
+    { point: geometry.action, target: 'action' as const, glyph: 'aₜ', label: '联合动作' },
+    { point: geometry.cloud, target: 'cloud' as const, glyph: 'θ', label: '全局模型聚合' },
+  ].map(spec => {
+    const group = node(spec.point, `cloud-node node-${spec.target}`, spec.glyph);
+    const title = centered(spec.point.x, 173, 'svg-title', spec.label), sub = centered(spec.point.x, 193, 'svg-note'); group.append(title, sub);
+    svgButton(group, `检查${spec.label}`, spec.target, () => inspect(spec.target)); graph.append(group);
+    return { ...spec, group, title, sub };
   });
+  graph.append(svg('path', { d: pathOf([{ x: geometry.agent.x + 48, y: 105 }, { x: geometry.action.x - 48, y: 105 }]), class: 'policy-link', 'marker-end': 'url(#arrow-down)' }));
+  const edges = geometry.edges.map(edge => {
+    const paths = (['down', 'up'] as const).map(direction => {
+      const path = svg('path', { d: pathOf(edge[direction]), class: `client-link ${direction}` });
+      const hit = svg('path', { d: pathOf(edge[direction]), class: 'link-hit' });
+      svgButton(hit, `检查 C${edge.id} ${direction === 'up' ? '上传' : '下发'}链路`, `link-${edge.id}-${direction}`, () => inspect(direction === 'up' ? 'upload' : 'download')); graph.append(path, hit);
+      return { direction, path };
+    });
+    const group = node(edge.center, 'edge-node', `C${edge.id}`); group.dataset.client = String(edge.id);
+    const title = centered(edge.center.x, 391, 'svg-title'), participation = centered(edge.center.x, 413, 'svg-note'), upload = centered(edge.center.x, 435, 'svg-note'); group.append(title, participation, upload);
+    svgButton(group, `检查客户端 C${edge.id} 的本轮上传和参与记录`, `client-${edge.id}`, () => inspect(`client:${edge.id}`)); graph.append(group);
+    return { ...edge, group, title, participation, upload, paths };
+  });
+  const down = svg('g', { class: 'link-summary' }), up = svg('g', { class: 'link-summary' });
+  const downText = centered(width * .25, 474, 'svg-note'), upText = centered(width * .75, 474, 'svg-note');
+  down.append(downText); up.append(upText);
+  svgButton(down, '检查本轮模型下发总量', 'download', () => inspect('download'));
+  svgButton(up, '检查本轮梯度上传总量和安全元数据', 'upload', () => inspect('upload'));
+  graph.append(down, up, centered(width / 2, 502, 'svg-footnote', '机制示意 · 安全上传元数据'));
+  if (!edges.length) graph.append(centered(width / 2, 330, 'svg-note', '客户端身份未导出'));
+  scene.append(graph); host.append(scene);
+  const particles = mountParticles(scene, onPhase);
+  return {
+    update(frame: ReplayFrame, preview: JointAction | null, playing: boolean) {
+      cloudNodes[0]!.sub.textContent = `${frame.scoreLabel} · γ ${value(run.config_summary.gamma)}`;
+      cloudNodes[1]!.title.textContent = frame.action ? `联合动作 A${frame.action.action_id}` : '动作映射缺失';
+      cloudNodes[1]!.sub.textContent = frame.action ? `${clients(frame.action)} · batch ${frame.action.batch_size}` : `action_id ${value(frame.row.action_id)}`;
+      cloudNodes[2]!.sub.textContent = `准确率 ${value(frame.row.validation_accuracy)}`;
+      downText.textContent = `↓ 模型下发 · ${value(frame.row.round_download_bytes)} B`;
+      upText.textContent = `↑ 梯度上传 · ${value(frame.row.round_upload_bytes)} B`;
+      graph.querySelectorAll('.preview-link, .preview-outline').forEach(n => n.remove());
+      for (const edge of edges) {
+        const actual = frame.action?.client_ids.includes(edge.id) === true, explored = preview?.client_ids.includes(edge.id) === true;
+        edge.group.classList.toggle('actual', actual); edge.group.dataset.actual = String(actual); edge.group.dataset.preview = String(explored);
+        edge.group.querySelector('.node-halo')!.setAttribute('fill', actual ? 'url(#glow-up)' : 'url(#glow-down)');
+        edge.title.textContent = actual ? `实际参与 · batch ${frame.action!.batch_size}` : frame.action ? '本轮未选中' : '参与动作未知';
+        edge.participation.textContent = `累计参与 ${value(frame.row[`c${edge.id}_participations`])} 次`;
+        const uploads = frame.uploads.filter(u => u.client_id === edge.id);
+        edge.upload.textContent = uploads.length ? `${uploads.length} 条上传记录` : '无本轮上传记录';
+        for (const { path, direction } of edge.paths) { path.classList.toggle('selected', actual); path.setAttribute('marker-end', actual ? `url(#arrow-${direction})` : ''); }
+        if (explored) {
+          graph.insertBefore(svg('path', { d: pathOf(edge.preview), class: 'preview-link', 'marker-end': 'url(#arrow-preview)', 'pointer-events': 'none' }), edge.group);
+          edge.group.append(svg('circle', { cx: edge.center.x, cy: edge.center.y, r: 51, class: 'preview-outline', 'pointer-events': 'none' }));
+        }
+      }
+      particles.update(buildParticleScene(run, frame), playing, String(frame.index));
+    },
+    highlight(clientIds: number[]) { for (const edge of edges) edge.group.classList.toggle('hover-linked', clientIds.includes(edge.id)); },
+    setEnabled: particles.setEnabled,
+    dispose() { particles.dispose(); scene.remove(); },
+  };
 }
 
 export function mountDecisionLab(host: HTMLElement, snapshot: Snapshot, initial: LabState, onChange: (state: LabState) => void, onReset: () => void): () => void {
@@ -179,6 +196,17 @@ export function mountDecisionLab(host: HTMLElement, snapshot: Snapshot, initial:
   const environment = panel('Action → Environment', '点击云端、客户端或链路，检查当前轮记录。'); environment.classList.add('environment-panel');
   const graphHost = el('div', undefined, 'graph-host'); environment.append(graphHost, el('p', '窄屏可横向滚动查看全部云边节点；也可按 Tab 选择节点并按 Enter 查看记录。', 'graph-scroll-note'));
   const legend = el('div', undefined, 'graph-legend'); legend.append(el('span', '实线 / 实际动作', 'legend-actual'), el('span', '虚线 / 候选预览', 'legend-preview'), el('span', '灰色 / 未参与或未知', 'legend-idle')); environment.append(legend);
+  const graphStatus = el('div', undefined, 'graph-status'); const phaseLabel = el('span', '静态回放', 'phase-label');
+  let motionEnabled = true;
+  const motionButton = button('关闭动效', () => { motionEnabled = !motionEnabled; motionButton.textContent = motionEnabled ? '关闭动效' : '开启动效'; motionButton.setAttribute('aria-pressed', String(motionEnabled)); graphView.setEnabled(motionEnabled); });
+  motionButton.setAttribute('aria-pressed', 'true'); graphStatus.append(phaseLabel, motionButton); environment.append(graphStatus);
+  const graphView = mountGraph(graphHost, run, openInspector, phase => {
+    if (disposed) return;
+    phaseLabel.textContent = phaseLabels[phase];
+    const target = phase === 'agent' ? 'agent' : phase === 'reward' ? 'reward' : phase === 'static' ? '' : 'cloud';
+    loop.querySelectorAll('button').forEach(b => b.classList.toggle('phase-active', b.dataset.focusKey === `loop-${target}`));
+    feedback.classList.toggle('phase-active', phase === 'reward');
+  });
   const feedback = panel('Reward / 反馈', '当前轮执行结果'); feedback.classList.add('reward-panel');
   const feedbackBody = el('div'); feedback.append(feedbackBody, button('查看奖励与证据', () => openInspector('reward')));
   grid.append(statePanel, environment, feedback); host.append(grid);
@@ -206,7 +234,9 @@ export function mountDecisionLab(host: HTMLElement, snapshot: Snapshot, initial:
         const td = el('td'); const matches = actions.filter(a => clients(a) === group && a.batch_size === batch);
         if (!matches.length) td.append(el('span', '无此动作', 'muted'));
         for (const action of matches) {
-          const b = button('', () => { pause(); state.preview = action.action_id; update(); }); b.classList.add('action-cell'); b.dataset.action = String(action.action_id); b.dataset.focusKey = `action-${action.action_id}`;
+           const b = button('', () => { pause(); state.preview = action.action_id; update(); }); b.classList.add('action-cell'); b.dataset.action = String(action.action_id); b.dataset.focusKey = `action-${action.action_id}`;
+           b.addEventListener('pointerenter', () => graphView.highlight(action.client_ids)); b.addEventListener('pointerleave', () => graphView.highlight([]));
+           b.addEventListener('focus', () => graphView.highlight(action.client_ids)); b.addEventListener('blur', () => graphView.highlight([]));
           const score = el('strong'); const badge = el('small'); b.append(el('span', `A${action.action_id}`), score, badge); td.append(b); matrixButtons.set(action.action_id, { button: b, score, badge });
         }
         tr.append(td);
@@ -271,7 +301,7 @@ export function mountDecisionLab(host: HTMLElement, snapshot: Snapshot, initial:
       stat(stateBody, '上一轮累计模拟能量 · J', frame.previous.energy_joules);
     } else stateBody.append(el('p', '无唯一相邻上一轮记录，不能重建决策前状态。', 'empty'));
     stateBody.append(el('p', `当前记录：round ${value(frame.round)} / 上限 ${value(run!.config_summary.max_rounds)}`, 'muted'));
-    drawGraph(graphHost, run!, frame, preview(), timer !== undefined, openInspector);
+    graphView.update(frame, preview(), timer !== undefined);
     feedbackBody.replaceChildren();
     stat(feedbackBody, '即时奖励 rₜ', frame.row.reward);
     stat(feedbackBody, '验证准确率', frame.row.validation_accuracy);
@@ -311,6 +341,8 @@ export function mountDecisionLab(host: HTMLElement, snapshot: Snapshot, initial:
     warnings.replaceChildren(); frame.warnings.forEach(w => warnings.append(el('p', w, 'muted')));
     syncCharts(state.frame); if (dialog.open) fillInspector(frame); notify();
   }
+  const suspend = () => { if (document.hidden && timer !== undefined) { pause(); update(); } };
+  document.addEventListener('visibilitychange', suspend);
   update();
-  return () => { disposed = true; pause(); if (dialog.open) dialog.close(); dialog.remove(); };
+  return () => { disposed = true; pause(); document.removeEventListener('visibilitychange', suspend); graphView.dispose(); if (dialog.open) dialog.close(); dialog.remove(); };
 }
