@@ -1,6 +1,6 @@
-# Optional Ablation Study
+# Ablation Study
 
-[Project home](../README.md) | [Reproduction](../docs/REPRODUCIBILITY.md)
+[Project home](../README.md) | [Reproduction](../docs/REPRODUCIBILITY.md) | [中文](README.ZH.md)
 
 This separate entry supports the N1/N3 study. It uses the project environment
 and reads `config/experiment.json` without changing the main experiment.
@@ -53,12 +53,3 @@ status, downloaded artifacts, and `closure.json`. The notebook displays availabl
 closure records; these artifacts are not shipped in Git. Results use **predicted
 risk**, not complete audited privacy risk, and do not load the official test set.
 Other L/Q/E/W studies remain definitions, not implemented alternatives.
-
-<details>
-<summary>中文说明（可选）</summary>
-
-使用项目环境的独立内核，并提供测试、已冻结输入和有效审批。当前笔记本阶段为
-`continue`，不是 `pilot`，运行前先检查。已有调用复用，不通过直接调用内部 worker
-绕过审批；阶段结果以核验记录为准，风险仍为预测值。
-
-</details>
