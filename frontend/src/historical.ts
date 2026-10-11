@@ -15,6 +15,6 @@ export function addHistoricalReplays(snapshot: Snapshot, value: unknown): Snapsh
     ...snapshot,
     runs: [...snapshot.runs, ...additions],
     experiments: additions.length && !snapshot.experiments.some(e => e.experiment_id === experiment.experiment_id) ? [...snapshot.experiments, experiment] : [...snapshot.experiments],
-    warnings: [...snapshot.warnings, ...(additions.length ? [`补充 ${additions.length} 条历史验证轨迹，仅用于回放；不替换当前实验的汇总或形成跨批次比较。`] : []), ...(skipped ? [`${skipped} 条历史运行 ID 已存在，保留原始快照记录，未覆盖或拼接。`] : [])],
+    warnings: [...snapshot.warnings, ...(additions.length ? [`Added ${additions.length} historical validation trajectories for replay only; current summaries are unchanged and cross-cohort comparisons are not established.`] : []), ...(skipped ? [`${skipped} historical run IDs already exist; original snapshot records were preserved, not overwritten or concatenated.`] : [])],
   };
 }

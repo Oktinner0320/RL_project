@@ -54,8 +54,8 @@ export function hasReplay(run: Run): boolean {
   return [...episodes.values()].some(count => count >= 2);
 }
 export function replayRunLabel(run: Run): string {
-  if (typeof run.replay_source_label === 'string') return `${run.method} · ${run.replay_source_label} · ${run.train_seed === null ? '' : `train ${run.train_seed} / `}eval ${run.eval_seed ?? '未导出'} · ${run.metrics.length} 条轮次记录`;
-  return `${hasReplay(run) ? '逐轮记录' : '仅汇总'} · ${runLabel(run)}`;
+  if (typeof run.replay_source_label === 'string') return `${run.method} · ${run.replay_source_label} · ${run.train_seed === null ? '' : `train ${run.train_seed} / `}eval ${run.eval_seed ?? 'Not exported'} · ${run.metrics.length} round records`;
+  return `${hasReplay(run) ? 'Round-by-round' : 'Summary only'} · ${runLabel(run)}`;
 }
 export function preferredDecisionRun(runs: Run[], id: string): Run | undefined {
   const eligible = decisionRuns(runs);
@@ -64,8 +64,8 @@ export function preferredDecisionRun(runs: Run[], id: string): Run | undefined {
 }
 
 const scoreLabels: Record<string, string> = {
-  q_values: 'Q 值 · 估计回报', probabilities: '策略概率', action_probabilities: '策略概率',
-  policy_probabilities: '策略概率', heuristic_scores: '启发式评分',
+  q_values: 'Q value · expected return', probabilities: 'Policy probability', action_probabilities: 'Policy probability',
+  policy_probabilities: 'Policy probability', heuristic_scores: 'Heuristic score',
 };
 
 function roundKey(row: Row): number | null {
@@ -86,33 +86,33 @@ export function replayFrames(run: Run, episode: string, audits: Row[] = []): Rep
     const warnings: string[] = [];
     const keyed = ep !== null && round !== null;
     const duplicate = keyed && rows.filter(r => r.episode === ep && r.round === round).length > 1;
-    if (!keyed) warnings.push('缺少 episode / round：只展示该条记录，不推断逐轮关联。');
-    if (duplicate) warnings.push('本轮有重复指标记录：不静默选择决策或上传关联。');
+    if (!keyed) warnings.push('Missing episode / round: this record is displayed without inferring round-level joins.');
+    if (duplicate) warnings.push('Duplicate metric records for this round: no decision or upload join is silently selected.');
     const matches = (r: Row) => keyed && !duplicate && r.episode === ep && roundKey(r) === round;
     const decisions = run.decisions.filter(matches);
     const decision = decisions.length === 1 ? decisions[0]! : null;
-    if (decisions.length > 1) warnings.push('本轮有多个决策记录：不选择评分向量。');
+    if (decisions.length > 1) warnings.push('Multiple decision records for this round: no score vector is selected.');
     const scoreLabel = decision && typeof decision.kind === 'string' ? scoreLabels[decision.kind] : undefined;
     const scores = new Map<number, number | null>();
     if (decision && scoreLabel && Array.isArray(decision.values))
       for (const action of actions) scores.set(action.action_id, number(decision.values[action.action_id]));
-    if (decision && !scoreLabel) warnings.push('未知决策评分类型：保留原始记录，不将其解释为 Q 值或概率。');
-    if (!decision) warnings.push('该轮未导出唯一决策向量；不从上传预测反推策略评分。');
-    if (!actions.length) warnings.push('未导出动作映射：不猜测客户端组合和批量大小。');
+    if (decision && !scoreLabel) warnings.push('Unknown decision score type: the raw record is retained without interpreting it as Q values or probabilities.');
+    if (!decision) warnings.push('No unique decision vector was exported for this round; policy scores are not inferred from upload predictions.');
+    if (!actions.length) warnings.push('Action mapping not exported: client sets and batch sizes are not inferred.');
     const uploads = run.uploads.filter(u => matches(u) && (u.run_id === undefined || u.run_id === run.run_id));
     if (run.uploads.some(u => u.episode === ep && (u.round === round || u.round_index === round) &&
       number(u.round) !== null && number(u.round_index) !== null && u.round !== u.round_index))
-      warnings.push('上传 round 与 round_index 冲突：已排除歧义关联。');
+      warnings.push('Conflicting upload round and round_index: ambiguous joins were excluded.');
     const ids = new Set(uploads.filter(u => typeof u.upload_id === 'string' && uploadCounts.get(u.upload_id) === 1).map(u => u.upload_id));
     const matchedAudits = audits.filter(a => a.run_id === run.run_id && ids.has(a.upload_id));
     if (uploads.some(u => typeof u.upload_id === 'string' && uploadCounts.get(u.upload_id)! > 1))
-      warnings.push('上传 ID 重复：对应审计记录不自动关联。');
+      warnings.push('Duplicate upload IDs: corresponding audit records are not automatically joined.');
     const previousRows = keyed ? rows.filter(r => r.episode === ep && r.round === round - 1) : [];
     return {
       row, index, episode: ep, round,
       previous: !duplicate && previousRows.length === 1 ? previousRows[0]! : null,
       action: actions.find(a => a.action_id === row.action_id) ?? null,
-      decisions, decision, scoreLabel: scoreLabel ?? '评分未导出', scores, uploads, audits: matchedAudits, warnings,
+      decisions, decision, scoreLabel: scoreLabel ?? 'Score not exported', scores, uploads, audits: matchedAudits, warnings,
     };
   });
 }
@@ -132,8 +132,8 @@ export function tracePoints(frames: ReplayFrame[]): { label: string; frame: Repl
   frames.forEach((frame, i) => {
     const previous = frames[i - 1];
     if (previous && previous.round !== null && frame.round !== null && frame.round - previous.round > 1)
-      points.push({ label: '未记录', frame: null });
-    points.push({ label: frame.round === null ? '未报告' : String(frame.round), frame });
+      points.push({ label: 'Not recorded', frame: null });
+    points.push({ label: frame.round === null ? 'Unreported' : String(frame.round), frame });
   });
   return points;
 }

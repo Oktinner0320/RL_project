@@ -23,13 +23,13 @@ export function replayTraces(parent: HTMLElement, frames: ReplayFrame[], run: Ru
   const points = tracePoints(frames);
   const views: { chart: echarts.ECharts; key: string }[] = [];
   const metrics = [
-    ['validation_accuracy', '验证准确率 · fraction'], ['reward', '即时奖励 · reward'],
-    ['round_time_seconds', '本轮模拟时间 · s'], ['round_energy_joules', '本轮模拟能量 · J'],
-    ['predicted_exposure_risk', '预测暴露风险 · 非审计真值'],
+    ['validation_accuracy', 'Validation accuracy · fraction'], ['reward', 'Immediate reward'],
+    ['round_time_seconds', 'Simulated round time · s'], ['round_energy_joules', 'Simulated round energy · J'],
+    ['predicted_exposure_risk', 'Predicted exposure risk · not audit ground truth'],
   ] as const;
   for (const [key, title] of metrics) {
     if (!frames.some(f => number(f.row[key]) !== null)) {
-      const missing = panel(title); missing.append(el('p', '该指标未导出。缺失不表示零，其他预测不替代暴露风险。', 'empty')); parent.append(missing); continue;
+      const missing = panel(title); missing.append(el('p', 'This metric was not exported. Missing values are not zero; other predictions do not replace exposure risk.', 'empty')); parent.append(missing); continue;
     }
     const c = chart(parent, title, {
       grid: { left: 58, right: 18, top: 18, bottom: 58 },
@@ -40,7 +40,7 @@ export function replayTraces(parent: HTMLElement, frames: ReplayFrame[], run: Ru
         { id: 'observed', name: title, type: 'line', showSymbol: true, showAllSymbol: true, symbolSize: 7, connectNulls: false,
           lineStyle: { width: 2, type: run.arm === 'N3' ? 'dashed' : 'solid' }, itemStyle: { color: color(run.arm ?? run.method) },
           data: points.map(p => p.frame ? number(p.frame.row[key]) : null) },
-        { id: 'selected-frame', name: '当前轮', type: 'line', showSymbol: true, showAllSymbol: true, symbolSize: 12,
+        { id: 'selected-frame', name: 'Current round', type: 'line', showSymbol: true, showAllSymbol: true, symbolSize: 12,
           itemStyle: { color: '#e6edf3', borderColor: '#101216', borderWidth: 2 }, data: points.map(() => null), z: 5 },
       ],
     });

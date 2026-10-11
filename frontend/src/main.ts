@@ -23,20 +23,20 @@ function persist(): void {
 }
 function stop(): void { cleanup?.(); cleanup = undefined; }
 function shell(): void {
-  app.replaceChildren(); const skip = el('a','跳到主内容','skip'); skip.href='#main'; app.append(skip);
+  app.replaceChildren(); const skip = el('a','Skip to main content','skip'); skip.href='#main'; app.append(skip);
   const workspace = el('div',undefined,'workspace'); const header = el('header');
-  const brand = el('div',undefined,'app-brand'); brand.append(el('strong','CLOUD / EDGE'),el('span','强化学习驱动的云边协同','eyebrow'));
-  const controls = el('div',undefined,'controls'); if(index) controls.append(select('实验快照',index.snapshots.map(s => [s.snapshot_id,s.snapshot_id]),data?.snapshot_id ?? '',id => void load(id)));
-  controls.append(button('重新读取快照',() => void load(data?.snapshot_id))); header.append(brand,controls); workspace.append(header,content); app.append(workspace);
+  const brand = el('div',undefined,'app-brand'); brand.append(el('strong','CLOUD / EDGE'),el('span','Reinforcement learning for cloud–edge collaboration','eyebrow'));
+  const controls = el('div',undefined,'controls'); if(index) controls.append(select('Experiment snapshot',index.snapshots.map(s => [s.snapshot_id,s.snapshot_id]),data?.snapshot_id ?? '',id => void load(id)));
+  controls.append(button('Reload snapshot',() => void load(data?.snapshot_id))); header.append(brand,controls); workspace.append(header,content); app.append(workspace);
 }
 async function load(id?: string): Promise<void> {
-  request.abort(); request = new AbortController(); const signal=request.signal; stop(); clearCharts(); content.replaceChildren(el('p','读取实验快照…','empty')); shell();
+  request.abort(); request = new AbortController(); const signal=request.signal; stop(); clearCharts(); content.replaceChildren(el('p','Loading experiment snapshot…','empty')); shell();
   try { index=await loadIndex(signal); const next=await loadSnapshot(index,id ?? params.get('snapshot') ?? index.current_snapshot,signal); if(signal.aborted)return; data=next; shell(); render(); }
-  catch(e) { if(signal.aborted)return; data=undefined; shell(); const p=panel('数据不可用','未使用模拟结果替代真实实验记录。'); p.append(el('p',String(e),'error'),button('重试当前快照',() => { params.delete('snapshot'); void load(); })); content.replaceChildren(p); }
+  catch(e) { if(signal.aborted)return; data=undefined; shell(); const p=panel('Data unavailable','No synthetic results are substituted for experiment records.'); p.append(el('p',String(e),'error'),button('Retry snapshot',() => { params.delete('snapshot'); void load(); })); content.replaceChildren(p); }
 }
 function render(): void {
   stop(); clearCharts(); content.replaceChildren(); if(!data)return;
-  content.append(el('p',`${data.snapshot_id} · ${data.generated_at}`,'eyebrow'),el('h1','云边交互台'));
+  content.append(el('p',`${data.snapshot_id} · ${data.generated_at}`,'eyebrow'),el('h1','Cloud–Edge Lab'));
   cleanup=mountDecisionLab(content,data,{run:runId,episode,frame,preview},s=>{runId=s.run;episode=s.episode;frame=s.frame;preview=s.preview;persist();},render);
   persist();
 }

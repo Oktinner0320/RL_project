@@ -7,7 +7,7 @@ export type Phase = 'agent' | 'down' | 'local' | 'up' | 'aggregate' | 'reward' |
 export interface Track { phase: Phase; color: string; points: Point[]; radius?: number; client?: number }
 export interface Scene { width: number; height: number; tracks: Track[] }
 export const phaseWindows = { agent: [0, 160], down: [160, 380], local: [380, 560], up: [560, 780], aggregate: [780, 900], reward: [900, 1000] } as const;
-export const phaseLabels: Record<Phase, string> = { agent: '策略评分', down: '模型下发', local: '边端计算', up: '梯度汇聚', aggregate: '模型聚合', reward: '奖励反馈', static: '静态回放' };
+export const phaseLabels: Record<Phase, string> = { agent: 'Policy scoring', down: 'Model download', local: 'Edge computation', up: 'Gradient upload', aggregate: 'Model aggregation', reward: 'Reward feedback', static: 'Static replay' };
 const blue = '#7abcf0', teal = '#65d4b7';
 
 // SVG and Canvas use the same coordinates; neither topology nor motion uses random placement.

@@ -106,7 +106,7 @@ export function projectRun([method, dir], base = project) {
     run_id: metadata.run_id, experiment_id: cohort, method, arm: null, phase: 'historical-validation-20261008', stage: 'validate',
     train_seed: learned ? config.experiment.training_seed ?? null : null, eval_seed: metadata.seed, partition: 'validation',
     risk_measurement: 'predicted_exposure_risk', risk_version: metadata.risk_version, evidence_scope: 'historical_validation_replay_only',
-    replay_source_label: '2026-10-08 历史验证',
+    replay_source_label: '2026-10-08 historical validation',
     status: pick(status, ['state', 'started_at', 'updated_at', 'finished_at', 'elapsed_seconds']),
     budget: { new_interactions: null, cumulative_interactions: null, warmup_interactions: metrics.filter(r => r.is_warmup === true).length },
     summary: { run_id: summary.run_id, stage: summary.stage, ...pick(summary, Object.keys(summary).filter(allowedMetric)) },
@@ -116,7 +116,7 @@ export function projectRun([method, dir], base = project) {
       checkpoint_step: null, training_interaction_budget: null,
     },
     metrics, decisions, uploads, training: [], sources,
-    warnings: ['历史验证轨迹，与当前实验的较新汇总不是同一批次；不用于同预算或同状态比较。', '训练检查点步数与实际训练预算未由这些验证产物核实。', ...(decisions.length ? [] : ['该运行没有保存策略评分向量，仅回放实际动作、上传元数据和反馈。'])],
+    warnings: ['Historical validation trajectory from a different cohort than the newer summaries; not used for equal-budget or same-state comparisons.', 'Training checkpoint steps and actual training budget are not verified by these validation artifacts.', ...(decisions.length ? [] : ['No policy score vector was saved for this run; replay includes only actual actions, upload metadata and feedback.'])],
   };
 }
 
@@ -125,10 +125,10 @@ export function prepareReplays(entries = replaySources) {
   return {
     schema_version: 'frontend_replays_v1',
     experiment: {
-      experiment_id: cohort, name: '2026-10-08 历史验证回放', kind: 'historical_validation_replay', evidence_scope: 'historical_validation_replay_only',
+      experiment_id: cohort, name: '2026-10-08 historical validation replay', kind: 'historical_validation_replay', evidence_scope: 'historical_validation_replay_only',
       actual_cloud_cost_usd: null, status: { state: 'source_runs_completed' },
       counts: { physical_train_interactions: null, physical_validation_interactions: runs.reduce((n, r) => n + r.metrics.length, 0), training_seed_count: new Set(runs.map(r => r.train_seed).filter(n => n !== null)).size },
-      evidence_gaps: ['仅补充回放，不替换现有快照，不建立跨批次公平比较或验收结论。'],
+      evidence_gaps: ['Supplementary replay only; existing snapshots are unchanged and no fair cross-cohort comparison or acceptance verdict is established.'],
       sources: runs.flatMap(r => r.sources),
     },
     runs,

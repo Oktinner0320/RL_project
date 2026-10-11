@@ -21,6 +21,6 @@ export async function loadSnapshot(index: Index, id: string, signal: AbortSignal
     return addHistoricalReplays(result, await json(`${import.meta.env.BASE_URL}replays/native-validation-v1.json`, signal));
   } catch (error) {
     if (signal.aborted) throw error;
-    return { ...result, warnings: [...result.warnings, `历史验证轨迹未载入，仍显示原始快照：${error instanceof Error ? error.message : String(error)}`] };
+    return { ...result, warnings: [...result.warnings, `Historical validation replays could not be loaded; the original snapshot remains available: ${error instanceof Error ? error.message : String(error)}`] };
   }
 }
