@@ -19,9 +19,13 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib.patches import FancyBboxPatch
+from matplotlib.patches import FancyBboxPatch, Patch, Rectangle
+from matplotlib.ticker import MaxNLocator
 
 BLUE, ORANGE, GREY = "#0072B2", "#E69F00", "#555555"
+ARM_COLORS = {"N1": BLUE, "N3": "#D55E00"}
+ARM_LINES = {"N1": "-", "N3": "--"}
+INK, MUTED, PALE = "#223247", "#697586", "#F0F3F6"
 STYLE = Path(__file__).resolve().parents[1] / "styles" / "acm.mplstyle"
 
 
@@ -112,6 +116,146 @@ def context(runs, rows):
     }
 
 
+def episode_metrics(run):
+    """Keep real round identities; neither missing rounds nor episodes are joined."""
+    episodes = {}
+    for row in run.get("metrics", []):
+        if number(row.get("round")) is None:
+            continue
+        identity = (row.get("episode"), row["round"])
+        previous = episodes.setdefault(identity[0], {}).get(identity[1])
+        if previous is not None and previous != row:
+            raise ValueError(f"Contradictory round observations: {run['run_id']} {identity}")
+        episodes[identity[0]][identity[1]] = row
+    return {ep: [rows[k] for k in sorted(rows)] for ep, rows in episodes.items()}
+
+
+def validation_pairs(runs):
+    """Return exact, known-budget N1/N3 pairs, retaining each recorded episode."""
+    groups = {}
+    for run in runs:
+        if (run.get("arm") not in ARM_COLORS
+                or number(run.get("train_seed")) is None
+                or number(run.get("eval_seed")) is None
+                or training_budget(run) is None):
+            continue
+        key = (scope_key(run), run.get("method"), run["train_seed"], run["eval_seed"])
+        groups.setdefault(key, []).append(run)
+    pairs = []
+    for group in groups.values():
+        if len(group) != 2 or {r["arm"] for r in group} != set(ARM_COLORS):
+            continue
+        pair = sorted(group, key=lambda r: r["arm"])
+        traces = [episode_metrics(r) for r in pair]
+        for episode in sorted(traces[0].keys() & traces[1].keys(), key=str):
+            observed = [t[episode] for t in traces]
+            if observed[0][-1]["round"] == observed[1][-1]["round"]:
+                pairs.append((pair, episode, observed))
+    return pairs
+
+
+def diagnostic_groups(runs):
+    """Merge compatible arm histories, not phases, counters, or scientific settings."""
+    cohorts = {}
+    for run in runs:
+        if not run.get("training"):
+            continue
+        config = run.get("config_summary", {})
+        fields = (run.get("experiment_id"), run.get("method"), run.get("train_seed"),
+                  run.get("partition"), run.get("risk_measurement"), run.get("risk_version"),
+                  *(config.get(k) for k in ("dataset", "partition", "max_rounds", "gamma",
+                                           "num_clients", "action_space", "warmup_rounds")))
+        key = tuple(json.dumps(v, sort_keys=True) for v in fields)
+        cohorts.setdefault(key, []).append(run)
+    result = []
+    for group in cohorts.values():
+        arms = {}
+        for run in group:
+            arm = run.get("arm") or run.get("method", "run")
+            records = arms.setdefault(arm, {})
+            for row in run["training"]:
+                step = number(row.get("environment_steps"))
+                if step is None:
+                    continue
+                identity = (step, row.get("updates"))
+                safe = {k: v for k, v in row.items() if k != "source_index"}
+                if identity in records and records[identity]["observation"] != safe:
+                    raise ValueError(f"Contradictory training diagnostics at {identity}")
+                entry = records.setdefault(identity, {"observation": safe, "source_run_ids": []})
+                if run["run_id"] not in entry["source_run_ids"]:
+                    entry["source_run_ids"].append(run["run_id"])
+        series = {arm: [{"arm": arm, **entry["observation"],
+                         "source_run_ids": entry["source_run_ids"]}
+                        for _, entry in sorted(records.items(), key=lambda item: (item[0][0], item[0][1] or 0))]
+                  for arm, records in arms.items() if records}
+        if series:
+            result.append((group, series))
+    return result
+
+
+def rolling_mean(values, window=11):
+    """Centered recorded-update mean; missing values break contiguous segments."""
+    # 平滑仅辅助阅读，缺测位置保留，原始值不修改。 / Smooth for display only; preserve gaps and raw values.
+    result = [None] * len(values)
+    start = 0
+    while start < len(values):
+        if number(values[start]) is None:
+            start += 1
+            continue
+        end = start
+        while end < len(values) and number(values[end]) is not None:
+            end += 1
+        for i in range(start, end):
+            result[i] = float(np.mean(values[max(start, i-window//2):min(end, i+window//2+1)]))
+        start = end
+    return result
+
+
+def decision_frame(run, episode, metrics):
+    """Join Q vectors to recorded actions by exact episode/round and declared IDs."""
+    mapping = {}
+    for action in run.get("config_summary", {}).get("action_space", []):
+        aid = action.get("action_id")
+        clients = action.get("client_ids")
+        if (type(aid) is not int or aid < 0 or aid in mapping
+                or not isinstance(clients, list) or not clients
+                or any(type(c) is not int or c < 0 for c in clients)
+                or len(clients) != len(set(clients))
+                or number(action.get("batch_size")) is None or action["batch_size"] <= 0):
+            raise ValueError("Invalid declared client/batch action mapping")
+        mapping[aid] = action
+    if not mapping or sorted(mapping) != list(range(len(mapping))):
+        raise ValueError("Action vector indices lack a complete declared action mapping")
+    decisions = {}
+    for row in run.get("decisions", []):
+        if row.get("episode") != episode or row.get("kind") != "q_values":
+            continue
+        rnd = number(row.get("round"))
+        if rnd is None:
+            continue
+        values = row.get("values")
+        if not isinstance(values, list) or len(values) != len(mapping):
+            raise ValueError("Q vector width differs from the declared action space")
+        if rnd in decisions and decisions[rnd]["values"] != values:
+            raise ValueError("Contradictory Q vectors at the same episode/round")
+        decisions[rnd] = row
+    frames = []
+    for row in metrics:
+        decision = decisions.get(row["round"])
+        values = decision["values"] if decision else None
+        complete = values is not None and all(number(v) is not None for v in values)
+        # 与当轮最大 Q 的距离，不是概率或真实风险。 / The within-round Q gap is neither probability nor true risk.
+        gaps = [max(values)-v for v in values] if complete else [None] * len(mapping)
+        action = mapping.get(row.get("action_id"))
+        frames.append({"run_id": run["run_id"], "arm": run["arm"], "episode": episode,
+                       "round": row["round"], "is_warmup": row.get("is_warmup"),
+                       "action_id": row.get("action_id"),
+                       "client_ids": action["client_ids"] if action else None,
+                       "batch_size": action["batch_size"] if action else None,
+                       "q_values": values, "q_gaps": gaps})
+    return mapping, frames
+
+
 class Renderer:
     def __init__(self, output, snapshot, width):
         self.output, self.snapshot, self.width = output, snapshot, width
@@ -133,7 +277,7 @@ class Renderer:
             ax.set_visible(False)
         return fig, list(axes.flat)[:count]
 
-    def save(self, fid, title, scope, caption, description, fig, runs, data):
+    def save(self, fid, title, scope, caption, description, fig, runs, data, *, dpi=320):
         # 图片、图注和来源数据同步保存。 / Save figures, captions, and provenance together.
         evidence = context(runs, data.get("rows", []))
         splits=sorted({str(r.get('partition')) for r in runs})
@@ -151,7 +295,7 @@ class Renderer:
                 fd, temporary = tempfile.mkstemp(prefix=".render-", suffix=f".{extension}", dir=self.output)
                 os.close(fd)
                 try:
-                    fig.savefig(temporary, format=extension, dpi=320, facecolor="white")
+                    fig.savefig(temporary, format=extension, dpi=dpi, facecolor="white")
                     os.replace(temporary, destination)
                 finally:
                     Path(temporary).unlink(missing_ok=True)
@@ -162,6 +306,252 @@ class Renderer:
             self.figures.append({"id": fid, "title": title, "scope": scope, "caption": caption, "description": description, "files": files, "source_run_ids": [r["run_id"] for r in runs]})
         finally:
             plt.close(fig)
+
+    def compound_axes(self, count, height, ratios=None):
+        cols = 1 if self.width == "single" else 2
+        rows = math.ceil(count / cols)
+        fig, axes = plt.subplots(rows, cols, figsize=(self.inches, height), squeeze=False,
+                                 layout="constrained", gridspec_kw={"height_ratios": ratios or [1]*rows})
+        for ax in axes.flat:
+            ax.spines[["top", "right"]].set_visible(False)
+            ax.spines[["bottom", "left"]].set_color("#CCD3DC")
+            ax.tick_params(colors=MUTED, length=2.5, width=.5, pad=3)
+            ax.grid(True, axis="y", color="#D8DEE6", linewidth=.45, alpha=.55)
+            ax.set_axisbelow(True)
+        return fig, list(axes.flat)[:count]
+
+    def compound_title(self, fig, title, runs, footer, episode=None):
+        config = runs[0].get("config_summary", {})
+        dataset = config.get("dataset") or "dataset unavailable"
+        partition = config.get("partition") or runs[0].get("partition") or "split unavailable"
+        detail = f"{str(dataset).title()} / {str(partition).upper()}  ·  train seed {runs[0].get('train_seed')}"
+        if episode is not None:
+            detail += f"  ·  eval {runs[0].get('eval_seed')} / episode {episode}"
+        fig.suptitle(f"{title}\n{detail}", fontsize=10, color=INK, fontweight="medium")
+        fig.supxlabel(footer, fontsize=7, color=MUTED)
+
+    def panel_title(self, ax, tag, title):
+        ax.set_title(f"({tag})  {title}", loc="left", fontsize=9, color=INK, pad=9)
+
+    def warmup(self, ax, rows):
+        warm = sorted({r["round"] for r in rows if r.get("is_warmup") is True})
+        if not warm:
+            return
+        start = previous = warm[0]
+        for rnd in [*warm[1:], None]:
+            if rnd is not None and rnd == previous+1:
+                previous = rnd
+                continue
+            ax.axvspan(start-.5, previous+.5, color=PALE, zorder=0)
+            if rnd is not None:
+                start = previous = rnd
+
+    def paired(self, runs):
+        pairs = validation_pairs(runs)
+        if not pairs:
+            self.skip("paired_ablation", "No exact known-budget paired N1/N3 validation episode with matching recorded horizon.")
+            return
+        for index, (pair, episode, traces) in enumerate(pairs, 1):
+            ratios = [1.65, .85] if self.width == "double" else [1.35, 1.35, .8, .8]
+            fig, axes = self.compound_axes(4, 4.2 if self.width == "double" else 7.2, ratios)
+            self.compound_title(fig, "Paired n-step ablation: utility, resources, and proxy risk", pair,
+                                "One paired seed · risk is predicted, not audited · resources are simulated", episode)
+            rows, endpoints = [], []
+            for run, trace in zip(pair, traces):
+                rows.extend({"run_id": run["run_id"], "arm": run["arm"], **row} for row in trace)
+                endpoints.append({"run_id": run["run_id"], "arm": run["arm"], **trace[-1]})
+            for ai, (key, name, factor) in enumerate((("validation_accuracy", "Validation accuracy (%)", 100),
+                                                     ("predicted_exposure_risk", "Exposure-weighted predicted risk", 1))):
+                ax = axes[ai]
+                for run, trace in zip(pair, traces):
+                    arm, color = run["arm"], ARM_COLORS[run["arm"]]
+                    ax.plot([r["round"] for r in trace],
+                            [factor*r[key] if number(r.get(key)) is not None else np.nan for r in trace],
+                            color=color, linestyle=ARM_LINES[arm], linewidth=1.45, label=arm)
+                    end = trace[-1]
+                    if number(end.get(key)) is not None:
+                        ax.scatter(end["round"], factor*end[key], color=color, s=14, zorder=5)
+                        offset = -13 if arm == "N1" else 9
+                        ax.annotate(f"{arm}  {factor*end[key]:.3f}", (end["round"], factor*end[key]),
+                                    xytext=(-3, offset), textcoords="offset points", ha="right", color=color, fontsize=7)
+                self.warmup(ax, traces[0])
+                ax.set(xlabel="Validation round", ylabel=name)
+                ax.xaxis.set_major_locator(MaxNLocator(integer=True, nbins=6))
+                ax.yaxis.set_major_locator(MaxNLocator(nbins=5))
+                self.panel_title(ax, "ab"[ai], "Accuracy" if ai == 0 else "Proxy risk")
+                ax.legend(frameon=False, ncol=2, fontsize=7, loc="lower right" if ai == 0 else "upper right")
+            deltas = {}
+            for key in ("validation_accuracy", "predicted_exposure_risk", "elapsed_seconds", "energy_joules"):
+                a, b = (number(r.get(key)) for r in endpoints)
+                deltas[key] = {"N1": a, "N3": b,
+                               "difference": b-a if a is not None and b is not None else None,
+                               "relative_percent": 100*(b/a-1) if a is not None and a > 0 and b is not None else None}
+            for ax, key, name, unit, tag in zip(axes[2:], ("elapsed_seconds", "energy_joules"),
+                                              ("Simulated time", "Simulated energy"), ("s", "J"), "cd"):
+                values = [number(r.get(key)) for r in endpoints]
+                if all(v is not None for v in values):
+                    ax.plot(values, [0, 0], color="#BAC4CF", linewidth=1.6, zorder=2)
+                for arm, value in zip(ARM_COLORS, values):
+                    if value is None:
+                        continue
+                    ax.scatter(value, 0, color=ARM_COLORS[arm], marker="o" if arm == "N1" else "s", s=24, zorder=3)
+                    ax.annotate(f"{arm}  {value:.2f} {unit}", (value, 0), xytext=(0, 10 if arm == "N1" else -17),
+                                textcoords="offset points", ha="center", color=ARM_COLORS[arm], fontsize=7.5)
+                relative = deltas[key]["relative_percent"]
+                if relative is not None:
+                    ax.text(.98, .95, f"N3 vs N1  {relative:+.1f}%", transform=ax.transAxes,
+                            ha="right", color=INK, fontsize=7.5)
+                finite = [v for v in values if v is not None]
+                ax.set(xlim=(0, max(finite)*1.17 if finite and max(finite) > 0 else 1), ylim=(-.8, .8),
+                       xlabel=f"Final recorded {name.lower()} ({unit})", yticks=[])
+                ax.spines["left"].set_visible(False)
+                ax.grid(False, axis="y")
+                ax.grid(True, axis="x", color="#D8DEE6", linewidth=.45, alpha=.55)
+                self.panel_title(ax, tag, name)
+            exposure = {r["arm"]: number(r.get("risk_exposures")) for r in endpoints}
+            self.save(f"paired_ablation_{index}", "Paired n-step trade-off", "developer paired validation",
+                      "All recorded rounds of one exact paired training/evaluation seed and episode. Shading marks actual warmup. "
+                      "Endpoints use the final recorded round, not the best round; no CI or significance claim. "
+                      f"Postwarm exposure denominators: {exposure}. Risk is predicted, never a full true audit.",
+                      "Aligned accuracy and proxy-risk trajectories above compact paired time and energy endpoints.",
+                      fig, pair, {"rows": rows, "endpoints": endpoints, "deltas": deltas,
+                                  "exposure_denominators": exposure, "episode": episode}, dpi=600)
+
+    def diagnostics(self, runs):
+        groups = diagnostic_groups(runs)
+        if not groups:
+            self.skip("training_diagnostics", "No actual cumulative-step training diagnostics.")
+            return
+        for index, (group, series) in enumerate(groups, 1):
+            fig, axes = self.compound_axes(2, 3.05 if self.width == "double" else 5.1)
+            self.compound_title(fig, "Learning dynamics across n-step targets", group,
+                                "Faint: recorded updates · bold: centered 11-update mean · diagnostics are not policy performance")
+            rows = [row for trace in series.values() for row in trace]
+            boundaries = sorted({number(r.get("budget", {}).get("cumulative_interactions"))
+                                 for r in group if number(r.get("budget", {}).get("cumulative_interactions")) is not None})
+            for ax, key, name, tag in zip(axes, ("td_loss", "q_mean"), ("TD loss", "Mean learned Q"), "ab"):
+                finite = [r[key] for r in rows if number(r.get(key)) is not None]
+                log_scale = key == "td_loss" and finite and min(finite) > 0 and max(finite)/min(finite) > 30
+                if log_scale:
+                    ax.set_yscale("log")
+                for arm, trace in sorted(series.items()):
+                    steps = [r["environment_steps"] for r in trace]
+                    values = [number(r.get(key)) for r in trace]
+                    color = ARM_COLORS.get(arm, GREY)
+                    ax.plot(steps, [v if v is not None else np.nan for v in values], color=color, alpha=.22, linewidth=.55)
+                    smooth = rolling_mean(values)
+                    ax.plot(steps, [v if v is not None else np.nan for v in smooth], color=color,
+                            linestyle=ARM_LINES.get(arm, "-"), linewidth=1.5, label=arm)
+                first, last = min(r["environment_steps"] for r in rows), max(r["environment_steps"] for r in rows)
+                for boundary in boundaries:
+                    if first < boundary < last:
+                        ax.axvline(boundary, color="#A7B2BF", linewidth=.7, linestyle=":")
+                        ax.text(boundary, .98, f" {boundary:g}: continue", transform=ax.get_xaxis_transform(),
+                                ha="left", va="top", fontsize=6.7, color=MUTED)
+                ax.set(xlabel="Cumulative real training interactions", ylabel=name+(" (log scale)" if log_scale else ""))
+                ax.xaxis.set_major_locator(MaxNLocator(integer=True, nbins=5))
+                ax.legend(frameon=False, ncol=2, loc="lower right", fontsize=7.5)
+                self.panel_title(ax, tag, name)
+            self.save(f"training_diagnostics_{index}", "Paired learning dynamics", "developer training",
+                      "Compatible histories retain every arm separately; copied prefixes deduplicated by cumulative "
+                      "environment_steps and update identity. Raw observations remain visible. Centered 11-record mean "
+                      "uses truncated edge windows within contiguous observed segments; gaps are never filled. "
+                      "TD loss and Q scales across different n-step targets are diagnostics, not a performance ranking. "
+                      "Positive TD loss spanning more than 30x uses a labeled log axis; zeros are not discarded.",
+                      "Matched n-step training histories on shared interaction axes, with raw and clearly identified smoothed traces.",
+                      fig, group, {"rows": rows, "continuation_boundaries": boundaries[:-1],
+                                   "smoothing": {"window": 11, "unit": "recorded optimizer updates", "centered": True,
+                                                 "edge_windows": "truncated", "missing_values": "preserved"}}, dpi=600)
+
+    def decision_atlas(self, runs):
+        made = False
+        for index, (pair, episode, traces) in enumerate(validation_pairs(runs), 1):
+            fid = f"decision_atlas_{index}"
+            try:
+                prepared = [decision_frame(r, episode, trace) for r, trace in zip(pair, traces)]
+            except ValueError as error:
+                self.skip(fid, str(error))
+                continue
+            if not any(any(v is not None for v in row["q_gaps"]) for _, frames in prepared for row in frames):
+                self.skip(fid, "No complete recorded Q vectors; partial values do not define a known within-round maximum.")
+                continue
+            # 同一轮、同一动作映射下对齐三种决策信息。 / Align participation, batch, and Q gaps on real rounds.
+            count = 6
+            ratios = [1, .45, 2.8] if self.width == "double" else [1, 1, .5, .5, 2.8, 2.8]
+            fig, axes = self.compound_axes(count, 5.35 if self.width == "double" else 9.1, ratios)
+            self.compound_title(fig, "Decision atlas: who participates, batch choice, and Q preference", pair,
+                                "White rings: recorded actions · gray cells: no complete Q record · Q gap is not risk or probability", episode)
+            mapping = prepared[0][0]
+            clients = sorted({c for a in mapping.values() for c in a["client_ids"]})
+            batches = sorted({a["batch_size"] for a in mapping.values()})
+            batch_colors = {b: plt.get_cmap("Blues")(.3+.6*i/max(1, len(batches)-1)) for i, b in enumerate(batches)}
+            maximum = max(v for _, frames in prepared for r in frames for v in r["q_gaps"] if v is not None)
+            cmap = plt.get_cmap("cividis_r").copy()
+            cmap.set_bad(PALE)
+            all_frames, vector_rows = [], []
+            for col, (run, (_, frames), trace) in enumerate(zip(pair, prepared, traces)):
+                arm, color = run["arm"], ARM_COLORS[run["arm"]]
+                all_frames.extend(frames)
+                positions = (col, 2+col, 4+col)
+                selected = [axes[p] for p in positions]
+                lo, hi = min(r["round"] for r in frames), max(r["round"] for r in frames)
+                rounds = np.arange(lo, hi+1)
+                lookup = {r["round"]: r for r in frames}
+                for ax in selected:
+                    ax.grid(False)
+                    self.warmup(ax, trace)
+                    ax.set_xlim(lo-.5, hi+.5)
+                    ax.xaxis.set_major_locator(MaxNLocator(integer=True, nbins=6))
+                ax = selected[0]
+                for yi, client in enumerate(clients):
+                    ax.axhline(yi, color="#E3E8EE", linewidth=.5, zorder=1)
+                    known = [r for r in frames if r["client_ids"] is not None and client in r["client_ids"]]
+                    ax.scatter([r["round"] for r in known], [yi]*len(known), s=12, color=color, zorder=3)
+                ax.set(yticks=range(len(clients)), yticklabels=[f"C{c}" for c in clients], ylim=(len(clients)-.5, -.5))
+                ax.tick_params(labelbottom=False)
+                self.panel_title(ax, "ab"[col], f"{arm} / client participation")
+                ax = selected[1]
+                for row in frames:
+                    if row["batch_size"] in batch_colors:
+                        ax.add_patch(Rectangle((row["round"]-.44, -.3), .88, .6,
+                                               facecolor=batch_colors[row["batch_size"]], edgecolor="white", linewidth=.3))
+                ax.set(ylim=(-.5, .5), yticks=[])
+                ax.tick_params(labelbottom=False)
+                ax.spines[["left", "bottom"]].set_visible(False)
+                self.panel_title(ax, "cd"[col], "Batch size")
+                ax = selected[2]
+                matrix = np.array([[lookup[r]["q_gaps"][a] if r in lookup and lookup[r]["q_gaps"][a] is not None else np.nan
+                                    for r in rounds] for a in sorted(mapping)])
+                mesh = ax.pcolormesh(np.arange(lo-.5, hi+1), np.arange(len(mapping)+1)-.5,
+                                     np.ma.masked_invalid(matrix), shading="flat", cmap=cmap, vmin=0,
+                                     vmax=maximum if maximum > 0 else 1)
+                actions = [r for r in frames if r["action_id"] in mapping and r["q_values"] is not None]
+                ax.scatter([r["round"] for r in actions], [r["action_id"] for r in actions],
+                           s=10, facecolors="white", edgecolors=INK, linewidths=.55, zorder=4)
+                labels = [f"C{''.join(str(c) for c in mapping[a]['client_ids'])} / B{mapping[a]['batch_size']:g}" for a in sorted(mapping)]
+                ax.set(yticks=range(len(mapping)), yticklabels=labels, ylim=(len(mapping)-.5, -.5), xlabel="Actual validation round")
+                ax.tick_params(axis="y", labelsize=7, length=0)
+                for a in range(1, len(mapping)):
+                    if mapping[a]["client_ids"] != mapping[a-1]["client_ids"]:
+                        ax.axhline(a-.5, color="white", linewidth=.6, alpha=.8)
+                self.panel_title(ax, "ef"[col], "Within-round Q gap")
+                vector_rows.extend({"run_id": run["run_id"], **r} for r in run.get("decisions", []) if r.get("episode") == episode)
+            fig.colorbar(mesh, ax=[axes[4], axes[5]], orientation="horizontal", fraction=.08, pad=.03,
+                         aspect=35, label="max Q − Q(action)  /  shared original Q units")
+            axes[2].legend(handles=[Patch(facecolor=batch_colors[b], label=f"B{b:g}") for b in batches],
+                           loc="upper center", bbox_to_anchor=(.5, -.05), frameon=False, ncol=len(batches), fontsize=6.8)
+            self.save(fid, "Paired decision atlas", "developer paired validation",
+                      "Client events and batch categories use only the declared action space and recorded actions. "
+                      "Q vectors join by exact episode/round; shared color scale is max Q minus each Q, in original Q units. "
+                      "White rings identify actual chosen actions, not assumed argmax actions. Gray cells denote absent "
+                      "or incomplete Q vectors, never zero scores. Unknown actions leave participation and batch missing; "
+                      "warmup is shaded. Heuristic scores and policy probabilities are not substituted for Q values.",
+                      "Two aligned n-step columns combine client event rasters, discrete batch ribbons, and semantically labeled Q-gap maps.",
+                      fig, pair, {"rows": all_frames, "raw_decisions": vector_rows,
+                                  "action_space": list(mapping.values()), "q_transform": "max Q within recorded round - Q(action)",
+                                  "q_color_limits": [0, maximum], "episode": episode}, dpi=600)
+            made = True
+        return made
 
     def mechanism(self):
         # 机制示意图不是实测性能证据。 / The conceptual diagram is not measured performance evidence.
@@ -246,70 +636,12 @@ class Renderer:
         fid="learning_progress" if index==0 and chunk_index==0 else f"learning_progress_{index+1}_part{chunk_index+1}"
         self.save(fid,"Validation learning progress","developer validation","Compatible validation trajectories only; all seeds retained. Shading marks actual warmup rounds. Predicted risk is not audited risk; exposure counts are not a risk-average denominator.","Final-size single-column trajectory panels with missing values left as line breaks.",fig,group,{"rows":rows,"plotted_metric_keys":[key for key,_ in keys]})
 
-    def diagnostics(self, runs):
-        # 按累计步数和更新 ID 去重复历史。 / Deduplicate resumed histories by cumulative steps and update IDs.
-        groups = {}
-        for run in runs:
-            if not run.get("training"):
-                continue
-            key = (run.get("experiment_id"), run.get("arm"), run.get("train_seed"), run.get("partition"), run.get("risk_version"), run.get("config_summary",{}).get("dataset"))
-            groups.setdefault(key, []).append(run)
-        if not groups:
-            self.skip("training_diagnostics", "No actual cumulative-step training diagnostics.")
-        for index, group in enumerate(groups.values()):
-            unique = {}
-            for run in group:
-                for row in run["training"]:
-                    step = number(row.get("environment_steps"))
-                    if step is None:
-                        continue
-                    key = (step, row.get("updates"))
-                    safe = {k:v for k,v in row.items() if k != "source_index"}
-                    if key in unique and unique[key] != safe:
-                        raise ValueError(f"Contradictory training diagnostics at {key}")
-                    unique[key] = safe
-            rows = sorted(unique.values(), key=lambda row: (row["environment_steps"], row.get("updates") or 0))
-            if not rows:
-                self.skip(f"training_diagnostics_{index+1}", "No declared cumulative environment_steps; no guessed offsets.")
-                continue
-            fig, axes = self.axes(2, 2.15)
-            for ax, key, name in zip(axes, ("td_loss", "q_mean"), ("TD loss", "Mean learned Q")):
-                ax.plot([r["environment_steps"] for r in rows], [r.get(key) if number(r.get(key)) is not None else np.nan for r in rows], color=BLUE)
-                ax.set(xlabel="Cumulative training interactions", ylabel=name)
-            self.save(f"training_diagnostics_{index+1}", "Training diagnostics", "developer training", "Resumed histories deduplicated by cumulative environment_steps and update identity, never concatenated or re-offset. Training diagnostics are not validation performance.", "TD loss and mean learned Q versus actual cumulative training interactions.", fig, group, {"rows": rows})
-
-    def paired(self, runs):
-        groups = {}
-        for run in runs:
-            if run.get("arm") in ("N1","N3"):
-                groups.setdefault((scope_key(run), run.get("train_seed"), run.get("eval_seed")), []).append(run)
-        pairs = [g for g in groups.values() if len(g)==2 and {r["arm"] for r in g}=={"N1","N3"}]
-        if not pairs:
-            self.skip("paired_ablation", "No exact compatible paired N1/N3 validation runs (same seed, split, stage, risk version, and budgets).")
-            return
-        for i, pair in enumerate(pairs):
-            pair.sort(key=lambda r:r["arm"])
-            keys = [("validation_accuracy","Final validation accuracy"),("predicted_exposure_risk","Final predicted risk")]
-            fig, axes = self.axes(2, 2.3)
-            rows = []
-            for run in pair:
-                metrics = [r for r in run.get("metrics",[]) if number(r.get("round")) is not None]
-                # 每条轨迹取最后记录，不挑最好结果。 / Use each episode's last record, not its best result.
-                for episode in sorted({r.get("episode") for r in metrics}, key=str):
-                    terminal = max((r for r in metrics if r.get("episode")==episode), key=lambda r:r["round"])
-                    rows.append({"run_id":run["run_id"],"arm":run["arm"], **terminal})
-            for ax, (key,name) in zip(axes,keys):
-                for row in rows:
-                    if number(row.get(key)) is not None:
-                        ax.scatter([row["arm"]],[row[key]], color=BLUE if row["arm"]=="N1" else ORANGE)
-                ax.set(ylabel=name, xlabel="n-step arm")
-                ax.set_title("Developer paired seed · no CI")
-            self.save(f"paired_ablation_{i+1}", "Paired N1/N3 ablation", "developer paired validation", "One paired training seed per panel; no confidence interval, significance claim, or best-seed selection. Final recorded round in every episode is shown.", "Compatible paired n-step validation endpoints.", fig, pair, {"rows": rows})
-
     def actions(self, runs):
         # 不同类型的真实决策向量分别展示。 / Plot recorded action vectors separately by decision kind.
-        made = False
+        made = self.decision_atlas(runs)
         for run in runs:
+            if run.get("arm") in ARM_COLORS:
+                continue
             rows = run.get("decisions", [])
             kinds = sorted({str(row.get("kind")) for row in rows})
             for ki, kind in enumerate(kinds):
