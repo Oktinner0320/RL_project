@@ -29,8 +29,8 @@ import psutil
 
 def project_root(root: Path | str | None = None) -> Path:
     result = Path(root).resolve() if root is not None else Path(__file__).resolve().parents[2]
-    if not (result / "figure_assets" / "DATA_CONTRACT.md").is_file():
-        raise ValueError("Select the RL_project root containing figure_assets/DATA_CONTRACT.md")
+    if not (result / "figure_assets" / "scripts" / "export_results.py").is_file():
+        raise ValueError("Select the RL_project root containing figure_assets/scripts/export_results.py")
     return result
 
 

@@ -36,7 +36,7 @@ uv run --locked --extra comparisons jupyter lab
 - `config/experiment.json`：唯一可编辑实验配置。
 - `pyproject.toml`、`uv.lock`：环境要求与依赖锁定。
 - `reference_algorithms/`：固定版本来源、下载器和参考运行环境。
-- [frontend/](frontend/README.md)、[figure_assets/](figure_assets/README.md)：交互展示与制图工具。
+- [frontend/](frontend/README.md)、[figure_assets/](figure_assets/)：交互展示与制图工具。
 - [paper/](paper/)：论文入口与参考文献。
 
 ## 复现范围与限制

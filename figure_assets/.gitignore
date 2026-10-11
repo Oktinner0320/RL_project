@@ -1,7 +1,0 @@
-generated/
-main/
-manifest.json
-reports/
-test/
-__pycache__/
-*.py[cod]

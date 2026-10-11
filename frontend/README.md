@@ -1,6 +1,6 @@
 # Cloud–Edge Lab
 
-[Project home](../README.md) | [Visualization guide](../figure_assets/README.md)
+[Project home](../README.md) | [Visualization notebook](../visualization.ipynb)
 
 Read-only TypeScript/Vite viewer for saved experiment snapshots and recorded
 playback. It does not train, contact Modal, modify scientific results, or calculate
@@ -26,7 +26,7 @@ Rebuild after updating public data.
 - `public/data/index.json` and its listed `results.json` snapshots are mandatory
   for the web app. They are generated files, excluded from Git; restore them from
   the presentation package or export available sources using the
-  [figure tools](../figure_assets/README.md).
+  [figure tools](../figure_assets/scripts/).
 - `public/replays/native-validation-v1.json` is a tracked historical supplement:
   seven 2026-10-08 validation runs and 209 recorded rounds. It is **not** a
   replacement for the snapshot index and is not a newer-batch result.
@@ -51,7 +51,7 @@ runs without updating the documented scope.
 Missing states, action mappings, costs, scores, and audits remain missing.
 Predicted risk is not audited risk; summary-only records do not become round
 traces. Playback does not establish fair cross-batch comparisons or acceptance.
-The shared schema is documented in [DATA_CONTRACT.md](../figure_assets/DATA_CONTRACT.md).
+Exported snapshots use the `results_visualization_v1` format.
 
 <details>
 <summary>中文说明（可选）</summary>
