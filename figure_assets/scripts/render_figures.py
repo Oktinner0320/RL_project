@@ -560,6 +560,7 @@ def render_snapshot(root: Path, *, snapshot: Path | None = None, width: str = "d
     assets=confined(root,"figure_assets")
     output=confined(assets,"main")
     output.mkdir(parents=True,exist_ok=True)
+    confined(assets,"reports/figure-data").mkdir(parents=True,exist_ok=True)
     manifest_path=confined(assets,"manifest.json")
     previous=load_json(manifest_path) if manifest_path.is_file() else None
     renderer=Renderer(output,data,width)

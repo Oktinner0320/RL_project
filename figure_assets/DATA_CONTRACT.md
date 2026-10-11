@@ -28,7 +28,7 @@ Use original metric keys: `validation_accuracy` (fraction), `validation_loss`, `
 
 ## Rendering outputs
 
-`figure_assets/generated/<snapshot_id>/manifest.json` contains `schema_version: "figure_manifest_v1"`, `snapshot_id`, `generated_at`, `figures: [{id, title, scope, caption, description, files: {pdf, svg, png, data}, source_run_ids: string[]}]`, `skipped: [{id, reason}]`. All file paths are relative to that generated directory and must be confined. Figure outputs remain under `figure_assets/`, including figure source JSON and English caption/description text. The frontend reads this manifest and files through the local read-only `/figure-assets/` endpoint, never through a project-root file server.
+`figure_assets/manifest.json` contains `schema_version: "figure_manifest_v1"`, `snapshot_id`, `generated_at`, `figures: [{id, title, scope, caption, description, files: {png, data}, source_run_ids: string[]}]`, `skipped: [{id, reason}]`. Paths are relative to `figure_assets/` and confined: images are `main/<id>.png`, provenance is `reports/figure-data/<id>.data.json`. `main/` is the single image asset directory and contains only PNGs. Re-rendering replaces the current image set; it never creates per-snapshot asset directories, PDF, SVG or caption files. The frontend offers only PNG links and reads the current manifest through the read-only `/figure-assets/` endpoint. An old snapshot must not display another snapshot's figures.
 
 ## Evidence rules
 

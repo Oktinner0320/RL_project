@@ -42,8 +42,9 @@ start_preview(lease_seconds=1800)
 - `scripts/render_figures.py`: evidence-aware Matplotlib figure suite.
 - `scripts/notebook_tools.py`: bounded stages, disk-state restoration and leased server.
 - `styles/acm.mplstyle`: publication typography and visual defaults.
-- `generated/<snapshot_id>/manifest.json`: PDF/SVG/PNG/source JSON, captions,
-  descriptions and explicit skipped-family reasons.
+- `main/`: the single image asset directory, containing only 320 DPI PNGs.
+- `manifest.json`: current image index, captions, descriptions and skipped-family reasons.
+- `reports/figure-data/`: provenance JSON, kept outside the image directory.
 - `reports/`: export, render, subprocess and preview receipts; not scientific evidence.
 - `../frontend/public/data/`: immutable public snapshots, atomically published index.
 
@@ -56,7 +57,7 @@ sample identities and credentials are excluded.
 
 `width="single"` targets approximately 85 mm, and `"double"` approximately
 178 mm. Actual manuscript `\columnwidth` / `\textwidth` takes precedence.
-PDF uses TrueType fonts; SVG and high-resolution PNG are also produced. The
+Only high-resolution PNG is produced. Re-rendering updates `main/`, not a new snapshot directory. The
 white-background learned-method palette is shared with the web UI; paper baselines
 are subdued gray. Markers and line styles supplement color. Assets carry source run IDs and their
 development/formal scope. Include each manifest caption and textual description
