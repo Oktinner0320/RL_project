@@ -1,4 +1,5 @@
 import { confined, object, parseSnapshot, type Snapshot } from './model.ts';
+import { addHistoricalReplays } from './historical.ts';
 export interface Index { current_snapshot: string; snapshots: { snapshot_id: string; generated_at: string; path: string }[] }
 async function json(url: string, signal: AbortSignal): Promise<unknown> {
   const response = await fetch(url, { signal, cache: 'no-cache' });
@@ -16,5 +17,10 @@ export async function loadSnapshot(index: Index, id: string, signal: AbortSignal
   if (!entry) throw new Error('Snapshot not listed in index');
   const result = parseSnapshot(await json(`${import.meta.env.BASE_URL}data/${confined(entry.path)}`, signal));
   if (result.snapshot_id !== id) throw new Error('Snapshot identity mismatch');
-  return result;
+  try {
+    return addHistoricalReplays(result, await json(`${import.meta.env.BASE_URL}replays/native-validation-v1.json`, signal));
+  } catch (error) {
+    if (signal.aborted) throw error;
+    return { ...result, warnings: [...result.warnings, `历史验证轨迹未载入，仍显示原始快照：${error instanceof Error ? error.message : String(error)}`] };
+  }
 }

@@ -1,4 +1,4 @@
-import { defaultReference, number, object, type Row, type Run } from './model.ts';
+import { defaultReference, runLabel, number, object, type Row, type Run } from './model.ts';
 
 export interface JointAction { action_id: number; client_ids: number[]; batch_size: number }
 export interface ReplayFrame {
@@ -42,9 +42,25 @@ export function clientIds(run: Run): number[] {
 export const episodeKey = (row: Row): string => number(row.episode) === null ? 'unreported' : String(row.episode);
 export function episodeKeys(run: Run): string[] { return [...new Set(run.metrics.map(episodeKey))]; }
 export function decisionRuns(runs: Run[]): Run[] { return runs.filter(r => r.stage === 'validate'); }
+export function hasReplay(run: Run): boolean {
+  if (run.stage !== 'validate' || run.metrics.length < 2) return false;
+  const actions = new Set(jointActions(run).map(a => a.action_id));
+  const counts = new Map<string, number>();
+  for (const row of run.metrics) if (Number.isInteger(row.episode) && Number(row.episode) >= 0 && Number.isInteger(row.round) && Number(row.round) > 0 && Number.isInteger(row.action_id) && actions.has(Number(row.action_id))) {
+    const key = `${row.episode}:${row.round}`; counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  const episodes = new Map<string, number>();
+  for (const [key, count] of counts) if (count === 1) { const episode = key.split(':')[0]!; episodes.set(episode, (episodes.get(episode) ?? 0) + 1); }
+  return [...episodes.values()].some(count => count >= 2);
+}
+export function replayRunLabel(run: Run): string {
+  if (typeof run.replay_source_label === 'string') return `${run.method} · ${run.replay_source_label} · ${run.train_seed === null ? '' : `train ${run.train_seed} / `}eval ${run.eval_seed ?? '未导出'} · ${run.metrics.length} 条轮次记录`;
+  return `${hasReplay(run) ? '逐轮记录' : '仅汇总'} · ${runLabel(run)}`;
+}
 export function preferredDecisionRun(runs: Run[], id: string): Run | undefined {
   const eligible = decisionRuns(runs);
-  return eligible.find(r => r.run_id === id) ?? defaultReference(eligible);
+  const playable = eligible.filter(hasReplay);
+  return eligible.find(r => r.run_id === id) ?? defaultReference(playable.length ? playable : eligible);
 }
 
 const scoreLabels: Record<string, string> = {

@@ -180,6 +180,7 @@ tbody tr:hover { background: #1b232c; }
 .empty { background: var(--raised); color: var(--muted); border-color: #58728a; }
 .error { color: #ff9c97; }
 .mode-tag { color: var(--blue); background: #102331; border-color: #29475e; margin-bottom: 18px; }
+.historical-tag { color: var(--preview); background: #261f10; border-color: #65512b; }
 .rl-loop button { background: var(--surface); border-color: var(--border); }
 .rl-loop button:hover { background: #1b232c; border-color: #58728a; }
 .rl-loop button:nth-child(4) { border-color: #34665b; }

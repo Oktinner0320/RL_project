@@ -1,5 +1,5 @@
-import { number, runLabel, type Run, type Snapshot, type Row } from './model.ts';
-import { jointActions, episodeKeys, preferredDecisionRun, decisionRuns, replayFrames, actionRanking, type ReplayFrame, type JointAction } from './replay.ts';
+import { number, type Run, type Snapshot, type Row } from './model.ts';
+import { jointActions, episodeKeys, preferredDecisionRun, decisionRuns, replayRunLabel, hasReplay, replayFrames, actionRanking, type ReplayFrame, type JointAction } from './replay.ts';
 import { graphGeometry, buildParticleScene, mountParticles, phaseLabels, type Phase, type Point } from './particles.ts';
 import { replayTraces, color } from './charts.ts';
 import { el, button, select, panel, records, format, table } from './ui.ts';
@@ -96,7 +96,7 @@ function mountGraph(host: HTMLElement, run: Run, inspect: (target: Inspect) => v
   const particles = mountParticles(scene, onPhase);
   return {
     update(frame: ReplayFrame, preview: JointAction | null, playing: boolean) {
-      cloudNodes[0]!.sub.textContent = `${frame.scoreLabel} · γ ${value(run.config_summary.gamma)}`;
+      cloudNodes[0]!.sub.textContent = `${frame.scoreLabel}${number(run.config_summary.gamma) === null ? '' : ` · γ ${value(run.config_summary.gamma)}`}`;
       cloudNodes[1]!.title.textContent = frame.action ? `联合动作 A${frame.action.action_id}` : '动作映射缺失';
       cloudNodes[1]!.sub.textContent = frame.action ? `${clients(frame.action)} · batch ${frame.action.batch_size}` : `action_id ${value(frame.row.action_id)}`;
       cloudNodes[2]!.sub.textContent = `准确率 ${value(frame.row.validation_accuracy)}`;
@@ -144,6 +144,7 @@ export function mountDecisionLab(host: HTMLElement, snapshot: Snapshot, initial:
 
   const identity = el('div', undefined, 'lab-identity');
   identity.append(el('span', 'POLICY REPLAY / 策略回放', 'mode-tag'));
+  identity.append(el('span', typeof run.replay_source_label === 'string' ? `${run.replay_source_label} · ${frames.length} 轮` : hasReplay(run) ? '逐轮验证记录' : '仅汇总记录', `mode-tag${run.replay_source_label ? ' historical-tag' : ''}`));
   host.append(identity);
   const controls = panel('决策回放');
   controls.classList.add('lab-controls');
@@ -154,7 +155,7 @@ export function mountDecisionLab(host: HTMLElement, snapshot: Snapshot, initial:
     const next = preferredDecisionRun(runs.filter(r => methodKey(r) === method), '');
     if (!next) return;
     pause(); onChange({ run: next.run_id, episode: '', frame: 0, preview: null }); onReset();
-  }), select('运行 / 种子 / 检查点', runs.filter(r => methodKey(r) === methodKey(run)).map(r => [r.run_id, runLabel(r)]), run.run_id, id => {
+  }), select('运行 / 种子 / 检查点', runs.filter(r => methodKey(r) === methodKey(run)).sort((a, b) => Number(hasReplay(b)) - Number(hasReplay(a))).map(r => [r.run_id, replayRunLabel(r)]), run.run_id, id => {
     pause(); onChange({ run: id, episode: '', frame: 0, preview: null }); onReset();
   }), select('Episode', episodes.map(e => [e, e === 'unreported' ? '未导出 · 汇总记录' : `Episode ${e}`]), state.episode, ep => {
     pause(); onChange({ ...state, episode: ep, frame: 0, preview: null }); onReset();
