@@ -145,7 +145,7 @@ class Renderer:
         caption += f" {details}. Recorded observations: {evidence['sample_count']}. Missing values remain missing. Full source IDs, denominators, and weighting are in the figure data JSON."
         files = {}
         try:
-            for extension in ("pdf", "svg", "png"):
+            for extension in ("png",):
                 filename = f"{fid}.{extension}"
                 destination = confined(self.output, filename)
                 fd, temporary = tempfile.mkstemp(prefix=".render-", suffix=f".{extension}", dir=self.output)
@@ -155,10 +155,10 @@ class Renderer:
                     os.replace(temporary, destination)
                 finally:
                     Path(temporary).unlink(missing_ok=True)
-                files[extension] = filename
-            files["data"] = f"{fid}.data.json"
-            write_json(confined(self.output, files["data"]), {"figure_id": fid, "snapshot_id": self.snapshot["snapshot_id"], "caption": caption, "description": description, "evidence": evidence, **data})
-            confined(self.output, f"{fid}.caption.txt").write_text(caption + "\n\n" + description + "\n", encoding="utf-8")
+                files[extension] = f"main/{filename}"
+            # 图片目录仅含 PNG，溯源数据留在报告目录。 / Keep only PNGs in main; retain provenance in reports.
+            files["data"] = f"reports/figure-data/{fid}.data.json"
+            write_json(confined(self.output.parent, files["data"]), {"figure_id": fid, "snapshot_id": self.snapshot["snapshot_id"], "caption": caption, "description": description, "evidence": evidence, **data})
             self.figures.append({"id": fid, "title": title, "scope": scope, "caption": caption, "description": description, "files": files, "source_run_ids": [r["run_id"] for r in runs]})
         finally:
             plt.close(fig)
@@ -558,8 +558,10 @@ def render_snapshot(root: Path, *, snapshot: Path | None = None, width: str = "d
         # 不从含糊关联猜测预算。 / Never infer budgets from ambiguous lineage.
         run["training_budget_interactions"]=next(iter(budgets)) if len(budgets)==1 else number(run.get("config_summary",{}).get("training_interaction_budget"))
     assets=confined(root,"figure_assets")
-    output=confined(assets,f"generated/{sid}")
+    output=confined(assets,"main")
     output.mkdir(parents=True,exist_ok=True)
+    manifest_path=confined(assets,"manifest.json")
+    previous=load_json(manifest_path) if manifest_path.is_file() else None
     renderer=Renderer(output,data,width)
     with plt.style.context(STYLE):
         renderer.mechanism()
@@ -574,8 +576,14 @@ def render_snapshot(root: Path, *, snapshot: Path | None = None, width: str = "d
         renderer.calibration_descriptive()
         renderer.skip("formal_main_results","Contract v1 supplies no authoritative full-gate schema proving frozen reference, complete audited policy risk, verification, all required seeds, and acceptance. Developer/pilot evidence is not promoted to formal results.")
     manifest={"schema_version":"figure_manifest_v1","snapshot_id":sid,"generated_at":datetime.now(timezone.utc).isoformat(),"figures":renderer.figures,"skipped":renderer.skipped}
-    manifest_path=confined(output,"manifest.json")
     write_json(manifest_path,manifest)
+    # 仅清理旧索引登记的过期图片，不删除未知文件。 / Remove only obsolete PNGs registered in the old index.
+    if previous:
+        current={f["files"]["png"] for f in renderer.figures}
+        for figure in previous.get("figures", []):
+            old=figure.get("files", {}).get("png")
+            if isinstance(old,str) and old.startswith("main/") and old.endswith(".png") and old not in current:
+                confined(assets,old).unlink(missing_ok=True)
     return {"manifest_path":str(manifest_path),"figures":renderer.figures,"skipped":renderer.skipped}
 
 

@@ -92,13 +92,13 @@ def open_workspace(root: Path | str | None = None) -> dict:
     manifest_path = None
     manifest = None
     if snapshot is not None:
-        manifest_path = _confined(root / "figure_assets/generated",
-                                  f"{snapshot['snapshot_id']}/manifest.json")
+        manifest_path = _confined(root / "figure_assets", "manifest.json")
         if manifest_path.is_file():
             manifest = read_json(manifest_path)
-            if (manifest.get("schema_version") != "figure_manifest_v1"
-                    or manifest.get("snapshot_id") != snapshot["snapshot_id"]):
-                raise ValueError("Figure/snapshot identity mismatch")
+            if manifest.get("schema_version") != "figure_manifest_v1":
+                raise ValueError("Unsupported figure manifest")
+            if manifest.get("snapshot_id") != snapshot["snapshot_id"]:
+                manifest = None  # 新快照尚未绘图。 / Figures for the new snapshot are not rendered yet.
     return {"root": root, "snapshot_path": snapshot_path, "snapshot": snapshot,
             "manifest_path": manifest_path, "manifest": manifest}
 
@@ -378,7 +378,12 @@ def _serve(root: Path, *, port: int, lease_seconds: int, instance_id: str) -> No
                 return
             try:
                 if path.startswith("/figure-assets/"):
-                    base, relative = root / "figure_assets/generated", path[len("/figure-assets/"):]
+                    base, relative = root / "figure_assets", path[len("/figure-assets/"):]
+                    if not (relative == "manifest.json"
+                            or (relative.startswith("main/") and relative.endswith(".png"))
+                            or (relative.startswith("reports/figure-data/") and relative.endswith(".json"))):
+                        self._json({"error": "Public artifact not found"}, 404)
+                        return
                 elif path.startswith("/data/"):
                     base, relative = root / "frontend/public/data", path[len("/data/"):]
                 else:

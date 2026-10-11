@@ -1,4 +1,6 @@
 generated/
+main/
+manifest.json
 reports/
 test/
 __pycache__/
