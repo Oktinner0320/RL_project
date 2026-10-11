@@ -42,7 +42,8 @@ start_preview(lease_seconds=1800)
 - `scripts/render_figures.py`: evidence-aware Matplotlib figure suite.
 - `scripts/notebook_tools.py`: bounded stages, disk-state restoration and leased server.
 - `styles/acm.mplstyle`: publication typography and visual defaults.
-- `main/`: the single image asset directory, containing only 320 DPI PNGs.
+- `main/`: the single image asset directory; PNG only, at 600 DPI for the three
+  compound ablation figures and 320 DPI for the other families.
 - `manifest.json`: current image index, captions, descriptions and skipped-family reasons.
 - `reports/figure-data/`: provenance JSON, kept outside the image directory.
 - `reports/`: export, render, subprocess and preview receipts; not scientific evidence.
@@ -69,6 +70,36 @@ recorded-action/coverage analysis. Missing evidence yields an explicit skip,
 not a synthetic figure. One training seed cannot justify confidence intervals;
 predicted risk cannot justify claims about audited privacy risk. Displayed
 baselines are exploratory unless independently frozen by an authoritative report.
+
+### Compound n-step ablation figures
+
+- `main/paired_ablation_1.png`: all recorded validation rounds for an exact
+  N1/N3 training/evaluation seed, matched training budget and episode. Accuracy
+  and exposure-weighted **predicted** risk sit above time/energy endpoint
+  dumbbells. Warmup, actual exposure denominators and signed endpoint changes
+  remain recorded; no best-round selection or confidence interval is inferred.
+- `main/decision_atlas_1.png`: matched N1/N3 columns align client participation
+  events, discrete batch ribbons and `max Q − Q(action)` heatmaps on actual
+  rounds. Client sets and batch sizes come from the declared action space;
+  white rings mark actual actions, not an assumed argmax. Missing or incomplete
+  Q vectors stay gray, never zero. Heuristic/probability vectors are not merged.
+- `main/training_diagnostics_1.png`: compatible N1/N3 histories share cumulative
+  interaction axes. Copied prefixes are deduplicated by step/update identity,
+  preserving all source run IDs. Faint raw traces remain behind a declared
+  centered 11-record moving mean; missing segments are not bridged. The 500-step
+  continuation boundary is marked. TD loss and Q magnitude do not rank policy
+  performance across different n-step targets.
+
+These use blue/vermillion plus solid/dashed lines, quiet grids, semantic labels
+and a shared Q-gap scale. Both single- and double-column layouts are supported;
+double column is recommended for the six-panel decision atlas. Their provenance
+JSON remains under `reports/figure-data/`, outside `main/`. Re-rendering removes
+only superseded PNGs named in the previous manifest; unrelated files are kept.
+
+Design references: [Rougier et al., Ten Simple Rules for Better Figures](https://journals.plos.org/ploscompbiol/article?id=10.1371/journal.pcbi.1003833),
+[Wilke, Multi-panel figures](https://clauswilke.com/dataviz/multi-panel-figures.html),
+[Crameri et al., The misuse of colour in science communication](https://www.nature.com/articles/s41467-020-19160-7),
+and [Weissgerber et al., Beyond Bar and Line Graphs](https://journals.plos.org/plosbiology/article?id=10.1371/journal.pbio.1002128).
 
 ## Preview safety and recovery
 

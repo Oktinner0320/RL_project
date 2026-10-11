@@ -10,6 +10,7 @@ import math
 import os
 import re
 import tempfile
+import textwrap
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -76,7 +77,10 @@ def label(run):
 
 def training_budget(run):
     declared=number(run.get("training_budget_interactions"))
-    return declared if declared is not None else number(run.get("config_summary",{}).get("training_interaction_budget"))
+    configured=number(run.get("config_summary",{}).get("training_interaction_budget"))
+    if declared is not None and configured is not None and declared != configured:
+        raise ValueError(f"Contradictory declared training budgets: {run.get('run_id')}")
+    return declared if declared is not None else configured
 
 
 def scope_key(run):
@@ -110,7 +114,10 @@ def unique_runs(runs):
 
 def context(runs, rows):
     return {
-        "runs": [{k: r.get(k) for k in ("run_id", "phase", "stage", "partition", "train_seed", "eval_seed", "risk_measurement", "risk_version", "budget", "training_budget_interactions", "evidence_scope")} for r in runs],
+        "runs": [{**{k: r.get(k) for k in ("run_id", "phase", "stage", "partition", "train_seed", "eval_seed", "risk_measurement", "risk_version", "budget", "evidence_scope")},
+                  "training_budget_interactions": training_budget(r),
+                  "training_budget_source": "exported_budget_field" if number(r.get("training_budget_interactions")) is not None
+                  else "declared_config" if training_budget(r) is not None else "unknown"} for r in runs],
         "sample_count": len(rows), "weighting": "Original per-row observations; no seed or round uncertainty inferred",
         "missing_state": "Null observations remain missing; absent values are never imputed as zero",
     }
@@ -137,7 +144,7 @@ def validation_pairs(runs):
         if (run.get("arm") not in ARM_COLORS
                 or number(run.get("train_seed")) is None
                 or number(run.get("eval_seed")) is None
-                or training_budget(run) is None):
+                or training_budget(run) is None or training_budget(run) <= 0):
             continue
         key = (scope_key(run), run.get("method"), run["train_seed"], run["eval_seed"])
         groups.setdefault(key, []).append(run)
@@ -327,11 +334,18 @@ class Renderer:
         detail = f"{str(dataset).title()} / {str(partition).upper()}  ·  train seed {runs[0].get('train_seed')}"
         if episode is not None:
             detail += f"  ·  eval {runs[0].get('eval_seed')} / episode {episode}"
-        fig.suptitle(f"{title}\n{detail}", fontsize=10, color=INK, fontweight="medium")
+        if self.width == "single":
+            title, detail, footer = (textwrap.fill(value, width) for value, width in ((title, 40), (detail, 44), (footer, 58)))
+        fig.suptitle(f"{title}\n{detail}", fontsize=10, color=INK, fontweight="normal")
         fig.supxlabel(footer, fontsize=7, color=MUTED)
 
     def panel_title(self, ax, tag, title):
         ax.set_title(f"({tag})  {title}", loc="left", fontsize=9, color=INK, pad=9)
+
+    def round_axis(self, ax, lo, hi):
+        spacing = max(1, math.ceil((hi-lo)/5))
+        ticks = sorted({lo, hi, *range(math.ceil(lo/spacing)*spacing, math.ceil(hi), spacing)})
+        ax.set(xlim=(lo-.5, hi+.5), xticks=ticks)
 
     def warmup(self, ax, rows):
         warm = sorted({r["round"] for r in rows if r.get("is_warmup") is True})
@@ -371,15 +385,18 @@ class Renderer:
                     end = trace[-1]
                     if number(end.get(key)) is not None:
                         ax.scatter(end["round"], factor*end[key], color=color, s=14, zorder=5)
-                        offset = -13 if arm == "N1" else 9
-                        ax.annotate(f"{arm}  {factor*end[key]:.3f}", (end["round"], factor*end[key]),
-                                    xytext=(-3, offset), textcoords="offset points", ha="right", color=color, fontsize=7)
+                        if ai == 1:
+                            ax.annotate(f"{arm}  {factor*end[key]:.3f}", (end["round"], factor*end[key]),
+                                        xytext=(-3, 9), textcoords="offset points", ha="right", color=color, fontsize=7)
                 self.warmup(ax, traces[0])
                 ax.set(xlabel="Validation round", ylabel=name)
-                ax.xaxis.set_major_locator(MaxNLocator(integer=True, nbins=6))
+                self.round_axis(ax, min(t[0]["round"] for t in traces), traces[0][-1]["round"])
                 ax.yaxis.set_major_locator(MaxNLocator(nbins=5))
                 self.panel_title(ax, "ab"[ai], "Accuracy" if ai == 0 else "Proxy risk")
-                ax.legend(frameon=False, ncol=2, fontsize=7, loc="lower right" if ai == 0 else "upper right")
+                if ai == 0 and all(number(t[-1].get(key)) is not None for t in traces):
+                    final = " / ".join(f"{r['arm']} {100*t[-1][key]:.3f}%" for r,t in zip(pair,traces))
+                    ax.text(.03, .97, f"Final: {final}", transform=ax.transAxes, color=INK, fontsize=7, va="top")
+                ax.legend(frameon=False, ncol=2, fontsize=7, loc="lower right" if ai == 0 else "center left")
             deltas = {}
             for key in ("validation_accuracy", "predicted_exposure_risk", "elapsed_seconds", "energy_joules"):
                 a, b = (number(r.get(key)) for r in endpoints)
@@ -452,7 +469,7 @@ class Renderer:
                 ax.xaxis.set_major_locator(MaxNLocator(integer=True, nbins=5))
                 ax.legend(frameon=False, ncol=2, loc="lower right", fontsize=7.5)
                 self.panel_title(ax, tag, name)
-            self.save(f"training_diagnostics_{index}", "Paired learning dynamics", "developer training",
+            self.save(f"training_diagnostics_{index}", "N-step learning dynamics", "developer training",
                       "Compatible histories retain every arm separately; copied prefixes deduplicated by cumulative "
                       "environment_steps and update identity. Raw observations remain visible. Centered 11-record mean "
                       "uses truncated edge windows within contiguous observed segments; gaps are never filled. "
@@ -486,8 +503,7 @@ class Renderer:
             batches = sorted({a["batch_size"] for a in mapping.values()})
             batch_colors = {b: plt.get_cmap("Blues")(.3+.6*i/max(1, len(batches)-1)) for i, b in enumerate(batches)}
             maximum = max(v for _, frames in prepared for r in frames for v in r["q_gaps"] if v is not None)
-            cmap = plt.get_cmap("cividis_r").copy()
-            cmap.set_bad(PALE)
+            cmap = plt.get_cmap("cividis_r").with_extremes(bad=PALE)
             all_frames, vector_rows = [], []
             for col, (run, (_, frames), trace) in enumerate(zip(pair, prepared, traces)):
                 arm, color = run["arm"], ARM_COLORS[run["arm"]]
@@ -500,8 +516,7 @@ class Renderer:
                 for ax in selected:
                     ax.grid(False)
                     self.warmup(ax, trace)
-                    ax.set_xlim(lo-.5, hi+.5)
-                    ax.xaxis.set_major_locator(MaxNLocator(integer=True, nbins=6))
+                    self.round_axis(ax, lo, hi)
                 ax = selected[0]
                 for yi, client in enumerate(clients):
                     ax.axhline(yi, color="#E3E8EE", linewidth=.5, zorder=1)
@@ -528,13 +543,13 @@ class Renderer:
                 actions = [r for r in frames if r["action_id"] in mapping and r["q_values"] is not None]
                 ax.scatter([r["round"] for r in actions], [r["action_id"] for r in actions],
                            s=10, facecolors="white", edgecolors=INK, linewidths=.55, zorder=4)
-                labels = [f"C{''.join(str(c) for c in mapping[a]['client_ids'])} / B{mapping[a]['batch_size']:g}" for a in sorted(mapping)]
+                labels = [f"{{{','.join(str(c) for c in mapping[a]['client_ids'])}}} / {mapping[a]['batch_size']:g}" for a in sorted(mapping)]
                 ax.set(yticks=range(len(mapping)), yticklabels=labels, ylim=(len(mapping)-.5, -.5), xlabel="Actual validation round")
                 ax.tick_params(axis="y", labelsize=7, length=0)
                 for a in range(1, len(mapping)):
                     if mapping[a]["client_ids"] != mapping[a-1]["client_ids"]:
                         ax.axhline(a-.5, color="white", linewidth=.6, alpha=.8)
-                self.panel_title(ax, "ef"[col], "Within-round Q gap")
+                self.panel_title(ax, "ef"[col], "Q gap / clients, batch")
                 vector_rows.extend({"run_id": run["run_id"], **r} for r in run.get("decisions", []) if r.get("episode") == episode)
             fig.colorbar(mesh, ax=[axes[4], axes[5]], orientation="horizontal", fraction=.08, pad=.03,
                          aspect=35, label="max Q − Q(action)  /  shared original Q units")
@@ -884,11 +899,7 @@ def render_snapshot(root: Path, *, snapshot: Path | None = None, width: str = "d
     runs=unique_runs(data.get("runs",[]))
     # 性能图只使用标注为验证的记录。 / Only declared validation records enter performance panels.
     validation=[r for r in runs if "val" in str(r.get("phase", "")).lower() or "val" in str(r.get("stage", "")).lower()]
-    for run in validation:
-        candidates=[r for r in runs if r not in validation and r.get("experiment_id")==run.get("experiment_id") and r.get("arm")==run.get("arm") and r.get("train_seed")==run.get("train_seed") and r.get("phase")==run.get("phase") and r.get("config_summary",{}).get("partition")==run.get("config_summary",{}).get("partition") and r.get("config_summary",{}).get("dataset")==run.get("config_summary",{}).get("dataset") and r.get("risk_version")==run.get("risk_version") and r.get("training")]
-        budgets={r.get("budget",{}).get("cumulative_interactions") for r in candidates}
-        # 不从含糊关联猜测预算。 / Never infer budgets from ambiguous lineage.
-        run["training_budget_interactions"]=next(iter(budgets)) if len(budgets)==1 else number(run.get("config_summary",{}).get("training_interaction_budget"))
+    # 只读结果已提供的预算，绝不从相似训练记录补齐。 / Use supplied budgets only, never infer from similar training runs.
     assets=confined(root,"figure_assets")
     output=confined(assets,"main")
     output.mkdir(parents=True,exist_ok=True)
