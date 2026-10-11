@@ -20,6 +20,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.lines import Line2D
 from matplotlib.patches import FancyBboxPatch, Patch, Rectangle
 from matplotlib.ticker import MaxNLocator
 
@@ -218,6 +219,13 @@ def rolling_mean(values, window=11):
     return result
 
 
+def q_ranks(values):
+    """Descending competition ranks; exact ties share a rank, incomplete vectors stay unknown."""
+    if not isinstance(values, list) or not values or any(number(v) is None for v in values):
+        return None
+    return [1 + sum(other > value for other in values) for value in values]
+
+
 def decision_frame(run, episode, metrics):
     """Join Q vectors to recorded actions by exact episode/round and declared IDs."""
     mapping = {}
@@ -259,7 +267,7 @@ def decision_frame(run, episode, metrics):
                        "action_id": row.get("action_id"),
                        "client_ids": action["client_ids"] if action else None,
                        "batch_size": action["batch_size"] if action else None,
-                       "q_values": values, "q_gaps": gaps})
+                       "q_values": values, "q_gaps": gaps, "q_ranks": q_ranks(values)})
     return mapping, frames
 
 
@@ -336,7 +344,7 @@ class Renderer:
             detail += f"  ·  eval {runs[0].get('eval_seed')} / episode {episode}"
         if self.width == "single":
             title, detail, footer = (textwrap.fill(value, width) for value, width in ((title, 40), (detail, 44), (footer, 58)))
-        fig.suptitle(f"{title}\n{detail}", fontsize=10, color=INK, fontweight="normal")
+        fig.suptitle(f"{title}\n{detail}" if title else detail, fontsize=10, color=INK, fontweight="normal")
         fig.supxlabel(footer, fontsize=7, color=MUTED)
 
     def panel_title(self, ax, tag, title):
@@ -489,21 +497,22 @@ class Renderer:
             except ValueError as error:
                 self.skip(fid, str(error))
                 continue
-            if not any(any(v is not None for v in row["q_gaps"]) for _, frames in prepared for row in frames):
-                self.skip(fid, "No complete recorded Q vectors; partial values do not define a known within-round maximum.")
+            if not any(row["q_ranks"] is not None for _, frames in prepared for row in frames):
+                self.skip(fid, "No complete recorded Q vectors; partial values do not define known action ranks.")
                 continue
-            # 同一轮、同一动作映射下对齐三种决策信息。 / Align participation, batch, and Q gaps on real rounds.
+            # 排名只表达相对偏好，不把差距大小解释为置信度。 / Ranks show preference, not Q-gap magnitude or confidence.
             count = 6
             ratios = [1, .45, 2.8] if self.width == "double" else [1, 1, .5, .5, 2.8, 2.8]
             fig, axes = self.compound_axes(count, 5.35 if self.width == "double" else 9.1, ratios)
-            self.compound_title(fig, "Decision atlas: who participates, batch choice, and Q preference", pair,
-                                "White rings: recorded actions · gray cells: no complete Q record · Q gap is not risk or probability", episode)
+            self.compound_title(fig, "", pair,
+                                "Top-3 Q ranks · rings: recorded actions · gray: no Q record · ranks are not confidence", episode)
             mapping = prepared[0][0]
             clients = sorted({c for a in mapping.values() for c in a["client_ids"]})
             batches = sorted({a["batch_size"] for a in mapping.values()})
             batch_colors = {b: plt.get_cmap("Blues")(.3+.6*i/max(1, len(batches)-1)) for i, b in enumerate(batches)}
             maximum = max(v for _, frames in prepared for r in frames for v in r["q_gaps"] if v is not None)
-            cmap = plt.get_cmap("cividis_r").with_extremes(bad=PALE)
+            rank_colors = {rank: plt.get_cmap("Blues")(level) for rank, level in ((1, .88), (2, .60), (3, .35))}
+            rank_sizes = {1: 22, 2: 13, 3: 7}
             all_frames, vector_rows = [], []
             for col, (run, (_, frames), trace) in enumerate(zip(pair, prepared, traces)):
                 arm, color = run["arm"], ARM_COLORS[run["arm"]]
@@ -513,9 +522,10 @@ class Renderer:
                 lo, hi = min(r["round"] for r in frames), max(r["round"] for r in frames)
                 rounds = np.arange(lo, hi+1)
                 lookup = {r["round"]: r for r in frames}
-                for ax in selected:
+                for row_index, ax in enumerate(selected):
                     ax.grid(False)
-                    self.warmup(ax, trace)
+                    if row_index < 2:
+                        self.warmup(ax, trace)
                     self.round_axis(ax, lo, hi)
                 ax = selected[0]
                 for yi, client in enumerate(clients):
@@ -535,36 +545,71 @@ class Renderer:
                 ax.spines[["left", "bottom"]].set_visible(False)
                 self.panel_title(ax, "cd"[col], "Batch size")
                 ax = selected[2]
-                matrix = np.array([[lookup[r]["q_gaps"][a] if r in lookup and lookup[r]["q_gaps"][a] is not None else np.nan
-                                    for r in rounds] for a in sorted(mapping)])
-                mesh = ax.pcolormesh(np.arange(lo-.5, hi+1), np.arange(len(mapping)+1)-.5,
-                                     np.ma.masked_invalid(matrix), shading="flat", cmap=cmap, vmin=0,
-                                     vmax=maximum if maximum > 0 else 1)
-                actions = [r for r in frames if r["action_id"] in mapping and r["q_values"] is not None]
+                missing = [rnd for rnd in rounds if rnd not in lookup or lookup[rnd]["q_ranks"] is None]
+                if missing:
+                    start = previous = missing[0]
+                    for rnd in [*missing[1:], None]:
+                        if rnd is not None and rnd == previous+1:
+                            previous = rnd
+                            continue
+                        ax.axvspan(start-.5, previous+.5, color=PALE, zorder=0)
+                        if previous-start >= 3:
+                            ax.text((start+previous)/2, (len(mapping)-1)/2, "No Q\nrecord",
+                                    ha="center", va="center", color=MUTED, fontsize=7)
+                        if rnd is not None:
+                            start = previous = rnd
+                for action_id in sorted(mapping):
+                    ax.axhline(action_id, color="#E7ECF1", linewidth=.4, zorder=1)
+                # 并列动作使用相同名次，保留第三名边界的全部并列项。 / Keep every tie at the top-three boundary.
+                for rank in (3, 2, 1):
+                    points = [(r["round"], a) for r in frames if r["q_ranks"] is not None
+                              for a in sorted(mapping) if r["q_ranks"][a] == rank]
+                    ax.scatter([x for x, _ in points], [y for _, y in points], s=rank_sizes[rank],
+                               color=rank_colors[rank], edgecolors="none", zorder=3,
+                               label=f"Q rank {rank}")
+                actions = [r for r in frames if r["action_id"] in mapping and r["q_ranks"] is not None]
                 ax.scatter([r["round"] for r in actions], [r["action_id"] for r in actions],
-                           s=10, facecolors="white", edgecolors=INK, linewidths=.55, zorder=4)
+                           s=40, facecolors="none", edgecolors="white", linewidths=1.8, zorder=4)
+                ax.scatter([r["round"] for r in actions], [r["action_id"] for r in actions],
+                           s=40, facecolors="none", edgecolors=INK, linewidths=.65, zorder=5,
+                           label="Recorded action")
                 labels = [f"{{{','.join(str(c) for c in mapping[a]['client_ids'])}}} / {mapping[a]['batch_size']:g}" for a in sorted(mapping)]
                 ax.set(yticks=range(len(mapping)), yticklabels=labels, ylim=(len(mapping)-.5, -.5), xlabel="Actual validation round")
                 ax.tick_params(axis="y", labelsize=7, length=0)
                 for a in range(1, len(mapping)):
                     if mapping[a]["client_ids"] != mapping[a-1]["client_ids"]:
-                        ax.axhline(a-.5, color="white", linewidth=.6, alpha=.8)
-                self.panel_title(ax, "ef"[col], "Q gap / clients, batch")
+                        ax.axhline(a-.5, color="#C9D4DE", linewidth=.65)
+                self.panel_title(ax, "ef"[col], "Top-3 action preference")
                 vector_rows.extend({"run_id": run["run_id"], **r} for r in run.get("decisions", []) if r.get("episode") == episode)
-            fig.colorbar(mesh, ax=[axes[4], axes[5]], orientation="horizontal", fraction=.08, pad=.03,
-                         aspect=35, label="max Q − Q(action)  /  shared original Q units")
+            rank_handles = [Line2D([], [], linestyle="none", marker="o", markersize=math.sqrt(rank_sizes[rank]),
+                                   markerfacecolor=rank_colors[rank], markeredgecolor="none", label=f"Rank {rank}")
+                            for rank in (1, 2, 3)]
+            rank_handles.extend([Line2D([], [], linestyle="none", marker="o", markersize=math.sqrt(40),
+                                       markerfacecolor="none", markeredgecolor=INK, label="Chosen"),
+                                 Patch(facecolor=PALE, edgecolor="#CCD3DC", label="No Q record")])
+            fig.legend(handles=rank_handles, loc="outside lower center", frameon=False,
+                       ncol=3 if self.width == "single" else 5, fontsize=7,
+                       borderaxespad=4 if self.width == "single" else 1.8)
             axes[2].legend(handles=[Patch(facecolor=batch_colors[b], label=f"B{b:g}") for b in batches],
                            loc="upper center", bbox_to_anchor=(.5, -.05), frameon=False, ncol=len(batches), fontsize=6.8)
             self.save(fid, "Paired decision atlas", "developer paired validation",
                       "Client events and batch categories use only the declared action space and recorded actions. "
-                      "Q vectors join by exact episode/round; shared color scale is max Q minus each Q, in original Q units. "
-                      "White rings identify actual chosen actions, not assumed argmax actions. Gray cells denote absent "
-                      "or incomplete Q vectors, never zero scores. Unknown actions leave participation and batch missing; "
-                      "warmup is shaded. Heuristic scores and policy probabilities are not substituted for Q values.",
-                      "Two aligned n-step columns combine client event rasters, discrete batch ribbons, and semantically labeled Q-gap maps.",
+                      "Q vectors join by exact episode/round. Dot size and shade encode descending Q ranks 1–3, with the same "
+                      "encoding in both arms; they do not encode Q-gap magnitude or confidence. Exact ties share competition "
+                      "ranks, including all ties at rank 3. Black rings with white borders identify recorded choices even outside "
+                      "the top three, never an assumed argmax. Gray bands denote absent or incomplete Q vectors; white cells without "
+                      "dots denote known ranks below the top three. Unknown actions leave participation and batch missing; "
+                      "warmup is shaded above. Raw Q values and gaps remain in provenance. Heuristic scores and policy probabilities "
+                      "are not substituted for Q values.",
+                      "Two aligned n-step columns combine client event rasters, discrete batch ribbons, and top-three action-rank dot matrices.",
                       fig, pair, {"rows": all_frames, "raw_decisions": vector_rows,
                                   "action_space": list(mapping.values()), "q_transform": "max Q within recorded round - Q(action)",
-                                  "q_color_limits": [0, maximum], "episode": episode}, dpi=600)
+                                  "q_gap_range": [0, maximum], "episode": episode,
+                                  "q_display": {"type": "top3_competition_rank_dot_matrix", "top_k": 3,
+                                                "rank_rule": "1 + count(Q(other) > Q(action))",
+                                                "ties": "exact equal Q values share a rank; all ranks <= 3 are displayed",
+                                                "marker_sizes": rank_sizes, "palette": "Blues",
+                                                "chosen_action": "recorded action_id, including ranks > 3"}}, dpi=600)
             made = True
         return made
 

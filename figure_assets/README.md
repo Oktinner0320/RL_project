@@ -79,10 +79,14 @@ baselines are exploratory unless independently frozen by an authoritative report
   dumbbells. Warmup, actual exposure denominators and signed endpoint changes
   remain recorded; no best-round selection or confidence interval is inferred.
 - `main/decision_atlas_1.png`: matched N1/N3 columns align client participation
-  events, discrete batch ribbons and `max Q − Q(action)` heatmaps on actual
+  events, discrete batch ribbons and top-three Q-rank dot matrices on actual
   rounds. Client sets and batch sizes come from the declared action space;
-  white rings mark actual actions, not an assumed argmax. Missing or incomplete
-  Q vectors stay gray, never zero. Heuristic/probability vectors are not merged.
+  black rings with white borders mark actual actions, including choices outside
+  the top three, not an assumed argmax. Dot size and shade show rank, not Q-gap
+  magnitude or confidence. Exact ties share competition ranks and all ties at
+  rank three remain visible. Missing or incomplete Q vectors stay gray, while
+  known lower-ranked actions are blank. Raw Q values and gaps remain in provenance.
+  Heuristic/probability vectors are not merged.
 - `main/training_diagnostics_1.png`: compatible N1/N3 histories share cumulative
   interaction axes. Copied prefixes are deduplicated by step/update identity,
   preserving all source run IDs. Faint raw traces remain behind a declared
@@ -91,7 +95,7 @@ baselines are exploratory unless independently frozen by an authoritative report
   performance across different n-step targets.
 
 These use blue/vermillion plus solid/dashed lines, quiet grids, semantic labels
-and a shared Q-gap scale. Both single- and double-column layouts are supported;
+and a shared ordinal Q-rank encoding. Both single- and double-column layouts are supported;
 double column is recommended for the six-panel decision atlas. Their provenance
 JSON remains under `reports/figure-data/`, outside `main/`. Re-rendering removes
 only superseded PNGs named in the previous manifest; unrelated files are kept.
