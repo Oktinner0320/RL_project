@@ -21,7 +21,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.lines import Line2D
-from matplotlib.patches import FancyBboxPatch, Patch, Rectangle
+from matplotlib.patches import Patch, Rectangle
 from matplotlib.ticker import MaxNLocator
 
 BLUE, ORANGE, GREY = "#0072B2", "#E69F00", "#555555"
@@ -625,32 +625,6 @@ class Renderer:
             made = True
         return made
 
-    def mechanism(self):
-        # 机制示意图不是实测性能证据。 / The conceptual diagram is not measured performance evidence.
-        fig, (ax,) = self.axes(height=3.0 if self.width == "double" else 4.3)
-        ax.set_axis_off()
-        boxes = [(0.03, .70, "State + proxy\npredicted risk"), (.38, .70, "Policy\nclient / batch action"), (.73, .70, "Federated round\nsimulated resources"), (.38, .22, "Independent true audit\nheld-out labels"), (.73, .22, "Evidence / gates\nno inferred acceptance")]
-        if self.width == "single":
-            boxes = [(.08, .82, boxes[0][2]), (.55, .82, boxes[1][2]), (.55, .50, boxes[2][2]), (.08, .18, boxes[3][2]), (.55, .18, boxes[4][2])]
-        w = .25 if self.width == "double" else .36
-        for x, y, text in boxes:
-            ax.add_patch(FancyBboxPatch((x, y), w, .16, boxstyle="round,pad=0.012", facecolor="white", edgecolor=BLUE, linewidth=.8))
-            ax.text(x+w/2, y+.08, text, ha="center", va="center", fontsize=7.5)
-        for start, end, dashed in ((0,1,False),(1,2,False),(2,3,True),(3,4,True)):
-            x,y,_ = boxes[start]
-            xx,yy,_ = boxes[end]
-            if y == yy:
-                origin=(x+w+.013,y+.08)
-                target=(xx-.013,yy+.08)
-            else:
-                origin=(x+w/2,y-.013)
-                target=(xx+w/2,yy+.173)
-            ax.annotate("", xy=target, xytext=origin, arrowprops={"arrowstyle":"->", "color":GREY, "linewidth":.8, "linestyle":"--" if dashed else "-"})
-        ax.set_xlim(0,1)
-        ax.set_ylim(0,1)
-        ax.set_title("Conceptual framework\nAudit is not policy feedback" if self.width=="single" else "Conceptual framework · audit is not policy feedback")
-        self.save("mechanism", "Conceptual mechanism", "conceptual", "Conceptual framework, not a measured causal or performance result. Dashed branch denotes an independent true-label audit, separate from proxy-driven actions.", "State, action, federated simulation, and independent audit evidence flow.", fig, [], {"rows": [], "nodes": [b[2] for b in boxes]})
-
     def learning(self, runs):
         # 各条轨迹分别绘制，缺测保留断线。 / Plot episodes separately and leave gaps for missing values.
         keys = [("validation_accuracy", "Validation accuracy"), ("elapsed_seconds", "Simulated time (s)"), ("energy_joules", "Simulated energy (J)"), ("predicted_exposure_risk", "Predicted exposure risk")]
@@ -965,7 +939,6 @@ def render_snapshot(root: Path, *, snapshot: Path | None = None, width: str = "d
     previous=load_json(manifest_path) if manifest_path.is_file() else None
     renderer=Renderer(output,data,width)
     with plt.style.context(STYLE):
-        renderer.mechanism()
         renderer.learning(validation)
         renderer.diagnostics(runs)
         renderer.paired(validation)
