@@ -48,5 +48,5 @@ uv run --locked --extra comparisons jupyter lab
 - 公开摘要仅为开发结果，完整本地产物核验和独立研究确认尚未完成。
 - 预测风险不是真实审计风险；时间和能量为模拟量，未知云费用不记零。
 
-来源和许可见 [第三方归属](docs/THIRD_PARTY.md)。保留真实 Git 历史；
+来源和许可见 [第三方归属](docs/THIRD_PARTY.zh.md)。保留真实 Git 历史；
 老师未明确要求时，无需额外导出独立历史文件。

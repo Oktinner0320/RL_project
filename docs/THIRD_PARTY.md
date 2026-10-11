@@ -1,6 +1,6 @@
 # Third-Party Sources and Attribution
 
-[Project home](../README.md) | [中文入口](../README.zh.md)
+[Project home](../README.md) | [中文](THIRD_PARTY.zh.md)
 
 Source download steps are in [Installation and Reproduction](REPRODUCIBILITY.md).
 
@@ -28,11 +28,3 @@ Python dependencies are recorded in [pyproject.toml](../pyproject.toml) and
 `package-lock.json`. Preserve applicable upstream notices. Dataset acquisition
 uses the public [UCI Adult source](https://archive.ics.uci.edu/dataset/2/adult).
 Template and bibliography references belong in the written report.
-
-<details>
-<summary>中文说明（可选）</summary>
-
-固定版本和下载摘要保存在参考目录，下载的仓库不整体提交。PQN 移植必须保留许可和
-NOTICE；ConformalOpt/OCP 的再发布权限仍需确认。适配器并不等同于完整复现原论文。
-
-</details>

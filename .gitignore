@@ -38,6 +38,7 @@ reference_algorithms/results/**/leakpro_output/
 /docs/**
 !/docs/REPRODUCIBILITY.md
 !/docs/THIRD_PARTY.md
+!/docs/THIRD_PARTY.zh.md
 /docs/SUBMISSION.md
 tmp/
 # Keep only the English manuscript, template, and bibliography.
