@@ -229,6 +229,7 @@ tbody tr:hover { background: #1b232c; }
 .cloud-node:hover .node-orbit, .cloud-node:focus-visible .node-orbit,
 .edge-node:hover .node-orbit, .edge-node:focus-visible .node-orbit, .edge-node.hover-linked .node-orbit { stroke: #efb766; stroke-width: 2; stroke-dasharray: none; }
 .edge-node.hover-linked .node-halo { opacity: .8; }
+.cloud-node:focus-visible, .edge-node:focus-visible { outline: none; }
 .policy-link { fill: none; stroke: #7abcf070; stroke-width: 1.5; }
 .graph-scene .client-link { stroke: #334453; stroke-width: 1; }
 .graph-scene .client-link.selected { stroke-width: 1.5; }

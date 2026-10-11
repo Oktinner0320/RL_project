@@ -17,9 +17,9 @@ export function graphGeometry(run: Run) {
   const edges = ids.map((id, i) => {
     const x = width / (ids.length + 1) * (i + 1);
     return { id, center: { x, y: 328 },
-      down: [{ x: action.x - 10, y: 145 }, { x: action.x - 10, y: 226 }, { x: x - 10, y: 226 }, { x: x - 10, y: 280 }],
-      up: [{ x: x + 10, y: 280 }, { x: x + 10, y: 246 }, { x: cloud.x + 10, y: 246 }, { x: cloud.x + 10, y: 145 }],
-      preview: [{ x: action.x + 12, y: 145 }, { x: action.x + 12, y: 262 }, { x: x + 22, y: 262 }, { x: x + 22, y: 281 }],
+      down: [{ x: action.x + 48, y: 105 }, { x: action.x + 115, y: 105 }, { x: action.x + 115, y: 226 }, { x: x - 10, y: 226 }, { x: x - 10, y: 280 }],
+      up: [{ x: x + 10, y: 280 }, { x: x + 10, y: 246 }, { x: cloud.x - 115, y: 246 }, { x: cloud.x - 115, y: 105 }, { x: cloud.x - 48, y: 105 }],
+      preview: [{ x: action.x + 52, y: 93 }, { x: action.x + 137, y: 93 }, { x: action.x + 137, y: 262 }, { x: x + 22, y: 262 }, { x: x + 22, y: 281 }],
     };
   });
   return { width, height: 510, agent, action, cloud, edges };
