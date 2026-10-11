@@ -4,7 +4,7 @@
 
 本课程项目在 UCI Adult 数据集上实现模拟联邦训练的强化学习调度，
 包含原生 DQN/PPO、参考算法适配、实验恢复及只读结果展示。
-问题定义、算法选择依据、调参分析和研究结论放在论文中，本文只说明使用与交付。
+本文只说明代码使用与交付。
 
 ## 开始使用
 
@@ -37,7 +37,6 @@ uv run --locked --extra comparisons jupyter lab
 - `pyproject.toml`、`uv.lock`：环境要求与依赖锁定。
 - `reference_algorithms/`：固定版本来源、下载器和参考运行环境。
 - [frontend/](frontend/README.md)、[figure_assets/](figure_assets/)：交互展示与制图工具。
-- [paper 分支](https://github.com/Oktinner0320/RL_project/tree/paper/paper)：论文入口与参考文献。
 
 ## 复现范围与限制
 

@@ -5,8 +5,7 @@
 Course project implementing reinforcement-learning scheduling for simulated
 federated training on the UCI Adult dataset. The code includes native DQN/PPO,
 reference adapters, experiment recovery, and a read-only results viewer.
-Problem definitions, algorithm justification, tuning analysis, and conclusions
-belong in the written report.
+This README covers code usage and delivery.
 
 ## Start here
 
@@ -42,7 +41,6 @@ For local inspection, set all six operation switches to `false` as described in
 | [pyproject.toml](pyproject.toml), [uv.lock](uv.lock) | Python requirements and locked dependencies |
 | [reference_algorithms/](reference_algorithms/) | Pinned source records, downloader, and reference runtimes |
 | [frontend/](frontend/README.md), [figure_assets/](figure_assets/) | Interactive viewer and figure tools |
-| [paper branch](https://github.com/Oktinner0320/RL_project/tree/paper/paper) | Manuscript entry and bibliography |
 
 ## Reproduction and limitations
 
