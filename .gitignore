@@ -37,6 +37,7 @@ reference_algorithms/results/**/leakpro_output/
 # Publish reproduction and attribution only; keep checklists and notes local.
 /docs/**
 !/docs/REPRODUCIBILITY.md
+!/docs/REPRODUCIBILITY.zh.md
 !/docs/THIRD_PARTY.md
 !/docs/THIRD_PARTY.zh.md
 /docs/SUBMISSION.md

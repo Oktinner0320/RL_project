@@ -2,7 +2,7 @@
 
 [项目主页](../README.zh.md) | [English](THIRD_PARTY.md)
 
-源码下载步骤见[安装与复现（英文）](REPRODUCIBILITY.md)。
+源码下载步骤见[安装与复现](REPRODUCIBILITY.zh.md)。
 
 固定版本和下载归档的校验值见
 [catalog.json](../reference_algorithms/catalog.json) 和

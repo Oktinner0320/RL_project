@@ -1,6 +1,6 @@
 # Installation and Reproduction
 
-[Project home](../README.md) | [中文入口](../README.zh.md)
+[Project home](../README.md) | [中文](REPRODUCIBILITY.zh.md)
 
 Run commands from the repository root unless a different directory is shown.
 Viewing saved results, running tests, and retraining have different prerequisites.
@@ -145,16 +145,3 @@ uv run --locked --extra comparisons pytest src/cloud_edge_rl/algorithms/test/tes
 Plain `pytest` searches only `tests/` according to `pyproject.toml`; it does not
 cover the module-local test directories. Record the tested commit, exact command,
 and exit result. Passing tests is not evidence of algorithm superiority.
-
-<details>
-<summary>中文说明（可选）</summary>
-
-先安装锁定环境，并选择项目 `.venv` 内核。只查看时，将六个操作开关全部关闭；
-当前 Git 配置并非只读默认值。六份结果表可直接阅读，交互展示需安装前端依赖并构建。
-完整图片和当前快照需要额外提供，笔记本不会自动补造。
-
-训练需要 Modal 认证、匹配源码的执行审批和预算；干净克隆缺少审批，不能直接重训。
-已完成云调用的下载问题应重复查询和下载，不要再次提交或开启恢复。
-测试文件按项目约定不入 Git，需另行提供匹配版本；测试通过不代表研究性能通过。
-
-</details>

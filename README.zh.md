@@ -18,7 +18,7 @@ uv run --locked --extra comparisons jupyter lab
 **打开 `experiment.ipynb` 后，不要直接 Run All。**
 当前提交的配置已开启准备、提交、云状态刷新、下载和核验，仅恢复开关关闭。
 只查看本地内容时，应先将 `workflow.experiment` 的六个操作开关全部设为 `false`。
-具体步骤见 [复现说明](docs/REPRODUCIBILITY.md)。
+具体步骤见 [复现说明](docs/REPRODUCIBILITY.zh.md)。
 
 | 目的 | 入口 |
 |---|---|
@@ -26,7 +26,7 @@ uv run --locked --extra comparisons jupyter lab
 | 浏览已有图片与历史回放 | [visualization.ipynb](visualization.ipynb) |
 | 执行已获批准的实验、查询或下载 | [experiment.ipynb](experiment.ipynb) |
 | 使用可选 N1/N3 消融 | [消融说明](ablations/README.md) |
-| 安装与复现结果 | [复现说明](docs/REPRODUCIBILITY.md) |
+| 安装与复现结果 | [复现说明](docs/REPRODUCIBILITY.zh.md) |
 
 ## 文件位置
 
