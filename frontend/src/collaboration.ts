@@ -1,5 +1,5 @@
 import { number, type Run, type Snapshot, type Row } from './model.ts';
-import { jointActions, episodeKeys, preferredDecisionRun, decisionRuns, replayRunLabel, hasReplay, replayFrames, actionRanking, type ReplayFrame, type JointAction } from './replay.ts';
+import { episodeKeys, preferredDecisionRun, decisionRuns, replayRunLabel, hasReplay, replayFrames, type ReplayFrame, type JointAction } from './replay.ts';
 import { graphGeometry, buildParticleScene, mountParticles, phaseLabels, type Phase, type Point } from './particles.ts';
 import { replayTraces, color } from './charts.ts';
 import { el, button, select, panel, records, format, table } from './ui.ts';
@@ -22,12 +22,6 @@ function svgButton(node: SVGElement, label: string, key: string, onClick: () => 
   node.addEventListener('click', onClick);
   node.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } });
 }
-function preserveFocus(host: HTMLElement, update: () => void): void {
-  const active = document.activeElement;
-  const key = active instanceof Element && host.contains(active) ? active.getAttribute('data-focus-key') : null;
-  update();
-  if (key) Array.from(host.querySelectorAll<HTMLElement | SVGElement>('[data-focus-key]')).find(e => e.dataset.focusKey === key)?.focus({ preventScroll: true });
-}
 function stat(parent: HTMLElement, label: string, val: unknown, note?: string): void {
   const block = el('div', undefined, 'lab-stat');
   block.append(el('span', label), el('strong', value(val)));
@@ -47,7 +41,7 @@ function mountGraph(host: HTMLElement, run: Run, inspect: (target: Inspect) => v
   const pathOf = (points: Point[]) => points.map((p, i) => `${i ? 'L' : 'M'}${p.x} ${p.y}`).join(' ');
   const centered = (x: number, y: number, cls: string, text = '') => svg('text', { x, y, class: cls, 'text-anchor': 'middle' }, text);
   const defs = svg('defs');
-  for (const [name, fill] of [['up', '#65d4b7'], ['down', '#7abcf0'], ['preview', '#efb766']] as const) {
+  for (const [name, fill] of [['up', '#65d4b7'], ['down', '#7abcf0']] as const) {
     const marker = svg('marker', { id: `arrow-${name}`, viewBox: '0 0 10 10', refX: 8, refY: 5, markerWidth: 5, markerHeight: 5, orient: 'auto-start-reverse' });
     marker.append(svg('path', { d: 'M 0 0 L 10 5 L 0 10 Z', fill })); defs.append(marker);
     const gradient = svg('radialGradient', { id: `glow-${name}` });
@@ -95,31 +89,25 @@ function mountGraph(host: HTMLElement, run: Run, inspect: (target: Inspect) => v
   scene.append(graph); host.append(scene);
   const particles = mountParticles(scene, onPhase);
   return {
-    update(frame: ReplayFrame, preview: JointAction | null, playing: boolean) {
+    update(frame: ReplayFrame, playing: boolean) {
       cloudNodes[0]!.sub.textContent = `${frame.scoreLabel}${number(run.config_summary.gamma) === null ? '' : ` · γ ${value(run.config_summary.gamma)}`}`;
       cloudNodes[1]!.title.textContent = frame.action ? `Joint action A${frame.action.action_id}` : 'Action mapping missing';
       cloudNodes[1]!.sub.textContent = frame.action ? `${clients(frame.action)} · batch ${frame.action.batch_size}` : `action_id ${value(frame.row.action_id)}`;
       cloudNodes[2]!.sub.textContent = `Accuracy ${value(frame.row.validation_accuracy)}`;
       downText.textContent = `↓ Model download · ${value(frame.row.round_download_bytes)} B`;
       upText.textContent = `↑ Gradient upload · ${value(frame.row.round_upload_bytes)} B`;
-      graph.querySelectorAll('.preview-link, .preview-outline').forEach(n => n.remove());
       for (const edge of edges) {
-        const actual = frame.action?.client_ids.includes(edge.id) === true, explored = preview?.client_ids.includes(edge.id) === true;
-        edge.group.classList.toggle('actual', actual); edge.group.dataset.actual = String(actual); edge.group.dataset.preview = String(explored);
+        const actual = frame.action?.client_ids.includes(edge.id) === true;
+        edge.group.classList.toggle('actual', actual); edge.group.dataset.actual = String(actual);
         edge.group.querySelector('.node-halo')!.setAttribute('fill', actual ? 'url(#glow-up)' : 'url(#glow-down)');
         edge.title.textContent = actual ? `Selected · batch ${frame.action!.batch_size}` : frame.action ? 'Not selected this round' : 'Participation unknown';
         edge.participation.textContent = `Total participations: ${value(frame.row[`c${edge.id}_participations`])}`;
         const uploads = frame.uploads.filter(u => u.client_id === edge.id);
         edge.upload.textContent = uploads.length ? `${uploads.length} upload records` : 'No uploads recorded';
         for (const { path, direction } of edge.paths) { path.classList.toggle('selected', actual); path.setAttribute('marker-end', actual ? `url(#arrow-${direction})` : ''); }
-        if (explored) {
-          graph.insertBefore(svg('path', { d: pathOf(edge.preview), class: 'preview-link', 'marker-end': 'url(#arrow-preview)', 'pointer-events': 'none' }), edge.group);
-          edge.group.append(svg('circle', { cx: edge.center.x, cy: edge.center.y, r: 51, class: 'preview-outline', 'pointer-events': 'none' }));
-        }
       }
       particles.update(buildParticleScene(run, frame), playing, String(frame.index));
     },
-    highlight(clientIds: number[]) { for (const edge of edges) edge.group.classList.toggle('hover-linked', clientIds.includes(edge.id)); },
     setEnabled: particles.setEnabled,
     dispose() { particles.dispose(); scene.remove(); },
   };
@@ -128,19 +116,16 @@ function mountGraph(host: HTMLElement, run: Run, inspect: (target: Inspect) => v
 export function mountDecisionLab(host: HTMLElement, snapshot: Snapshot, initial: LabState, onChange: (state: LabState) => void, onReset: () => void): () => void {
   const run = preferredDecisionRun(snapshot.runs, initial.run);
   if (!run) { host.append(el('p', 'No validation runs were exported in this snapshot; frozen-policy replay is unavailable.', 'empty')); return () => {}; }
-  const state: LabState = { ...initial, run: run.run_id };
+  const state: LabState = { ...initial, run: run.run_id, preview: null };
   const episodes = episodeKeys(run);
   if (!episodes.includes(state.episode)) state.episode = episodes[0] ?? 'unreported';
   const frames = replayFrames(run, state.episode, snapshot.audits);
   state.frame = Math.min(Math.max(0, Math.floor(state.frame)), Math.max(0, frames.length - 1));
-  const actions = jointActions(run);
-  if (!actions.some(a => a.action_id === state.preview)) state.preview = null;
   let timer: ReturnType<typeof setInterval> | undefined;
   let disposed = false;
   let inspectTarget: Inspect = 'agent';
   const notify = () => onChange({ ...state });
   const current = () => frames[state.frame];
-  const preview = () => actions.find(a => a.action_id === state.preview) ?? null;
 
   const identity = el('div', undefined, 'lab-identity');
   identity.append(el('span', 'POLICY REPLAY', 'mode-tag'));
@@ -197,7 +182,7 @@ export function mountDecisionLab(host: HTMLElement, snapshot: Snapshot, initial:
   const stateBody = el('div'); statePanel.append(stateBody, button('Inspect state source', () => openInspector('state')));
   const environment = panel('Action → Environment', 'Select a cloud node, client or link to inspect this round.'); environment.classList.add('environment-panel');
   const graphHost = el('div', undefined, 'graph-host'); environment.append(graphHost, el('p', 'On narrow screens, scroll horizontally to see all nodes, or use Tab and Enter to inspect them.', 'graph-scroll-note'));
-  const legend = el('div', undefined, 'graph-legend'); legend.append(el('span', 'Solid / actual action', 'legend-actual'), el('span', 'Dashed / candidate preview', 'legend-preview'), el('span', 'Gray / inactive or unknown', 'legend-idle')); environment.append(legend);
+  const legend = el('div', undefined, 'graph-legend'); legend.append(el('span', 'Solid / actual action', 'legend-actual'), el('span', 'Gray / inactive or unknown', 'legend-idle')); environment.append(legend);
   const graphStatus = el('div', undefined, 'graph-status'); const phaseLabel = el('span', 'Static replay', 'phase-label');
   let motionEnabled = true;
   const motionButton = button('Disable motion', () => { motionEnabled = !motionEnabled; motionButton.textContent = motionEnabled ? 'Disable motion' : 'Enable motion'; motionButton.setAttribute('aria-pressed', String(motionEnabled)); graphView.setEnabled(motionEnabled); });
@@ -213,49 +198,11 @@ export function mountDecisionLab(host: HTMLElement, snapshot: Snapshot, initial:
   const feedbackBody = el('div'); feedback.append(feedbackBody, button('Inspect reward and evidence', () => openInspector('reward')));
   grid.append(statePanel, environment, feedback); host.append(grid);
 
-  const decision = panel('Joint action', 'Select a client set and batch size to preview the collaboration paths.');
-  decision.classList.add('decision-panel');
-  const decisionHeader = el('div', undefined, 'decision-heading');
-  const scoreHeading = el('div'); const actualLabel = el('strong'); const scoreNote = el('p', undefined, 'muted');
-  scoreHeading.append(actualLabel, scoreNote);
-  const resetPreview = button('Clear candidate preview', () => { state.preview = null; update(); });
-  decisionHeader.append(scoreHeading, resetPreview); decision.append(decisionHeader);
-  const decisionGrid = el('div', undefined, 'decision-grid');
-  const matrixHost = el('div', undefined, 'action-matrix-host');
-  const matrixButtons = new Map<number, { button: HTMLButtonElement; score: HTMLElement; badge: HTMLElement }>();
-  if (actions.length) {
-    const batches = [...new Set(actions.map(a => a.batch_size))].sort((a, b) => a - b);
-    const groups = [...new Set(actions.map(a => clients(a)))];
-    const wrap = el('div', undefined, 'table-wrap'); const matrix = el('table', undefined, 'action-matrix');
-    const thead = el('thead'); const heading = el('tr'); heading.append(el('th', 'Client set × batch'));
-    for (const batch of batches) { const th = el('th', `batch ${batch}`); th.scope = 'col'; heading.append(th); } thead.append(heading); matrix.append(thead);
-    const tbody = el('tbody');
-    for (const group of groups) {
-      const tr = el('tr'); const th = el('th', group); th.scope = 'row'; tr.append(th);
-      for (const batch of batches) {
-        const td = el('td'); const matches = actions.filter(a => clients(a) === group && a.batch_size === batch);
-        if (!matches.length) td.append(el('span', 'No such action', 'muted'));
-        for (const action of matches) {
-           const b = button('', () => { pause(); state.preview = action.action_id; update(); }); b.classList.add('action-cell'); b.dataset.action = String(action.action_id); b.dataset.focusKey = `action-${action.action_id}`;
-           b.addEventListener('pointerenter', () => graphView.highlight(action.client_ids)); b.addEventListener('pointerleave', () => graphView.highlight([]));
-           b.addEventListener('focus', () => graphView.highlight(action.client_ids)); b.addEventListener('blur', () => graphView.highlight([]));
-          const score = el('strong'); const badge = el('small'); b.append(el('span', `A${action.action_id}`), score, badge); td.append(b); matrixButtons.set(action.action_id, { button: b, score, badge });
-        }
-        tr.append(td);
-      }
-      tbody.append(tr);
-    }
-    matrix.append(tbody); wrap.append(matrix); matrixHost.append(wrap, el('p', 'On narrow screens, scroll the action matrix horizontally to see all batch options.', 'matrix-scroll-note'));
-  } else matrixHost.append(el('p', 'This run has no action mapping. Clients and batch sizes cannot be inferred from action_id.', 'empty'));
-  const rankingHost = el('div', undefined, 'action-ranking'); decisionGrid.append(matrixHost, rankingHost); decision.append(decisionGrid);
-  const previewSummary = el('div', undefined, 'preview-summary'); previewSummary.setAttribute('aria-live', 'polite'); decision.append(previewSummary);
-  const warnings = el('div', undefined, 'lab-warnings'); decision.append(warnings); host.append(decision);
-
   const tracesHeader = el('div', undefined, 'section-heading'); tracesHeader.append(el('h2', 'Round feedback'), el('p', 'Select a chart point to inspect its round.', 'muted'));
   const traces = el('div', undefined, 'chart-grid lab-traces'); host.append(tracesHeader, traces);
   const syncCharts = replayTraces(traces, frames, run, go);
   const provenance = el('details', undefined, 'provenance'); provenance.append(el('summary', 'Record sources and interaction limits'),
-    el('p', 'Time and energy are simulated. Candidate previews show paths and policy scores only; feedback reflects the actual executed action.'), records('Run sources', run.sources), records('Snapshot / run warnings', [...snapshot.warnings, ...run.warnings])); host.append(provenance);
+    el('p', 'Time and energy are simulated. The diagram and feedback reflect the actual executed action.'), records('Run sources', run.sources), records('Snapshot / run warnings', [...snapshot.warnings, ...run.warnings])); host.append(provenance);
 
   const dialog = el('dialog', undefined, 'inspector'); dialog.setAttribute('aria-labelledby', 'inspector-title');
   const dialogHead = el('div', undefined, 'inspector-heading'); const dialogTitle = el('h2'); dialogTitle.id = 'inspector-title';
@@ -267,11 +214,11 @@ export function mountDecisionLab(host: HTMLElement, snapshot: Snapshot, initial:
   function openInspector(target: Inspect): void { pause(); inspectTarget = target; update(); const frame = current(); if (!frame) return; fillInspector(frame); if (!dialog.open) dialog.showModal(); }
   function fillInspector(frame: ReplayFrame): void {
     const id = inspectTarget.startsWith('client:') ? Number(inspectTarget.slice(7)) : null;
-    dialogTitle.textContent = id !== null ? `C${id} / Upload and participation evidence` : ({ state: 'State / Pre-decision information limits', agent: 'Agent / Policy scores', action: 'Action / Actual and candidate', cloud: 'Environment / Federated update', reward: 'Reward / Records and risk evidence', upload: 'Gradient upload / Round total', download: 'Model download / Round total' } as Record<string, string>)[inspectTarget] ?? 'Record sources';
+    dialogTitle.textContent = id !== null ? `C${id} / Upload and participation evidence` : ({ state: 'State / Pre-decision information limits', agent: 'Agent / Policy scores', action: 'Action / Executed joint action', cloud: 'Environment / Federated update', reward: 'Reward / Records and risk evidence', upload: 'Gradient upload / Round total', download: 'Model download / Round total' } as Record<string, string>)[inspectTarget] ?? 'Record sources';
     dialogBody.replaceChildren(el('p', `run ${run!.run_id} · episode ${value(frame.episode)} · round ${value(frame.round)}`, 'muted'));
     if (inspectTarget === 'state') dialogBody.append(el('p', 'The full historical observation (resources, participation window and candidate costs) was not exported. Previous-round feedback below is a reference, not the full state observed by the policy.', 'empty'), records('Recorded previous-round feedback', frame.previous ? [frame.previous] : []));
     else if (inspectTarget === 'agent') dialogBody.append(el('p', `${frame.scoreLabel}; vectors are joined by action_id. The selected action need not have the highest score; the exploration mechanism cannot be inferred from this alone.`, 'muted'), records('Raw decision for this round', frame.decisions));
-    else if (inspectTarget === 'action') dialogBody.append(records('Actual action / candidate preview', [{ actual: frame.action, preview: preview(), preview_executed: false }]), el('p', 'Candidate previews do not change recorded results; no counterfactual outcomes are computed.', 'empty'));
+    else if (inspectTarget === 'action') dialogBody.append(records('Executed joint action', [frame.action ?? { action_id: frame.row.action_id, mapping_exported: false }]));
     else if (inspectTarget === 'download') dialogBody.append(el('p', `Total round download: ${value(frame.row.round_download_bytes)} B. Per-client traffic was not recorded and is not allocated evenly.`, 'empty'));
     else if (inspectTarget === 'upload' || id !== null) {
       const uploads = id === null ? frame.uploads : frame.uploads.filter(u => u.client_id === id);
@@ -291,7 +238,6 @@ export function mountDecisionLab(host: HTMLElement, snapshot: Snapshot, initial:
     previous.disabled = !frames.length || state.frame === 0; next.disabled = !frames.length || state.frame === frames.length - 1;
     play.disabled = frames.length < 2; slider.disabled = !frames.length; slider.value = String(state.frame);
     play.textContent = timer !== undefined ? 'Pause replay' : 'Play records';
-    resetPreview.disabled = state.preview === null;
     if (!frame) { graphView.dispose(); stateBody.replaceChildren(el('p', 'This run has no round-by-round metric records.', 'empty')); graphHost.replaceChildren(el('p', 'No replay frames are available; cloud–edge execution states are not fabricated.', 'empty')); feedbackBody.replaceChildren(); notify(); return; }
     roundLabel.textContent = `Episode ${value(frame.episode)} · Round ${value(frame.round)} · ${state.frame + 1} / ${frames.length} · ${status(frame.row)}`;
     slider.setAttribute('aria-valuetext', roundLabel.textContent);
@@ -303,7 +249,7 @@ export function mountDecisionLab(host: HTMLElement, snapshot: Snapshot, initial:
       stat(stateBody, 'Previous cumulative energy · J', frame.previous.energy_joules);
     } else stateBody.append(el('p', 'No unique adjacent previous round is available; the pre-decision state cannot be reconstructed.', 'empty'));
     stateBody.append(el('p', `Current record: round ${value(frame.round)} / limit ${value(run!.config_summary.max_rounds)}`, 'muted'));
-    graphView.update(frame, preview(), timer !== undefined);
+    graphView.update(frame, timer !== undefined);
     feedbackBody.replaceChildren();
     stat(feedbackBody, 'Immediate reward rₜ', frame.row.reward);
     stat(feedbackBody, 'Validation accuracy', frame.row.validation_accuracy);
@@ -311,36 +257,6 @@ export function mountDecisionLab(host: HTMLElement, snapshot: Snapshot, initial:
     stat(feedbackBody, 'Simulated round energy · J', frame.row.round_energy_joules);
     stat(feedbackBody, 'Predicted exposure risk', frame.row.predicted_exposure_risk, 'Not audited risk');
     feedbackBody.append(el('span', frame.audits.length ? `${frame.audits.length} exactly matched audit records` : 'Audit labels missing for this round', 'audit-tag'));
-    actualLabel.textContent = frame.action ? `Executed: ${actionName(frame.action)}` : `Actual action_id ${value(frame.row.action_id)} · mapping not exported`;
-    scoreNote.textContent = `${frame.scoreLabel} · recorded decision margin ${value(frame.decision?.margin)} · ${status(frame.row)}`;
-    const ranked = actionRanking(frame); const low = ranked.at(-1)?.value ?? 0; const high = ranked[0]?.value ?? 0;
-    for (const action of actions) {
-      const cell = matrixButtons.get(action.action_id)!; const score = frame.scores.get(action.action_id) ?? null;
-      const actual = frame.action?.action_id === action.action_id; const explored = state.preview === action.action_id;
-      cell.button.classList.toggle('actual', actual); cell.button.classList.toggle('preview', explored);
-      cell.button.setAttribute('aria-pressed', String(explored));
-      cell.button.setAttribute('aria-label', `${actionName(action)}, ${frame.scoreLabel} ${value(score)}${actual ? ', executed' : ''}${explored ? ', candidate preview' : ''}`);
-      cell.score.textContent = value(score); cell.badge.textContent = [actual ? 'Actual' : '', explored ? 'Preview' : ''].filter(Boolean).join(' / ') || 'Explore path';
-      cell.button.style.setProperty('--score-strength', String(score === null ? 0 : high === low ? .1 : .04 + (score - low) / (high - low) * .14));
-    }
-    preserveFocus(rankingHost, () => {
-      rankingHost.replaceChildren(el('h3', 'Candidate ranking for this round'));
-      if (!ranked.length) rankingHost.append(el('p', 'Scores were not exported. Mapped paths can be previewed, but policy preferences cannot be compared.', 'empty'));
-      for (const [i, entry] of ranked.slice(0, 3).entries()) {
-        const action = actions.find(a => a.action_id === entry.action_id)!;
-        const b = button('', () => { pause(); state.preview = entry.action_id; update(); }); b.classList.add('ranking-row'); b.dataset.focusKey = `rank-${entry.action_id}`;
-        b.append(el('span', `${i + 1}`), el('span', `A${entry.action_id} · ${clients(action)}\nbatch ${action.batch_size}`), el('strong', value(entry.value))); rankingHost.append(b);
-      }
-      rankingHost.append(el('p', 'Policy scores for this round · Top 3', 'muted'));
-    });
-    const explored = preview(); previewSummary.replaceChildren();
-    if (explored) {
-      const actualScore = frame.action ? frame.scores.get(frame.action.action_id) ?? null : null;
-      const previewScore = frame.scores.get(explored.action_id) ?? null;
-      previewSummary.append(el('strong', `Candidate preview: ${actionName(explored)}`), el('span', `${frame.scoreLabel} ${value(previewScore)} · score difference from actual ${value(previewScore !== null && actualScore !== null ? previewScore - actualScore : null)}`),
-        el('small', 'Unexecuted candidate path · feedback shows actual action results.'));
-    } else previewSummary.append(el('span', 'Select a candidate to preview its paths · solid = actual; dashed = candidate.'));
-    warnings.replaceChildren(); frame.warnings.forEach(w => warnings.append(el('p', w, 'muted')));
     syncCharts(state.frame); if (dialog.open) fillInspector(frame); notify();
   }
   const suspend = () => { if (document.hidden && timer !== undefined) { pause(); update(); } };
