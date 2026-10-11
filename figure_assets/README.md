@@ -87,6 +87,8 @@ baselines are exploratory unless independently frozen by an authoritative report
   rank three remain visible. Missing or incomplete Q vectors stay gray, while
   known lower-ranked actions are blank. Raw Q values and gaps remain in provenance.
   Heuristic/probability vectors are not merged.
+  A/B use blue/vermillion by arm; C/D use purple by batch size; E/F use green by
+  Q rank. Batch and rank encodings are shared between arms, with separate legends.
 - `main/training_diagnostics_1.png`: compatible N1/N3 histories share cumulative
   interaction axes. Copied prefixes are deduplicated by step/update identity,
   preserving all source run IDs. Faint raw traces remain behind a declared
@@ -94,8 +96,9 @@ baselines are exploratory unless independently frozen by an authoritative report
   continuation boundary is marked. TD loss and Q magnitude do not rank policy
   performance across different n-step targets.
 
-These use blue/vermillion plus solid/dashed lines, quiet grids, semantic labels
-and a shared ordinal Q-rank encoding. Both single- and double-column layouts are supported;
+These use blue/vermillion for arm comparisons plus solid/dashed lines, quiet grids,
+semantic labels and separate purple/green encodings for batch sizes and Q ranks.
+Both single- and double-column layouts are supported;
 double column is recommended for the six-panel decision atlas. Their provenance
 JSON remains under `reports/figure-data/`, outside `main/`. Re-rendering removes
 only superseded PNGs named in the previous manifest; unrelated files are kept.

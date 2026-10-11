@@ -509,9 +509,11 @@ class Renderer:
             mapping = prepared[0][0]
             clients = sorted({c for a in mapping.values() for c in a["client_ids"]})
             batches = sorted({a["batch_size"] for a in mapping.values()})
-            batch_colors = {b: plt.get_cmap("Blues")(.3+.6*i/max(1, len(batches)-1)) for i, b in enumerate(batches)}
+            # 分开色系，避免把批大小和排名误读成方法颜色。 / Separate measurement palettes from arm colors.
+            batch_palette, rank_palette = "Purples", "Greens"
+            batch_colors = {b: plt.get_cmap(batch_palette)(.3+.6*i/max(1, len(batches)-1)) for i, b in enumerate(batches)}
             maximum = max(v for _, frames in prepared for r in frames for v in r["q_gaps"] if v is not None)
-            rank_colors = {rank: plt.get_cmap("Blues")(level) for rank, level in ((1, .88), (2, .60), (3, .35))}
+            rank_colors = {rank: plt.get_cmap(rank_palette)(level) for rank, level in ((1, .88), (2, .60), (3, .35))}
             rank_sizes = {1: 22, 2: 13, 3: 7}
             all_frames, vector_rows = [], []
             for col, (run, (_, frames), trace) in enumerate(zip(pair, prepared, traces)):
@@ -594,6 +596,8 @@ class Renderer:
                            loc="upper center", bbox_to_anchor=(.5, -.05), frameon=False, ncol=len(batches), fontsize=6.8)
             self.save(fid, "Paired decision atlas", "developer paired validation",
                       "Client events and batch categories use only the declared action space and recorded actions. "
+                      "Participation uses arm-specific blue/vermillion, batch sizes use shared purple shades, and Q ranks "
+                      "use shared green shades; colors have panel-specific meanings. "
                       "Q vectors join by exact episode/round. Dot size and shade encode descending Q ranks 1–3, with the same "
                       "encoding in both arms; they do not encode Q-gap magnitude or confidence. Exact ties share competition "
                       "ranks, including all ties at rank 3. Black rings with white borders identify recorded choices even outside "
@@ -608,8 +612,16 @@ class Renderer:
                                   "q_display": {"type": "top3_competition_rank_dot_matrix", "top_k": 3,
                                                 "rank_rule": "1 + count(Q(other) > Q(action))",
                                                 "ties": "exact equal Q values share a rank; all ranks <= 3 are displayed",
-                                                "marker_sizes": rank_sizes, "palette": "Blues",
-                                                "chosen_action": "recorded action_id, including ranks > 3"}}, dpi=600)
+                                                "marker_sizes": rank_sizes, "palette": rank_palette,
+                                                "chosen_action": "recorded action_id, including ranks > 3"},
+                                  "color_encoding": {
+                                      "participation": {"panels": "A/B", "by": "arm", "colors": ARM_COLORS},
+                                      "batch_size": {"panels": "C/D", "palette": batch_palette,
+                                                     "shared_between_arms": True,
+                                                     "colors": {str(b): list(color) for b, color in batch_colors.items()}},
+                                      "q_rank": {"panels": "E/F", "palette": rank_palette,
+                                                 "shared_between_arms": True,
+                                                 "colors": {str(rank): list(color) for rank, color in rank_colors.items()}}}}, dpi=600)
             made = True
         return made
 
