@@ -46,7 +46,7 @@ function drawGraph(host: HTMLElement, run: Run, frame: ReplayFrame, preview: Joi
     const width = Math.max(760, ids.length * 190 + 50);
     const graph = svg('svg', { viewBox: `0 0 ${width} 410`, class: `collaboration-graph${playing ? ' is-playing' : ''}`, 'aria-label': 'RL 调度器选择客户端与批量大小，边端本地计算并上传，云端聚合产生奖励反馈' });
     const defs = svg('defs');
-    for (const [name, fill] of [['up', '#168776'], ['down', '#5988b1'], ['preview', '#b67625']] as const) {
+    for (const [name, fill] of [['up', '#65d4b7'], ['down', '#7abcf0'], ['preview', '#efb766']] as const) {
       const marker = svg('marker', { id: `arrow-${name}`, viewBox: '0 0 10 10', refX: 8, refY: 5, markerWidth: 5, markerHeight: 5, orient: 'auto-start-reverse' });
       marker.append(svg('path', { d: 'M 0 0 L 10 5 L 0 10 Z', fill })); defs.append(marker);
     }
@@ -126,9 +126,9 @@ export function mountDecisionLab(host: HTMLElement, snapshot: Snapshot, initial:
   const preview = () => actions.find(a => a.action_id === state.preview) ?? null;
 
   const identity = el('div', undefined, 'lab-identity');
-  identity.append(el('span', 'FROZEN POLICY / 冻结策略回放', 'mode-tag'), el('span', '实验记录 · 客户端模拟 · 不执行训练', 'muted'));
-  host.append(identity, el('p', '不是看一张结果图，而是进入一次决策：检查记录、探索联合动作，再看真实执行和奖励。', 'lead'));
-  const controls = panel('选择一段真实决策', '验证回放不更新策略；参考方法可能不是强化学习。切换记录不意味着同状态公平比较。');
+  identity.append(el('span', 'POLICY REPLAY / 策略回放', 'mode-tag'));
+  host.append(identity);
+  const controls = panel('决策回放');
   controls.classList.add('lab-controls');
   const runs = decisionRuns(snapshot.runs);
   const methodKey = (r: Run) => `${r.method}${r.arm ? ` / ${r.arm}` : ''}`;
@@ -148,11 +148,11 @@ export function mountDecisionLab(host: HTMLElement, snapshot: Snapshot, initial:
   controls.append(runIdentity); host.append(controls);
 
   const loop = el('div', undefined, 'rl-loop');
-  const stages: [Inspect, string, string][] = [['state', '01 / STATE', '状态与记录边界'], ['agent', '02 / AGENT', '策略如何评分'], ['action', '03 / ACTION', '客户端 × batch'], ['cloud', '04 / ENVIRONMENT', '云边协同执行'], ['reward', '05 / REWARD', '奖励与下一轮反馈']];
+  const stages: [Inspect, string, string][] = [['state', '01 / STATE', '环境状态'], ['agent', '02 / AGENT', '策略评分'], ['action', '03 / ACTION', '客户端 × batch'], ['cloud', '04 / ENVIRONMENT', '云边协同执行'], ['reward', '05 / REWARD', '奖励反馈']];
   for (const [target, label, text] of stages) {
     const b = button('', () => openInspector(target)); b.append(el('small', label), el('span', text)); b.dataset.focusKey = `loop-${target}`; loop.append(b);
   }
-  host.append(loop, el('p', '↺ 环境反馈 → 下一轮状态；验证时没有策略更新。点击任一环节查看来源。', 'loop-caption'));
+  host.append(loop, el('p', '环境状态 → 策略决策 → 联合调度 → 云边执行 → 奖励反馈', 'loop-caption'));
 
   const timeline = el('section', undefined, 'lab-timeline');
   const previous = button('← 上一条', () => go(state.frame - 1));
@@ -170,20 +170,20 @@ export function mountDecisionLab(host: HTMLElement, snapshot: Snapshot, initial:
   const roundLabel = el('output', undefined, 'round-output'); roundLabel.setAttribute('aria-live', 'off');
   const slider = el('input'); slider.type = 'range'; slider.min = '0'; slider.max = String(Math.max(0, frames.length - 1)); slider.step = '1'; slider.value = String(state.frame); slider.setAttribute('aria-label', '按记录索引选择回放轮次'); slider.oninput = () => go(Number(slider.value));
   const timelineButtons = el('div', undefined, 'controls'); timelineButtons.append(previous, play, next, roundLabel);
-  timeline.append(timelineButtons, slider, el('small', '按实际记录逐条回放，不补齐未记录轮次；播放速度不是实际计算或通信耗时。'));
+  timeline.append(timelineButtons, slider, el('small', '轮次回放 · 1 秒 / 条'));
   host.append(timeline);
 
   const grid = el('div', undefined, 'lab-grid');
-  const statePanel = panel('State / 状态', '不以当前轮结果冒充决策前状态。'); statePanel.classList.add('state-panel');
+  const statePanel = panel('State / 状态', '上一轮反馈与当前轮次'); statePanel.classList.add('state-panel');
   const stateBody = el('div'); statePanel.append(stateBody, button('检查状态来源', () => openInspector('state')));
   const environment = panel('Action → Environment', '点击云端、客户端或链路，检查当前轮记录。'); environment.classList.add('environment-panel');
   const graphHost = el('div', undefined, 'graph-host'); environment.append(graphHost, el('p', '窄屏可横向滚动查看全部云边节点；也可按 Tab 选择节点并按 Enter 查看记录。', 'graph-scroll-note'));
   const legend = el('div', undefined, 'graph-legend'); legend.append(el('span', '实线 / 实际动作', 'legend-actual'), el('span', '虚线 / 候选预览', 'legend-preview'), el('span', '灰色 / 未参与或未知', 'legend-idle')); environment.append(legend);
-  const feedback = panel('Reward / 真实反馈', '只显示实际动作执行后的记录。'); feedback.classList.add('reward-panel');
+  const feedback = panel('Reward / 反馈', '当前轮执行结果'); feedback.classList.add('reward-panel');
   const feedbackBody = el('div'); feedback.append(feedbackBody, button('查看奖励与证据', () => openInspector('reward')));
   grid.append(statePanel, environment, feedback); host.append(grid);
 
-  const decision = panel('联合动作实验区', '点击一个候选动作，预览客户端与通信路径。评分是策略估计，不是隐私风险，也不是替代动作已执行的结果。');
+  const decision = panel('联合动作', '选择客户端组合与批量大小，预览协同路径。');
   decision.classList.add('decision-panel');
   const decisionHeader = el('div', undefined, 'decision-heading');
   const scoreHeading = el('div'); const actualLabel = el('strong'); const scoreNote = el('p', undefined, 'muted');
@@ -219,11 +219,11 @@ export function mountDecisionLab(host: HTMLElement, snapshot: Snapshot, initial:
   const previewSummary = el('div', undefined, 'preview-summary'); previewSummary.setAttribute('aria-live', 'polite'); decision.append(previewSummary);
   const warnings = el('div', undefined, 'lab-warnings'); decision.append(warnings); host.append(decision);
 
-  const tracesHeader = el('div', undefined, 'section-heading'); tracesHeader.append(el('h2', '这一次决策之后，发生了什么？'), el('p', '同一 episode 的已记录结果 · 点击曲线数据点同步回放；键盘可操作上方时间轴。预热记录保留但明确标注。', 'muted'));
+  const tracesHeader = el('div', undefined, 'section-heading'); tracesHeader.append(el('h2', '轮次反馈'), el('p', '点击曲线数据点，查看对应轮次。', 'muted'));
   const traces = el('div', undefined, 'chart-grid lab-traces'); host.append(tracesHeader, traces);
   const syncCharts = replayTraces(traces, frames, run, go);
   const provenance = el('details', undefined, 'provenance'); provenance.append(el('summary', '记录来源与交互边界'),
-    el('p', '主画布由 SVG 与真实快照记录生成，不读取论文图片。模拟时间和能量不是设备在线计量。Q 值不构成因果解释；未执行的候选动作没有替代准确率、能耗或审计真值。'), records('运行来源', run.sources), records('快照 / 运行警告', [...snapshot.warnings, ...run.warnings])); host.append(provenance);
+    el('p', '时间与能量为模拟记录。候选预览仅展示路径与策略评分，反馈指标对应实际执行动作。'), records('运行来源', run.sources), records('快照 / 运行警告', [...snapshot.warnings, ...run.warnings])); host.append(provenance);
 
   const dialog = el('dialog', undefined, 'inspector'); dialog.setAttribute('aria-labelledby', 'inspector-title');
   const dialogHead = el('div', undefined, 'inspector-heading'); const dialogTitle = el('h2'); dialogTitle.id = 'inspector-title';
@@ -273,7 +273,7 @@ export function mountDecisionLab(host: HTMLElement, snapshot: Snapshot, initial:
     stateBody.append(el('p', `当前记录：round ${value(frame.round)} / 上限 ${value(run!.config_summary.max_rounds)}`, 'muted'));
     drawGraph(graphHost, run!, frame, preview(), timer !== undefined, openInspector);
     feedbackBody.replaceChildren();
-    stat(feedbackBody, '即时奖励 rₜ', frame.row.reward, '记录总值 · 不拆造分项');
+    stat(feedbackBody, '即时奖励 rₜ', frame.row.reward);
     stat(feedbackBody, '验证准确率', frame.row.validation_accuracy);
     stat(feedbackBody, '本轮模拟时间 · s', frame.row.round_time_seconds);
     stat(feedbackBody, '本轮模拟能量 · J', frame.row.round_energy_joules);
@@ -299,15 +299,15 @@ export function mountDecisionLab(host: HTMLElement, snapshot: Snapshot, initial:
         const b = button('', () => { pause(); state.preview = entry.action_id; update(); }); b.classList.add('ranking-row'); b.dataset.focusKey = `rank-${entry.action_id}`;
         b.append(el('span', `${i + 1}`), el('span', `A${entry.action_id} · ${clients(action)}\nbatch ${action.batch_size}`), el('strong', value(entry.value))); rankingHost.append(b);
       }
-      rankingHost.append(el('p', '排名按当前记录的评分排序；不跨方法、轮次比较绝对 Q 值。', 'muted'));
+      rankingHost.append(el('p', '当前轮策略评分 · Top 3', 'muted'));
     });
     const explored = preview(); previewSummary.replaceChildren();
     if (explored) {
       const actualScore = frame.action ? frame.scores.get(frame.action.action_id) ?? null : null;
       const previewScore = frame.scores.get(explored.action_id) ?? null;
       previewSummary.append(el('strong', `候选预览：${actionName(explored)}`), el('span', `${frame.scoreLabel} ${value(previewScore)} · 与实际动作评分差 ${value(previewScore !== null && actualScore !== null ? previewScore - actualScore : null)}`),
-        el('small', '未执行 · 不生成替代准确率、时间、能量或风险结果。右侧反馈仍属于实际动作。'));
-    } else previewSummary.append(el('span', '点击矩阵或候选排名，探索另一条云边协同路径；实线实际动作保持不变。'));
+        el('small', '未执行的候选路径 · 反馈面板显示实际动作结果。'));
+    } else previewSummary.append(el('span', '选择候选动作预览路径 · 实线为实际动作，虚线为候选路径。'));
     warnings.replaceChildren(); frame.warnings.forEach(w => warnings.append(el('p', w, 'muted')));
     syncCharts(state.frame); if (dialog.open) fillInspector(frame); notify();
   }

@@ -8,15 +8,15 @@ type Option = echarts.ComposeOption<LineSeriesOption | BarSeriesOption | Heatmap
 import { effectRows, number, checkpointSeries, type Run, type Row } from './model.ts';
 import { tracePoints, type ReplayFrame } from './replay.ts';
 import { el, panel } from './ui.ts';
-const palette: Record<string,string> = {dqn:'#0072B2',ppo:'#E69F00',pqn:'#009E73',fixed:'#666666',metacs:'#CC79A7',time_greedy:'#56B4E9',risk_greedy:'#D55E00',n1:'#0072B2',n3:'#E69F00'};
+const palette: Record<string,string> = {dqn:'#7abcf0',ppo:'#efb766',pqn:'#65d4b7',fixed:'#a2afbd',metacs:'#d6a1d2',time_greedy:'#88d3e7',risk_greedy:'#f29a78',n1:'#7abcf0',n3:'#efb766'};
 export function color(method: string): string { return palette[method.toLowerCase()] ?? '#607D8B'; }
 const active: echarts.ECharts[] = [];
 const observer = new ResizeObserver(() => active.forEach(c => c.resize()));
 export function clearCharts(): void { observer.disconnect(); active.splice(0).forEach(c => c.dispose()); echarts.disconnect('effects'); echarts.disconnect('decision-traces'); }
 export function chart(parent: HTMLElement, title: string, option: Option, linked = false): echarts.ECharts {
   const p = panel(title); const host = el('div',undefined,'chart'); host.role = 'img'; host.setAttribute('aria-label',title); p.append(host); parent.append(p);
-  const c = echarts.init(host); active.push(c); observer.observe(host); if (linked) c.group = 'effects';
-  c.setOption({ animation: false, aria: { enabled: true }, textStyle: { fontFamily: 'Inter, Segoe UI, sans-serif', color:'#405269' }, tooltip: { trigger:'axis', renderMode:'richText' }, grid:{left:64,right:24,top:56,bottom:65}, ...option });
+  const c = echarts.init(host, 'dark'); active.push(c); observer.observe(host); if (linked) c.group = 'effects';
+  c.setOption({ backgroundColor: 'transparent', animation: false, aria: { enabled: true }, textStyle: { fontFamily: 'Inter, Segoe UI, sans-serif', color:'#c6d2df' }, tooltip: { trigger:'axis', renderMode:'richText', backgroundColor:'#171c23', borderColor:'#536475', textStyle:{color:'#e6edf3'} }, grid:{left:64,right:24,top:56,bottom:65}, ...option });
   return c;
 }
 export function replayTraces(parent: HTMLElement, frames: ReplayFrame[], run: Run, onSelect: (index: number) => void): (index: number) => void {
@@ -41,7 +41,7 @@ export function replayTraces(parent: HTMLElement, frames: ReplayFrame[], run: Ru
           lineStyle: { width: 2, type: run.arm === 'N3' ? 'dashed' : 'solid' }, itemStyle: { color: color(run.arm ?? run.method) },
           data: points.map(p => p.frame ? number(p.frame.row[key]) : null) },
         { id: 'selected-frame', name: '当前轮', type: 'line', showSymbol: true, showAllSymbol: true, symbolSize: 12,
-          itemStyle: { color: '#182f46', borderColor: '#fff', borderWidth: 2 }, data: points.map(() => null), z: 5 },
+          itemStyle: { color: '#e6edf3', borderColor: '#101216', borderWidth: 2 }, data: points.map(() => null), z: 5 },
       ],
     });
     c.group = 'decision-traces';

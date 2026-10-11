@@ -17,6 +17,8 @@ Serve `dist/` with the existing local notebook service. The frontend requires on
 
 ## Single-page interaction
 
+The presentation uses a black background with coordinated dark controls, cards, SVG nodes, charts and inspector. Main-screen copy is limited to titles, controls and concise metric labels; detailed data limitations remain available in the current-round inspector.
+
 - The only screen is **云边交互台**. There is no sidebar, page navigation, learning view, method/checkpoint comparison, calibration/report panel, experiment register or publication gallery. Removed and unknown `page` parameters resolve to the same lab; obsolete comparison/learning URL parameters are discarded. Existing paper assets and experiment code remain untouched outside the frontend.
 - **Cloud–edge lab:** State → Agent → joint Action → cloud–edge Environment → Reward. A generated, keyboard-operable SVG shows the actual clients, bidirectional communication and aggregation, not a PNG with hotspots. The timeline, action matrix, top-three ranking, outcome curves and current-round inspector share one selected frame. Clicking a curve point changes the frame; the slider provides a keyboard alternative.
 - **Candidate exploration:** click an explicit client-set × batch action. Actual execution stays solid/green; preview is dashed/amber. Only the recorded score for that state is compared, with Q values, probabilities and heuristic scores named separately. Preview never mutates experimental records or calculates counterfactual accuracy, cost or risk. A round change clears the preview.
