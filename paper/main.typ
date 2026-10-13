@@ -22,19 +22,10 @@ Running a strong reconstruction attack for every candidate action is expensive t
 Motivated by these considerations, we formulate the joint selection of participating clients and local mini-batches as a sequential decision problem. At each round, the scheduler acts on public state information and receives feedback based on changes in accuracy and simulated resource consumption, together with the terminal change in the risk proxy. Rather than greedily selecting the action with the lowest current-round proxy score, the reinforcement-learning policy uses subsequent returns to assess each action’s long-term value over the remaining training horizon. Finally, proxy-prediction accuracy and policy-level risk must be evaluated separately: low prediction error on a fixed set of uploads does not necessarily imply that a policy using the predictor will achieve lower true risk.
 
 == Research Questions
-
-
-*To write:* Attach a measurable outcome and a falsification condition to each
-question. Answer them from independent evaluation rather than the scheduler's
-own predicted rewards.
+We addresses three related 3 related questions in this study: how to formalize joint client–batch scheduling with a terminal exposure-risk objective as a trainable and auditable reinforcement learning task (RQ1); what trade-offs in accuracy, resource consumption, and predicted risk learned policies and transparent rule-based baselines exhibit under matched development conditions and at a fixed training endpoint (RQ2); and what scheduling behaviors correspond to 1-step and 3-step Double DQN targets under a fixed risk-proxy version and a short interaction budget (RQ3). To address these questions, we specify the task via its interface, reward identity, and implementation. We compare seven methods across three paired seeds, and examine the effect of return length by a single N1/N3 paired comparison from a separate batch.
 
 == Contributions and Scope
-*To write:* Separate the implemented experimental framework, observed pilot
-feasibility, and research contributions established by formal comparisons.
-Restrict the main study to Adult, three simulated clients, a fixed small MLP,
-FedSGD, twelve actions, and DQN. Treat PPO as an extension. State which learning
-and attack cores are original implementations and which runnable third-party
-baselines are adapted, with clear attribution.
+
 
 = Related Work
 == Federated Scheduling and Reinforcement Learning
