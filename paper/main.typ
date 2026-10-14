@@ -254,6 +254,9 @@ $
 
 The scales $s_T$ and $s_E$ normalize the reward. With a fixed risk-proxy version, fixed weights, and a discount factor of one, the max return corresponds to the terminal weighted objective over the risk proxy, accuracy, and resources. In addition, shared warm-up costs remain included in the final $T$ and $E$.
 
+=== DQN, Double DQN, and Multi-Step Experience Replay
+
+
 = Results
 == Experimental Setup and Preliminary Feasibility
 *Existing engineering evidence:* The recorded integration includes 26 L4 cloud
