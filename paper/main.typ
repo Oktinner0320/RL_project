@@ -206,7 +206,42 @@ $ <risk-score>
 
 In the executed configurations for both the seven-method comparison and the N1/N3 runs with $kappa = 0$. Therefore, the risk score uses the calibrated point estimate; ensemble disagreement of MLPs remains available as a public candidate feature and not contribute an additional penalty to the score.
 
+== Cumulative Proxy and Terminal-Consistent Incremental Reward
+For each executed decision round, let $e_t$ denote the total actual exposure from uploads, $overline(p)_t$ the exposure-weighted mean proxy score, and $N_(t-1)$ the cumulative exposure before round $t$. The cumulative proxy $hat(R)_t$ satisfies:
+$
+  hat(R)_t =
+    (N_(t-1) hat(R)_(t-1) + e_t overline(p)_t) /
+    (N_(t-1) + e_t).
+$
 
+Thus, when prior exposure is nonzero:
+$
+  Delta hat(R)_t =
+    e_t / (N_(t-1) + e_t)
+    (overline(p)_t - hat(R)_(t-1)).
+$ <risk-increment>
+
+On the first round, the empty ledger initializes the proxy to zero, so the increment equals that round's proxy. An upload with a proxy score below the historical average can reduce the cumulative proportion even it adds exposure.
+
+To optimize @scheduling-objective, each terminal change is decomposed into per-round increments. The executed development runs used a fixed risk-proxy version and fixed reward weights. The per-round decision reward is:
+$
+  r_t =
+    lambda_A Delta A_t
+    - lambda_R Delta hat(R)_t
+    - lambda_T (Delta T_t) / s_T
+    - lambda_E (Delta E_t) / s_E.
+$ <aligned-reward>
+
+Summing from decision round 1 to the terminal round $H$ gives:
+$
+  sum_(t = 1)^H r_t =
+    lambda_A (A_H - A_0)
+    - lambda_R (hat(R)_H - hat(R)_0)
+    - lambda_T (T_H - T_0) / s_T
+    - lambda_E (E_H - E_0) / s_E.
+$
+
+The scales $s_T$ and $s_E$ normalize the reward. With a fixed risk-proxy version, fixed weights, and a discount factor of one, the max return corresponds to the terminal weighted objective over the risk proxy, accuracy, and resources. In addition, shared warm-up costs remain included in the final $T$ and $E$.
 
 = Results
 == Experimental Setup and Preliminary Feasibility
