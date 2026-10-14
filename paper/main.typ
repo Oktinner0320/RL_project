@@ -64,35 +64,54 @@ $ <eq:fedsgd-update>
 Where $eta_w$ is the task-model learning rate. This is synchronous FedSGD: clients upload gradients computed on their current batches @fedavg. At last, changes to the participating client set or local batch sizes affect both the composition of uploaded updates and subsequent task-model states.
 
 == Threat Model and Empirical Risk
-*To write:* Define an honest-but-curious server that sees each selected client's
-gradient before aggregation, the pre-update model, known batch labels, batch
-size, and public feature schema. Raw records are available only to the trusted
-evaluator. One audit attacks one complete client batch. Explain within-batch
-matching, recovery in original feature units, and the separate exact-match
-record rate. Fix numerical tolerances and categorical recovery rules before comparison.
+We introduce an honest-but-curious server threat model. The server follows the prescribed update protocol but can observe each client’s gradient before aggregation and is assumed to know the model parameters and labels need to attempt private-data reconstruction. All scheduling policies are evaluated via the same task-model architecture, training protocol, attacker knowledge, and inversion budget, so that risk comparisons reflect differences in scheduling behavior.
+
+For each realized upload $u$, let $B_u$ denote its number of records, and let $Y_u in [0, 1]$ denote its raw-field recovery rate. $Y_u$ measures the proportion of fields correctly recovered in the reconstruction. Field matching, numerical tolerances, and categorical decision rules are specified by a common attack-evaluation protocol. The label characterizes empirical reconstructability under a fixed attack protocol; its value depends on both the information exposed by the upload and the effectiveness of attack optimization.
+
+Let $tau$ denote a task trajectory and $cal(U)(tau)$ the set of realized post-warmup upload events in that trajectory. Define exposure-weighted risk as:
+$
+  R_("exp")(tau) =
+    (sum_(u in cal(U)(tau)) B_u Y_u) /
+    (sum_(u in cal(U)(tau)) B_u),
+  quad R(pi) = bb(E)_pi[R_("exp")(tau)].
+$ <risk-objective>
+
+Weighting by record count gives uploads containing more records a greater contribution to the evaluation. $R(pi)$ denotes the expected risk over trajectories induced by policy $pi$. If a record is uploaded more than once, each upload counts as a separate exposure event. Thus, this objective measures the field-recovery proportion across exposure events, not the number of unique
+affected records. If there are no post-warmup uploads, risk is undefined. If required attack labels are missing, the full-trajectory risk is indeterminate.
 
 == Observations and Joint Actions
-*To write:* List currently available resources, validation progress, participation
-and exposure history, remaining budgets, and candidate predicted risk and
-uncertainty. Acknowledge partial observability. Exclude future resources,
-candidate true gradients, reconstruction truth, and test-set metrics.
-@tab:actions uses zero-based client IDs; batch sizes and action IDs align from
-left to right in each row.
+At round $t$, the scheduler selects a joint action $a_t = (S_t, B_t)$ using the public observation $o_t$. @tab:observations-actions summarizes the available action choices and observation components. The four client sets and three local batch sizes form a discrete joint action space of 12 actions, which allow participation scope and local aggregation size to be adjusted jointly.
 
 #figure(
-  pad(x: 0.5pt, table(
-    columns: (1fr, 1.4fr, 1.2fr),
-    align: left,
-    inset: 6pt,
-    stroke: 0.5pt,
-    table.header([*Action IDs*], [*Client set*], [*Batch sizes*]),
-    [0, 1, 2], [{0, 1}], [8, 32, 64],
-    [3, 4, 5], [{0, 2}], [8, 32, 64],
-    [6, 7, 8], [{1, 2}], [8, 32, 64],
-    [9, 10, 11], [{0, 1, 2}], [8, 32, 64],
-  )),
-  caption: [The twelve discrete scheduling actions.],
-) <tab:actions>
+  {
+    set par(justify: false, first-line-indent: 0pt)
+    table(
+      columns: (1fr, 1.4fr, 2.8fr),
+      align: left + top,
+      inset: (x: 6pt, y: 5pt),
+      stroke: none,
+      table.hline(stroke: 0.8pt),
+      table.header([*Category*], [*Component*], [*Definition / content*]),
+      table.hline(stroke: 0.5pt),
+      table.cell(rowspan: 2)[Joint action],
+      [Client set $S_t$], [$cal(S) = {{0, 1}, {0, 2}, {1, 2}, {0, 1, 2}}$],
+      [Local batch size $B_t$], [$B_t in {8, 32, 64}$],
+      table.cell(rowspan: 5)[Public observation],
+      [Resource state], [Current resource conditions],
+      [Validation progress], [Task-model validation feedback],
+      [Participation history], [Summary of past client participation],
+      [Candidate-action estimates], [Estimated resource costs and risk-proxy values for each candidate action],
+      [Exposure ledger], [Cumulative exposure statistics],
+      table.hline(stroke: 0.8pt),
+    )
+  },
+  kind: table,
+  caption: figure.caption(position: top)[Joint action space and public observation components.],
+) <tab:observations-actions>
+
+The action specifies the local batch size $B_t$, whereas model updates and risk statistics use the actual number of records $B_(t,i)$ in each upload. The full decision history is $h_t = (o_1, a_1, dots, a_(t-1), o_t)$, and the implemented policy acts on a fixed-dimensional summary of this history without assuming that $o_t$ is strictly Markov.
+
+Private records, inversion ground truth, and the true gradients associated with candidate actions are excluded from the scheduler's observation. Ground-truth reconstruction labels are generated by a trusted evaluator after the corresponding upload has occurred.
 
 == Rewards, Resources, and Termination
 Let $Delta U_t$ denote validation-loss reduction and let $s_T$ and $s_E$ be
