@@ -45,6 +45,24 @@ Regarding optimization methods, DQN learns action values in discrete action spac
 
 
 = Problem Formulation
+#figure(
+  image("figures/rl-project-architecture.png", width: 100%),
+  alt: "Architecture of the risk-aware federated scheduling framework. "
+    + "Offline gradient-inversion audits provide reconstruction labels "
+    + "for risk-ensemble fitting, residual-based bias correction, and freezing. "
+    + "Public context, frozen risk predictions, and simulated resource costs "
+    + "support joint client-set and batch-size selection. "
+    + "One active learning algorithm or scheduling rule controls synchronous, "
+    + "sample-weighted FedSGD. Round-level accounting combines predicted "
+    + "exposure risk, task utility, and resource costs into incremental rewards "
+    + "and feedback. Paired validation compares methods under a fixed protocol. "
+    + "Resource costs are simulated, and predicted risk does not constitute "
+    + "a formal privacy guarantee.",
+  caption: [
+    Framework for risk-aware client–batch scheduling in federated learning.
+  ],
+) <fig:rl-project-architecture>
+
 == System and Synchronized Federated Updates
 We consider a horizontal federated-learning system which comprise a cloud server and three logical edge clients, with the client set denoted by $cal(C) = {0, 1, 2}$. Each client retains its local records, while the server maintains a shared task model and coordinates client participation and model updates. Let $w_t$ denote the task-model parameters at the beginning of decision
 round $t$, $phi$ the parameters of the frozen risk proxy, and $theta$ the parameters of the scheduling policy. The task model is updated via training. The risk proxy remains fixed within each policy comparison, whereas the scheduling policy is learned through training interactions.
