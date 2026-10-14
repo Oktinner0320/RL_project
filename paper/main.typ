@@ -13,7 +13,7 @@
 
 = Overview
 == Motivation and Context
-Although federated learning reduces the need to collect raw data by centre, model updates uploaded by clients may still leak information about their local training data @fedavg @fl_openproblems. Studies of gradient inversion reveal that attackers may reconstruct client training samples from observation of gradients to the server @dlg @ig. To tabular data, reconstruction evaluation also requires mapping recovered values from the encoded space back to the original fields and comparing them at the field-semantic level @tableak. Therefore, this study directly responses the question raised by privacy-profiling research on tabular federated learning @tabular_gia: evaluation should go beyond model accuracy, which need quantify how much information an attacker can recover from client-uploaded model updates.
+Although federated learning(FL) reduces the need to collect raw data by centre, model updates uploaded by clients may still leak information about their local training data @fedavg @fl_openproblems. Studies of gradient inversion reveal that attackers may reconstruct client training samples from observation of gradients to the server @dlg @ig. To tabular data, reconstruction evaluation also requires mapping recovered values from the encoded space back to the original fields and comparing them at the field-semantic level @tableak. Therefore, this study directly responses the question raised by privacy-profiling research on tabular FL @tabular_gia: evaluation should go beyond model accuracy, which need quantify how much information an attacker can recover from client-uploaded model updates.
 
 Based on the above reasons, Cloud scheduling must jointly account for the privacy risk, computational cost, and learning benefit of each upload, these three elements cannot be considered in isolation. Reducing the local batch size decreases the number of records involved in each update, but may also affect the identifiability of individual records from the resulting gradients. On the another hand, increasing the participating-client set raises the number of uploads per round and may prolong synchronization delays as the server waits for slower clients. The value of a schedule action bases on its long-term effect over the training, and cannot be determined only by its proxy score in the current round. Accordingly, we first formalize the long-term objective and then describe how to estimate and optimize it.
 
@@ -22,43 +22,27 @@ Running a strong reconstruction attack for every candidate action is expensive t
 Motivated by these considerations, we formulate the joint selection of participating clients and local mini-batches as a sequential decision problem. At each round, the scheduler acts on public state information and receives feedback based on changes in accuracy and simulated resource consumption, together with the terminal change in the risk proxy. Rather than greedily selecting the action with the lowest current-round proxy score, the reinforcement-learning policy uses subsequent returns to assess each action’s long-term value over the remaining training horizon. Finally, proxy-prediction accuracy and policy-level risk must be evaluated separately: low prediction error on a fixed set of uploads does not necessarily imply that a policy using the predictor will achieve lower true risk.
 
 == Research Questions
-We addresses three related 3 related questions in this study: how to formalize joint client–batch scheduling with a terminal exposure-risk objective as a trainable and auditable reinforcement learning task (RQ1); what trade-offs in accuracy, resource consumption, and predicted risk learned policies and transparent rule-based baselines exhibit under matched development conditions and at a fixed training endpoint (RQ2); and what scheduling behaviors correspond to 1-step and 3-step Double DQN targets under a fixed risk-proxy version and a short interaction budget (RQ3). To address these questions, we specify the task via its interface, reward identity, and implementation. We compare seven methods across three paired seeds, and examine the effect of return length by a single N1/N3 paired comparison from a separate batch.
+We addresses three related 3 related questions in this study: how to formalize joint client–batch scheduling with a terminal exposure-risk objective as a trainable and auditable reinforcement learning(RL) task (RQ1); what trade-offs in accuracy, resource consumption, and predicted risk learned policies and transparent rule-based baselines exhibit under matched development conditions and at a fixed training endpoint (RQ2); and what scheduling behaviors correspond to 1-step and 3-step Double DQN targets under a fixed risk-proxy version and a short interaction budget (RQ3). To address these questions, we specify the task via its interface, reward identity, and implementation. We compare seven methods across three paired seeds, and examine the effect of return length by a single N1/N3 paired comparison from a separate batch.
 
 == Contributions and Scope
 The main contributions of this study are in three part: First, we formulate and implement a risk-aware federated-scheduling task that integrates public observations, a 12-action joint space over client-set and local-batch choices, an exposure-risk ledger, and finite-horizon incremental rewards within a unified sequential decision-making framework. Second, we compare learned policies with transparent baselines under matched development conditions and a fixed training-interaction budget. Results from three paired seeds show that PPO reduces simulated time and energy relative to fixed scheduling. Third, using a single paired run, we descriptively compare recorded action choices and short-budget resource outcomes under 1-step and 3-step Double DQN return targets. The contribution lies in task formulation, mechanism comparison, and development-stage empirical evidence for this setting. It provides the analysis of the trade-off between simulated resource consumption and the predicted risk proxy.
 
 = Related Work
 == Federated Scheduling and Reinforcement Learning
-*To write:* Introduce federated training using @fedavg, while making clear that
-the present protocol uses one-step FedSGD. Relate DQN @dqn to the discrete joint
-action space. Discuss PQN @pqn and MetaCS-FL @metacs as comparison or design
-references, stating their assumptions and implementation differences. Compare
-their scheduling objectives with the present focus on the reliability of an
-empirical privacy-risk surrogate.
+FL performs collaborative optimization over data distributed across clients. Differences in local data distributions and device abilities lead to statistical and system heterogeneity respectively, which make participant selection a trade-off between model utility and execution efficiency @fedavg @oort. Oort introduces guided participant selection that jointly accounts for each client’s statistical utility for improving model accuracy and training speed, thereby improving time-to-accuracy performance @oort. These studies reveal that client participation as a resource-aware scheduling problem which balances statistical utility and system efficiency, thereby providing a methodological basis for participation decisions and resource-efficiency evaluation in cloud–edge collaboration.
+
+RL can further utilize client-selection policies in response to training feedback. FedRLCS bases on Double DQN to select client subsets, mainly addressing convergence difficulties arising from non-IID data. It evaluates selection performance by the number of communication rounds required to reach a target accuracy @fedrlcs. In contrast, MetaCS-FL explots a metaheuristic framework to client selection, which provide a search-based comparator to learned policies @metacs. Together, these methods indecate two distinct approaches: learning selection policies from future returns and searching over candidate client combinations under an objective function. Building on the joint consideration of training utility and system costs, this study places client-set selection and local batch size in a shared action space. It also introduces a risk proxy learned from attack-derived labels, thereby linking scheduling decisions to resource consumption and predicted gradient-leakage risk.
+
+Regarding optimization methods, DQN learns action values in discrete action spaces, Double DQN mitigates overestimation of action values, and PPO performs policy-gradient-based policy optimization @dqn @double_dqn @ppo. Gallici et al.’s PQN investigates the stability and efficiency of deep temporal-difference learning via LayerNorm-based regularization and parallelized online sampling as key design elements @pqn. PQN is a general-purpose RL algorithm, it serves as a design reference for comparing optimization methods and examining reward-propagation mechanisms.
 
 == Tabular Gradient Inversion
-*To write:* Explain gradient matching through DLG @dlg and Inverting Gradients
-@ig, then discuss mixed numerical and categorical reconstruction using TabLeak
-@tableak. Describe tabular privacy profiling @tabular_gia and its official
-tabular-GIA repository in the source notes,
-without equating image reconstruction metrics with tabular recovery. Identify
-which threat-model assumptions and evaluation procedures are reused, and which
-attack implementation and hyperparameters still require validation.
+
 
 == Risk Surrogates and Uncertainty
-*To write:* Review learning a risk predictor from independently audited updates.
-Use TabM @tabm as a tabular baseline and explain the intended uncertainty
-mechanism. Distinguish accuracy, underestimation, and uncertainty ranking. An
-ensemble spread is not automatically a calibrated confidence interval; assess
-its empirical relationship to errors before interpreting a conservative score.
+
 
 == Budgeted Auditing and Calibration
-*To write:* Relate audit selection to uncertainty and optimization-oriented
-calibration, using @conformalopt and @ocp as methodological references. State
-where their assumptions differ from policy-dependent, sequential training data.
-Do not transfer formal coverage guarantees without establishing their
-conditions. Compare periodic, random, and active auditing under both attack-call
-and computation budgets, with independent final evaluation.
+
 
 = Problem Formulation
 == Data, Clients, and FedSGD
