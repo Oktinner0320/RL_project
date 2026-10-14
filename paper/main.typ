@@ -143,29 +143,26 @@ Where $lambda_A$, $lambda_R$, $lambda_T$, and $lambda_E$ are fixed nonnegative w
 The task runs for at most 30 rounds, which include 12 shared warm-up rounds and up to 18 policy-controlled decision rounds, such that $H <= 18$. The shared warm-up establishes a comparable starting point for the task model and consumes training interactions and resources, but its uploads are excluded from the post-warm-up risk set. The empty risk ledger is initialized as $hat(R)_0 = 0$. The reported terminal totals $T_H$ and $E_H$ include warm-up costs, whereas resource increments in the optimization objective are computed relative to $T_0$ and $E_0$. Under identical initial conditions, the shared warm-up cost is independent of subsequent policy choices, so not affect the ranking of policies under the objective. The task terminates when the maximum number of rounds is reached or a predefined task-level termination condition is met. The discount factor is set to $gamma = 1$, so the undiscounted sum of per-round incremental rewards is consistent with the terminal objective defined above.
 
 = Methodology
-== Pipeline and Risk Training
-*To write:* Describe collection across clients, batch sizes, and early-to-late
-training stages. Split risk-fitting, validation, and final evaluation by complete
-run, so neighboring checkpoints do not leak across partitions. Freeze the risk
-estimator within a stage and record its version. @fig:pipeline shows the
-information boundary; only trusted auditing obtains empirical attack labels.
+== Attack Audit and Recovery-Rate Label Generation <attack-labels>
+The risk supervision is derived from gradient-inversion audits of actual uploads. For each upload $u$, the attacker receives the pre-aggregation gradient $g_u$, task-model parameters $w_u$, the input-encoding specification, and the ground-truth batch labels $y_u$. It only optimizes the candidate input $hat(X)_u$. Following the cosine gradient-matching objective @ig, the attack
+solves:
+$
+  min_(hat(X)_u)
+    1 - cos(g_u, nabla_w cal(L)(w_u\; hat(X)_u, y_u)).
+$ <attack-objective>
 
-// Center node labels without prose justification / 流程节点居中，避免正文两端对齐拉伸。
-#let pipeline-node(body) = rect(width: 100%, height: 54pt, inset: 6pt, stroke: 0.5pt, {
-  set par(justify: false, first-line-indent: 0pt)
-  align(center + horizon, body)
-})
+In the current fitting audits, candidate inputs are initialized with Gaussian random values in the encoded space, and optimized with Adam. Each of three independent restarts has 1,000 optimization steps, with the learning rate decreasing linearly from 0.1 to 0.01. The final reconstruction is the candidate with the lowest matching loss across all restarts and iterations. Only after reconstruction is complete, the trusted evaluator access the original records to calculate recovery metrics.
 
-#figure(
-  pad(x: 0.5pt, grid(
-    columns: (1fr, 1fr), gutter: 12pt,
-    pipeline-node[Available observation and estimated risk],
-    pipeline-node[Scheduler selects one action],
-    pipeline-node[FedSGD executes selected client updates],
-    pipeline-node[Budgeted audit informs the next stage],
-  )),
-  caption: [Read left to right, then top to bottom. Auditing follows upload and cannot undo the current exposure.],
-) <fig:pipeline>
+Evaluation is addressed in the original field space. A row-matching cost is constructed from numerical absolute distances standardized by training-data scales and the number of categorical mismatches at first. And then, the Hungarian algorithm is used to align reconstructed records with ground-truth records @tableak. For a numerical field $j$, recovery is counted as correct when the absolute error is at most $0.05 s_j$, where $s_j$ is the standard deviation of that field in the task's training data; constant fields use zero tolerance. Categorical fields must match exactly. Let $C_(r,j)$ indicate whether field $j$ of aligned record $r$ is recovered correctly, and let $d$ be the number of original fields. Then：
+$
+  Y_u = 1 / (B_u d)
+    sum_(r = 1)^(B_u) sum_(j = 1)^d C_(r,j).
+$ <recovery-label>
+
+The row-level exact-match rate (EMR) requires every field in a record to be recovered correctly. As the units of evaluation, original fields prevents the dimensionality introduced by one-hot encoding from changing field weights in the recovery rate.
+
+To distinguish attack information from data priors, the evaluator also generates two baselines: uniform random reconstructions over numerical ranges and categorical supports. Reconstructions sampled independently from each field's empirical marginal effect of training. Both baselines use the same matching and field-level criteria as the attack. The audits used to fit the risk proxy are restricted to actual post-warm-up uploads, with at most 12 attack calls and 1,200 seconds of attack time per collection run. Before each audit begins, the remaining budget is checked against its estimated cost. Afterward, the full measured runtime of the attack is charged. If the time budget is exceeded, the completed result is retained and further audits are stopped.
+
 
 == DQN and Scheduling Baselines
 *To write:* Specify the author's replay buffer, target network, exploration
