@@ -45,13 +45,23 @@ Regarding optimization methods, DQN learns action values in discrete action spac
 
 
 = Problem Formulation
-== Data, Clients, and FedSGD
-*To write:* Document the UCI Adult dataset @adult, the official test split, and
-training-only preprocessing. Specify validation selection, missing-category
-encoding, numerical scaling, and IID versus label-skewed clients. Define a round
-as client batch-mean gradients computed at the same pre-update weights, a
-sample-weighted aggregate, and one server update. Model weights persist through
-an episode. Report the fixed architecture and optimizer implemented by the author.
+== System and Synchronized Federated Updates
+We consider a horizontal federated-learning system which comprise a cloud server and three logical edge clients, with the client set denoted by $cal(C) = {0, 1, 2}$. Each client retains its local records, while the server maintains a shared task model and coordinates client participation and model updates. Let $w_t$ denote the task-model parameters at the beginning of decision
+round $t$, $phi$ the parameters of the frozen risk proxy, and $theta$ the parameters of the scheduling policy. The task model is updated via training. The risk proxy remains fixed within each policy comparison, whereas the scheduling policy is learned through training interactions.
+
+For each participating client $i$, let $cal(B)_(t,i)$ denote its local batch in round $t$, and let $B_(t,i) = abs(cal(B)_(t,i))$ be the number of records in that batch. Let $ell(w\; x, y)$ denote the task loss on an individual record. Each participating client computes a batch-mean gradient at the same pre-update model parameters $w_t$:
+$
+  L_(t,i)(w) = 1 / B_(t,i) sum_((x, y) in cal(B)_(t,i)) ell(w\; x, y),
+  quad g_(t,i) = nabla_w L_(t,i)(w_t).
+$ <eq:client-batch-gradient>
+
+The server receives gradients from the participating set $S_t$, weights them by the actual number of records in each local batch, and performs one update:
+$
+  w_(t+1) = w_t - eta_w sum_(i in S_t)
+    (B_(t,i))/(sum_(k in S_t) B_(t,k)) g_(t,i).
+$ <eq:fedsgd-update>
+
+Where $eta_w$ is the task-model learning rate. This is synchronous FedSGD: clients upload gradients computed on their current batches @fedavg. At last, changes to the participating client set or local batch sizes affect both the composition of uploaded updates and subsequent task-model states.
 
 == Threat Model and Empirical Risk
 *To write:* Define an honest-but-curious server that sees each selected client's
