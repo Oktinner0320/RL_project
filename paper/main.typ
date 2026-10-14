@@ -137,10 +137,10 @@ $
   ].
 $ <scheduling-objective>
 
-Where $lambda_A$, $lambda_R$, $lambda_T$, and $lambda_E$ are fixed
-nonnegative weights, and $s_T, s_E > 0$ are resource-normalization scales. This weighted objective expresses preferences among accuracy gains, resource consumption, and predicted risk. Risk-proxy optimization and true-risk evaluation correspond to $hat(R)$ and $R$ respectively. The pipelines report accuracy, time, energy, and predicted risk to preserve the trade-offs across these dimensions.
+Where $lambda_A$, $lambda_R$, $lambda_T$, and $lambda_E$ are fixed nonnegative weights, and $s_T, s_E > 0$ are resource-normalization scales. This weighted objective expresses preferences among accuracy gains, resource consumption, and predicted risk. Risk-proxy optimization and true-risk evaluation correspond to $hat(R)$ and $R$ respectively. The experiments report accuracy, time, energy, and predicted risk to preserve the trade-offs across these dimensions.
 
-
+== Finite Horizon and Termination Conditions
+The task runs for at most 30 rounds, which include 12 shared warm-up rounds and up to 18 policy-controlled decision rounds, such that $H <= 18$. The shared warm-up establishes a comparable starting point for the task model and consumes training interactions and resources, but its uploads are excluded from the post-warm-up risk set. The empty risk ledger is initialized as $hat(R)_0 = 0$. The reported terminal totals $T_H$ and $E_H$ include warm-up costs, whereas resource increments in the optimization objective are computed relative to $T_0$ and $E_0$. Under identical initial conditions, the shared warm-up cost is independent of subsequent policy choices, so not affect the ranking of policies under the objective. The task terminates when the maximum number of rounds is reached or a predefined task-level termination condition is met. The discount factor is set to $gamma = 1$, so the undiscounted sum of per-round incremental rewards is consistent with the terminal objective defined above.
 
 = Methodology
 == Pipeline and Risk Training
