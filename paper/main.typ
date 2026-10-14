@@ -1,5 +1,5 @@
 #import "course-acm.typ": course-acm
-
+#let clip = math.op("clip")
 // English writing skeleton; experimental parameters remain in experiment.ipynb.
 // 英文写作骨架；实验超参数仍只在 experiment.ipynb 中调整。
 #let title = [Risk Prediction Reliability in Cloud-Edge Federated Learning: Uncertainty-Aware Scheduling and Budgeted Auditing]
@@ -163,46 +163,50 @@ The row-level exact-match rate (EMR) requires every field in a record to be reco
 
 To distinguish attack information from data priors, the evaluator also generates two baselines: uniform random reconstructions over numerical ranges and categorical supports. Reconstructions sampled independently from each field's empirical marginal effect of training. Both baselines use the same matching and field-level criteria as the attack. The audits used to fit the risk proxy are restricted to actual post-warm-up uploads, with at most 12 attack calls and 1,200 seconds of attack time per collection run. Before each audit begins, the remaining budget is checked against its estimated cost. Afterward, the full measured runtime of the attack is charged. If the time budget is exceeded, the completed result is retained and further audits are stopped.
 
+== Risk Ensemble, Empirical Disagreement, and Batch-Conditioned Calibration <risk-method>
+The risk model maps the public context $x_u$ of an upload to an estimated field-recovery rate, which contain 13 input features. The model is composed of five independent MLPs. Each MLP has two 64-unit ReLU hidden layers and a sigmoid output. The fitting and validation data are split by complete collection run, with the number of validation runs set to the ceiling of 20% of all runs. Means and standard deviations for risk features are computed via fitting runs, and constant features are assigned a unit scale. Let $cal(D)_("fit")$ denote the set of uploads used for fitting. Each MFP is trained on the same recovery labels using the loss:
+$
+  L_("fit") =
+    1 / (M abs(cal(D)_("fit")))
+    sum_(u in cal(D)_("fit")) sum_(m = 1)^M
+      (f_(phi,m)(x_u) - Y_u)^2.
+$ <risk-fit-loss>
 
-== DQN and Scheduling Baselines
-*To write:* Specify the author's replay buffer, target network, exploration
-schedule, Bellman target, and optimizer. Compare against the selected fixed
-configuration, round robin, time greedy, risk-aware greedy, and conservative
-greedy. Candidate utility must come from shared warmup data and historical
-estimates; greedy policies cannot execute unchosen actions to obtain true future
-utility. Charge warmup to every method's budget and report baseline selection rules.
+The optimizer is AdamW with a learning rate of $10^(-3)$, weight decay of $10^(-4)$, a mini-batch size of 16, and a maximum of 100 epochs. In each epoch, model selection is based on the ensemble-mean MSE on the internal validation groups. The weights with the lowest validation error are restored, after which the network is frozen. Thus, the loss weights uploads and MLPs equally, it not minimize exposure-weighted error directly. The ensemble mean and MLP disagreement are defined as:
+$
+  z_u = 1 / M sum_(m = 1)^M f_(phi,m)(x_u),
+  quad
+  sigma_u^2 = 1 / M sum_(m = 1)^M (f_(phi,m)(x_u) - z_u)^2.
+$
 
-== Uncertainty-Aware Scoring
-*To write:* Define the predicted mean and uncertainty in. Evaluate
-uncertainty against absolute error and positive underestimation before assessing
-scheduling effects. Select $kappa$ using validation data, then fix it for the
-independent comparison. Show risk reliability together with model quality and
-resource cost; clipping a score to $[0,1]$ establishes a range, not a privacy or
-coverage guarantee.
+In the selected weights, let $b_u$ denote the requested batch-size
+condition encoded in the public risk features, and $B_u$ continues to denote the actual number of records in the upload. For each batch condition $b$, compute the mean residual $c_b$ over internal-validation uploads with that condition. If no validation uploads have condition $b$, use the global mean residual over the internal validation set:
+$
+  c_b =
+    1 / n_b
+    sum_(u in cal(D)_("val"), b_u = b) (Y_u - z_u).
+$ <batch-residual>
 
-== Cost-Aware Active Auditing
-*To write:* Specify a reproducible acquisition rule over already executed
-updates, with estimated attack cost, uncertainty, client coverage, and remaining
-budget. Restrict each method by calls and computation, recording actual GPU
-seconds. First compare selectors on a shared saved trajectory, then compare
-closed-loop schedules separately. Reserve an independent evaluation panel that
-covers updates not chosen by the active selector.
+The method applies a nonnegative residual correction followed by fixed 50% shrinkage. Define the raw prediction, the fully corrected one-sided prediction, and the calibrated point estimate as:
+$
+  p_("raw",u) = clip(z_u, 0, 1),
+  quad
+  p_(+,u) = clip(z_u + max(c_(b_u), 0), 0, 1),
+$
+$
+  mu_u^("cal") = (1 - rho) p_("raw",u) + rho p_(+,u),
+  quad rho = 1 / 2.
+$ <shrinkage>
 
-== Stagewise Calibration and Policy Continuation
-*To write:* Explain the stage boundary: finish a frozen-estimator stage, audit
-eligible stored updates, refit on allowed labels, and advance the estimator
-version. Keep policy weights but clear replay from the old reward model before
-continuing. Distinguish this deliberate transition from resuming the same stage,
-which preserves state. Document which updates are evaluated independently and
-never feed their labels back into training.
+The fully corrected prediction is clipped before interpolation. Calibration adjusts only the point estimate, and $sigma_u$ is still computed from the original ensemble outputs. Because model selection and residual estimation use the same internal
+validation set, this procedure is an empirical bias correction, not independent conformal calibration or full multicalibration @multicalibration. The risk score used by the environment to evaluate candidate actions and accumulate realized exposure is:
+$
+  p_u = clip(mu_u^("cal") + kappa sigma_u, 0, 1).
+$ <risk-score>
 
-== Hyperparameter Selection
-*To write:* Describe the sole experiment control point, `experiment.ipynb`, and
-archived configuration snapshots. Separate pilot tuning, validation-based
-selection, and frozen final tests. Provide search ranges, selected values, seed
-pairing, attack iterations and restarts, reward weights, uncertainty coefficient,
-and audit costs. Include sensitivity to attack strength and risk penalties.
-Account for the initial USD 20 pilot separately from the formal experiment budget.
+In the executed configurations for both the seven-method comparison and the N1/N3 runs with $kappa = 0$. Therefore, the risk score uses the calibrated point estimate; ensemble disagreement of MLPs remains available as a public candidate feature and not contribute an additional penalty to the score.
+
+
 
 = Results
 == Experimental Setup and Preliminary Feasibility
