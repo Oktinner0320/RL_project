@@ -37,11 +37,27 @@ Regarding optimization methods, DQN learns action values in discrete action spac
 
 == Tabular Gradient Inversion
 
+Gradient inversion research shows that keeping raw data on local devices does not eliminate information leakage through shared updates. Zhu et al. introduced Deep Leakage from Gradients, which reconstructs training inputs by matching gradients produced by candidate data to the observed gradients @dlg. Geiping et al. further investigated gradient reconstruction and demonstrated that shared gradients can reveal detailed information about training inputs @ig. These studies establish gradient leakage as a relevant threat when a server can observe client updates before aggregation.
+
+Tabular reconstruction introduces additional challenges because records contain both numerical and categorical fields. Vero et al. proposed TabLeak, which addresses this mixed optimization problem through softmax relaxation and pooled ensembling @tableak. Their evaluation covers both FedSGD and FedAvg and demonstrates substantial reconstruction in several settings, including large batches. These findings show that batch size alone cannot establish whether an upload is safe.
+
+Attack effectiveness also affects the interpretation of measured leakage. Yue et al. showed that gradient postprocessing can appear protective against some reconstruction methods while remaining vulnerable to a stronger attack @gradient_obfuscation. Although their experiments concern image data, their findings motivate careful validation of the attack used as an auditor. In this study, reconstruction labels represent field recovery under a specified attack protocol. They provide an empirical basis for risk prediction, but they do not constitute a formal privacy guarantee.
 
 == Risk Surrogates and Uncertainty
 
+A learned risk surrogate can estimate reconstruction outcomes without running an expensive attack for every scheduling decision. However, prediction accuracy on a fixed dataset does not necessarily establish reliability during policy optimization. Fluri et al. showed that learned reward models can exhibit an error–regret mismatch: a model with low prediction error can still produce a policy with poor performance under the intended reward @learned_reward_perils. Their analysis identifies distribution shift during policy optimization as a central source of this mismatch.
+
+This kind of concern also applies to scheduling with a learned risk proxy. A scheduler changes which client and batch contexts happen, so its decisions may make the distribution that the proxy is evaluated on shift. This connection motivates us to separately assess prediction errors and policy-level outcomes. Specially, a lower predicted risk should not automatically be interpreted as lower reconstruction risk.
+
+Ensemble predictions give a practical way to examine uncertainty, but they need careful interpretation. Rahaman and Thiery showed that deep ensembles not necessarily improve calibration, even when they improve predictive accuracy @ensemble_calibration. So, disagreement among risk predictors is treated here as a diagnostic signal, not as a guaranteed bound on prediction error.
 
 == Budgeted Auditing and Calibration
+
+To obtain reconstruction labels, it needs to run an attack on a realized upload. When attack execution is costly, label selection becomes a part of the evaluation problem. Kossen et al. introduced Active Surrogate Estimators, they combine surrogate modeling with an acquisition strategy that is designed for label-efficient model evaluation @active_surrogate_estimators. Bickford Smith et al. proposed expected predictive information gain, it selects observations according to their relevance to predictions, not only according to information about model parameters @epig. These studies motivate us to select audits according to their expected evaluation value, not only rely on uncertainty scores.
+
+Calibration research provides a complementary perspective for prediction reliability. Hebert-Johnson et al. introduced multicalibration, it requires calibrated predictions across identifiable subpopulations @multicalibration. This perspective motivates us to inspect errors inside scheduling contexts, such as batch-size groups, because aggregate statistics can conceal systematic local errors. Gibbs and Candes developed adaptive conformal inference, for keeping long-run coverage frequency under distribution shift @aci. Their approach shows how uncertainty assessment can respond to data distributions that are changing.
+
+These methods provide relevant foundations for future audit selection and adaptive risk correction. However, the present scheduling comparisons use a frozen risk proxy within each comparison. The study therefore uses residual analysis to examine prediction reliability without claiming that active auditing or online conformal calibration has been established as a successful scheduling mechanism.
 
 
 = Problem Formulation
