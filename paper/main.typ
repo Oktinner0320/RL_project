@@ -64,8 +64,7 @@ Regarding optimization methods, DQN learns action values in discrete action spac
 ) <fig:rl-project-architecture>
 
 == System and Synchronized Federated Updates
-We consider a horizontal federated-learning system which comprise a cloud server and three logical edge clients, with the client set denoted by $cal(C) = {0, 1, 2}$. Each client retains its local records, while the server maintains a shared task model and coordinates client participation and model updates. Let $w_t$ denote the task-model parameters at the beginning of decision
-round $t$, $phi$ the parameters of the frozen risk proxy, and $theta$ the parameters of the scheduling policy. The task model is updated via training. The risk proxy remains fixed within each policy comparison, whereas the scheduling policy is learned through training interactions.
+We consider a horizontal federated-learning system which comprise a cloud server and three logical edge clients, with the client set denoted by $cal(C) = {0, 1, 2}$. Each client retains its local records, while the server maintains a shared task model and coordinates client participation and model updates. Let $w_t$ denote the task-model parameters at the beginning of decision round $t$, $phi$ the parameters of the frozen risk proxy, and $theta$ the parameters of the scheduling policy. The task model is updated via training. The risk proxy remains fixed within each policy comparison, whereas the scheduling policy is learned through training interactions.
 
 For each participating client $i$, let $cal(B)_(t,i)$ denote its local batch in round $t$, and let $B_(t,i) = abs(cal(B)_(t,i))$ be the number of records in that batch. Let $ell(w\; x, y)$ denote the task loss on an individual record. Each participating client computes a batch-mean gradient at the same pre-update model parameters $w_t$:
 $
@@ -94,8 +93,7 @@ $
   quad R(pi) = bb(E)_pi[R_("exp")(tau)].
 $ <risk-objective>
 
-Weighting by record count gives uploads containing more records a greater contribution to the evaluation. $R(pi)$ denotes the expected risk over trajectories induced by policy $pi$. If a record is uploaded more than once, each upload counts as a separate exposure event. Thus, this objective measures the field-recovery proportion across exposure events, not the number of unique
-affected records. If there are no post-warmup uploads, risk is undefined. If required attack labels are missing, the full-trajectory risk is indeterminate.
+Weighting by record count gives uploads containing more records a greater contribution to the evaluation. $R(pi)$ denotes the expected risk over trajectories induced by policy $pi$. If a record is uploaded more than once, each upload counts as a separate exposure event. Thus, this objective measures the field-recovery proportion across exposure events, not the number of unique affected records. If there are no post-warmup uploads, risk is undefined. If required attack labels are missing, the full-trajectory risk is indeterminate.
 
 == Observations and Joint Actions
 At round $t$, the scheduler selects a joint action $a_t = (S_t, B_t)$ using the public observation $o_t$. @tab:observations-actions summarizes the available action choices and observation components. The four client sets and three local batch sizes form a discrete joint action space of 12 actions, which allow participation scope and local aggregation size to be adjusted jointly.
@@ -141,8 +139,7 @@ $
     (sum_(u in cal(U)_t(tau)) B_u).
 $
 
-The construction of the ensemble score $p_u$, which contain ensemble disagreement and calibration, is described in Methods. When cumulative exposure is nonzero, $hat(R)_t$ uses the same record-count weighting as true risk but replaces attack
-labels with predicted scores, thereby providing a computable risk objective for online scheduling.
+The construction of the ensemble score $p_u$, which contain ensemble disagreement and calibration, is described in Methods. When cumulative exposure is nonzero, $hat(R)_t$ uses the same record-count weighting as true risk but replaces attack labels with predicted scores, thereby providing a computable risk objective for online scheduling.
 
 Taking the end of warm-up as the decision starting point, denote accuracy and cumulative resources by $A_0$, $T_0$, and $E_0$, and the actual decision endpoint by $H$. Define the terminal changes as $Delta A = A_H - A_0$, $Delta hat(R) = hat(R)_H - hat(R)_0$, $Delta T = T_H - T_0$, and $Delta E = E_H - E_0$. Let $cal(P)$ be the set of policies that make decisions in the specified observation and action spaces. The terminal objective optimized in this study is:
 $
@@ -197,8 +194,7 @@ $
   sigma_u^2 = 1 / M sum_(m = 1)^M (f_(phi,m)(x_u) - z_u)^2.
 $
 
-In the selected weights, let $b_u$ denote the requested batch-size
-condition encoded in the public risk features, and $B_u$ continues to denote the actual number of records in the upload. For each batch condition $b$, compute the mean residual $c_b$ over internal-validation uploads with that condition. If no validation uploads have condition $b$, use the global mean residual over the internal validation set:
+In the selected weights, let $b_u$ denote the requested batch-size condition encoded in the public risk features, and $B_u$ continues to denote the actual number of records in the upload. For each batch condition $b$, compute the mean residual $c_b$ over internal-validation uploads with that condition. If no validation uploads have condition $b$, use the global mean residual over the internal validation set:
 $
   c_b =
     1 / n_b
@@ -216,8 +212,7 @@ $
   quad rho = 1 / 2.
 $ <shrinkage>
 
-The fully corrected prediction is clipped before interpolation. Calibration adjusts only the point estimate, and $sigma_u$ is still computed from the original ensemble outputs. Because model selection and residual estimation use the same internal
-validation set, this procedure is an empirical bias correction, not independent conformal calibration or full multicalibration @multicalibration. The risk score used by the environment to evaluate candidate actions and accumulate realized exposure is:
+The fully corrected prediction is clipped before interpolation. Calibration adjusts only the point estimate, and $sigma_u$ is still computed from the original ensemble outputs. Because model selection and residual estimation use the same internal validation set, this procedure is an empirical bias correction, not independent conformal calibration or full multicalibration @multicalibration. The risk score used by the environment to evaluate candidate actions and accumulate realized exposure is:
 $
   p_u = clip(mu_u^("cal") + kappa sigma_u, 0, 1).
 $ <risk-score>
@@ -239,9 +234,7 @@ $
     (overline(p)_t - hat(R)_(t-1)).
 $ <risk-increment>
 
-On the first round, the empty ledger initializes the proxy to zero, so the increment equals that round's proxy. An upload with a proxy score below the historical average can reduce the cumulative proportion even it adds exposure.
-
-To optimize @scheduling-objective, each terminal change is decomposed into per-round increments. The executed development runs used a fixed risk-proxy version and fixed reward weights. The per-round decision reward is:
+On the first round, the empty ledger initializes the proxy to zero, so the increment equals that round's proxy. An upload with a proxy score below the historical average can reduce the cumulative proportion even it adds exposure. To optimize @scheduling-objective, each terminal change is decomposed into per-round increments. The executed development runs used a fixed risk-proxy version and fixed reward weights. The per-round decision reward is:
 $
   r_t =
     lambda_A Delta A_t
