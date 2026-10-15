@@ -448,12 +448,8 @@ The overall workflow comprises upload generation and attack auditing, risk-model
 + *Stage 5: Return-Horizon Ablation and Supplementary Evaluation.* The seven-method comparison and the N1/N3 ablation use the same frozen risk-proxy version. The N1/N3 ablation changes only the return horizon. Prediction-error evaluation compares calibration outputs from the same regressor on a common panel of fixed uploads. By contrast, the evaluation of a policy risk requires auditing all uploads along its complete trajectory.
 
 = Results
-== Experimental Setup and Preliminary Feasibility
-*Existing engineering evidence:* The recorded integration includes 26 L4 cloud
-tasks across 13 phases. The current Adult split has 26,049 training, 6,512
-validation, and 16,281 test records; preprocessing yields 121 encoded features.
-The three IID clients contain 8,683 training records each. These records support
-execution feasibility, not convergence or a five-seed performance claim.
+== Batches, Budgets, and Statistical Definitions
+This study uses the Adult binary-classification dataset @adult, an IID partition across clients, nominal resource settings, and a common task model, action space, warm-up procedure, and termination protocol. The experimental setup is illustrated in the figure below.
 
 *To write:* Cite the archived configuration and artifact IDs from the integration
 report. Specify the final hardware, time budget, seeds, attacks, data skew,
