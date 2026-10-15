@@ -449,7 +449,57 @@ The overall workflow comprises upload generation and attack auditing, risk-model
 
 = Results
 == Batches, Budgets, and Statistical Definitions
-This study uses the Adult binary-classification dataset @adult, an IID partition across clients, nominal resource settings, and a common task model, action space, warm-up procedure, and termination protocol. The experimental setup is illustrated in the figure below.
+This study uses the Adult binary-classification dataset @adult, an IID partition across clients, nominal resource settings, and a common task model, action space, warm-up procedure, and termination protocol. The experimental setup is illustrated in the @tab:experimental-configuration.
+#figure(
+  table(
+    columns: (1.2fr, 3.8fr),
+    align: left,
+    inset: (x: 6pt, y: 5pt),
+    stroke: none,
+
+    table.hline(stroke: 0.8pt),
+    table.header(
+      [*Item*], [*Configuration / status*],
+    ),
+    table.hline(stroke: 0.4pt),
+
+    [Learning methods], [DQN, PPO, and PQN.],
+
+    [Training–validation seed pairs], [8101 → 8201; 8102 → 8202; 8103 → 8203.],
+
+    [Non-learning methods], [Three paired validation runs per method; no policy-training seeds are assigned.],
+
+    [Checkpoints], [All six checkpoints are retained.],
+
+    [Main-table endpoint], [Fixed at 3000 actual policy interactions per training run; no best intermediate checkpoint is selected.],
+
+    [Evaluation horizon], [Some intermediate-checkpoint evaluations terminate early. Final main-table and N1/N3 evaluations retain all 30 rounds.],
+
+    [Risk proxy], [The same fitted version is frozen across comparisons; fitting seed: 8401.],
+
+    [Policy-training budget], [3000 actual interactions per training run; 27000 in total.],
+
+    [Shared collection budget], [90 actual interactions, accounted for separately from policy training.],
+
+    [Validation interactions], [1944 actual interactions in total.],
+
+    [Total executed interactions], [29034 = 90 shared collection + 27000 policy training + 1944 validation.],
+
+    [Retrieved node summaries], [101 node summaries have been returned.],
+
+    [Complete local run directories], [Only 9 complete run directories have been retrieved locally.],
+
+    [Validation raw artifacts], [Per-round raw files for the 66 validation runs have not all been retrieved locally.],
+
+    table.hline(stroke: 0.8pt),
+  ),
+  kind: table,
+  caption: [
+    Training and evaluation configuration, interaction budgets, and artifact availability.
+  ],
+) <tab:experimental-configuration>
+
+
 
 *To write:* Cite the archived configuration and artifact IDs from the integration
 report. Specify the final hardware, time budget, seeds, attacks, data skew,
