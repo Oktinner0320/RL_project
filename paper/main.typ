@@ -41,7 +41,12 @@
 // English writing skeleton; experimental parameters remain in experiment.ipynb.
 // 英文写作骨架；实验超参数仍只在 experiment.ipynb 中调整。
 #let title = [Risk Prediction Reliability in Cloud-Edge Federated Learning: Uncertainty-Aware Scheduling and Budgeted Auditing]
-#let authors = ("TO COMPLETE: Author Name - Student ID - Institution",)
+#let authors = (
+  "Andi Xu, Yijiao Yang, Anaina Biju Sulfitha, Ashiq Abdul Rahim",
+  "{xuan25aw/yayi25ty/bian24kb/abas25so}@student.ju.se",
+  "Jönköping University, School of Engineering",
+)
+
 #let abstract = [
   In the cloud–edge federated learning,  client and batch selection involves trade-offs among task accuracy, resource consumption, and gradient-leakage risk. This study implements a risk-aware reinforcement learning scheduler for synchronous FedSGD on the Adult dataset under an IID setting. The scheduler links a joint action space with 12 possible actions, public observations, and an exposure-weighted risk ledger to a finite-horizon incremental reward signal. Its policy is optimized using Double DQN and PPO. In a seven-method comparison using three paired development seeds, PPO reduced mean simulated time and energy use by 19.36% and 9.43%, respectively, relative to the fixed scheduling policy, while maintaining comparable accuracy; its predicted exposure-risk proxy increased by 11.02%. In a paired multi-step-return ablation using a single seed, each arm was trained for 1,200 interactions. Compared with the 1-step return, the 3-step return reduced simulated energy use by 34.00%, alongside a 13.80% increase in the predicted risk proxy. Overall, this study brings learned scheduling strategies and return horizons into a unified analysis of the trade-off between resource efficiency and proxy-estimated risk. By combining batch-conditioned residual analysis with attack-prior comparisons, it characterizes the scope and interpretive limits of the risk proxy, providing an auditable analytical framework for evaluating cloud–edge federated learning schedulers.
 
@@ -156,7 +161,7 @@ At round $t$, the scheduler selects a joint action $a_t = (S_t, B_t)$ using the 
   {
     set par(justify: false, first-line-indent: 0pt)
     table(
-      columns: (1fr, 1.4fr, 2.8fr),
+      columns: (1.2fr, 1.4fr, 2.4fr),
       align: left + top,
       inset: (x: 6pt, y: 5pt),
       stroke: none,
@@ -166,11 +171,12 @@ At round $t$, the scheduler selects a joint action $a_t = (S_t, B_t)$ using the 
       table.cell(rowspan: 2)[Joint action],
       [Client set $S_t$], [$cal(S) = {{0, 1}, {0, 2}, {1, 2}, {0, 1, 2}}$],
       [Local batch size $B_t$], [$B_t in {8, 32, 64}$],
+      table.hline(stroke: 0.5pt),
       table.cell(rowspan: 5)[Public observation],
       [Resource state], [Current resource conditions],
       [Validation progress], [Task-model validation feedback],
       [Participation history], [Summary of past client participation],
-      [Candidate-action estimates], [Estimated resource costs and risk-proxy values for each candidate action],
+      [Candidate estimates], [Estimated cost and risk for candidates],
       [Exposure ledger], [Cumulative exposure statistics],
       table.hline(stroke: 0.8pt),
     )
@@ -418,16 +424,11 @@ In this scheduling task, PPO adjusts action probabilities according to their est
       table.hline(stroke: 0.8pt),
       table.header([*Method*], [*Selection mechanism*]),
       table.hline(stroke: 0.5pt),
-      [PQN @pqn],
-      [Rank joint actions by returns estimated with an online Q-network using LayerNorm and rollout-based $Q(lambda)$ learning targets.],
-      [MetaCS @metacs],
-      [Score all 12 joint actions using normalized resource costs, participation diversity, historical validation-gain utility, and predicted risk; select the minimum-cost action.],
-      [Fixed],
-      [Always select configured action ID 4, regardless of the current observation.],
-      [Time-greedy],
-      [Select the joint action with the lowest predicted latency for the current round, without directly scoring accuracy gains, energy, or risk.],
-      [Risk-greedy],
-      [Select the action with the highest immediate predicted net benefit, balancing historical validation gain against normalized time and energy costs and mean candidate risk (@greedy-rule).],
+      [PQN @pqn], [Online LayerNorm Q-network; rollout $Q(lambda)$ targets.],
+      [MetaCS @metacs], [Min-score search over 12 actions (resource/diversity/gain/risk).],
+      [Fixed], [Always selects action 4.],
+      [Time-greedy], [Minimum predicted round latency.],
+      [Risk-greedy], [Maximum immediate gain net of time, energy, and risk costs.],
       table.hline(stroke: 0.8pt),
     )
   },
@@ -439,173 +440,118 @@ For Risk-greedy, let $g_t(a)$, $hat(T)_t(a)$, $hat(E)_t(a)$, and $v_t(a)$ denote
 $ a_t=arg max_(a in cal(A)) [lambda_A g_t(a)-lambda_T hat(T)_t(a)/s_T-lambda_E hat(E)_t(a)/s_E-lambda_R v_t(a)]. $ <greedy-rule>
 Risk-greedy evaluates the current action's mean risk score, whereas the learned policies are rewarded using increments in the cumulative exposure-weighted risk proportion. This difference distinguishes immediate scoring from terminal-objective optimization.
 
-== Training and Evaluation Protocol <method-protocol>
-The overall workflow comprises upload generation and attack auditing, risk-model fitting and freezing, policy training, policy evaluation, and return-horizon ablation:
-+ *Stage 1: Upload Generation and Attack Auditing.* Generate uploads and public contexts via prespecified collection runs. Perform gradient-inversion attacks within the call and time budgets to obtain per-upload labels and prior-only baselines.
-+ *Stage 2: Risk-Model Fitting and Freezing.* Fit the risk ensemble via complete runs as groups, select the weights with the lowest internal-validation MSE @goodfellow2016, and then estimate batch-conditioned residuals. This stage needs freeze the networks, input scaling, calibration offsets, and scoring configuration.
-+ *Stage 3: Policy Training.* Train DQN, PPO, and PQN separately on the same task and public interface. Each episode updates the task model and exposure ledger but not retrain the risk proxy online. Fixed, greedy, and MetaCS rules have no policy-training budget.
-+ *Stage 4: Paired Policy Evaluation.* At prespecified training checkpoints, disable exploration and use paired validation seeds to evaluate terminal accuracy, simulated time, simulated energy, and predicted exposure risk @rl_statistical_precipice. And then, Compute each run's terminal proportion first, then aggregate runs with equal seed.
-+ *Stage 5: Return-Horizon Ablation and Supplementary Evaluation.* The seven-method comparison and the N1/N3 ablation use the same frozen risk-proxy version. The N1/N3 ablation changes only the return horizon. Prediction-error evaluation compares calibration outputs from the same regressor on a common panel of fixed uploads. By contrast, the evaluation of a policy risk requires auditing all uploads along its complete trajectory.
-
-= Results
-== Batches, Budgets, and Statistical Definitions
+== Experimental Configuration
 This study uses the Adult binary-classification dataset @adult, an IID partition across clients, nominal resource settings, and a common task model, action space, warm-up procedure, and termination protocol. The experimental setup is illustrated in the @tab:experimental-configuration.
 #figure(
   table(
-    columns: (1.2fr, 3.8fr),
+    columns: (1.35fr, 3.65fr),
     align: left,
-    inset: (x: 6pt, y: 5pt),
+    inset: (x: 4pt, y: 3pt),
     stroke: none,
 
     table.hline(stroke: 0.8pt),
-    table.header(
-      [*Item*], [*Configuration / status*],
-    ),
+    table.header([*Item*], [*Configuration*]),
     table.hline(stroke: 0.4pt),
 
-    [Learning methods], [DQN, PPO, and PQN.],
-
-    [Training–validation seed pairs], [8101 → 8201; 8102 → 8202; 8103 → 8203.],
-
-    [Non-learning methods], [Three paired validation runs per method; no policy-training seeds are assigned.],
-
-    [Checkpoints], [All six checkpoints are retained.],
-
-    [Main-table endpoint], [Fixed at 3000 actual policy interactions per training run; no best intermediate checkpoint is selected.],
-
-    [Evaluation horizon], [Some intermediate-checkpoint evaluations terminate early. Final main-table and N1/N3 evaluations retain all 30 rounds.],
-
-    [Risk proxy], [The same fitted version is frozen across comparisons; fitting seed: 8401.],
-
-    [Policy-training budget], [3000 actual interactions per training run; 27000 in total.],
-
-    [Shared collection budget], [90 actual interactions, accounted for separately from policy training.],
-
-    [Validation interactions], [1944 actual interactions in total.],
-
-    [Total executed interactions], [29034 = 90 shared collection + 27000 policy training + 1944 validation.],
-
-    [Retrieved node summaries], [101 node summaries have been returned.],
-
-    [Complete local run directories], [Only 9 complete run directories have been retrieved locally.],
-
-    [Validation raw artifacts], [Per-round raw files for the 66 validation runs have not all been retrieved locally.],
+    [Methods], [DQN, PPO, PQN.],
+    [Seed pairs], [8101 → 8201; 8102 → 8202; 8103 → 8203.],
+    [Rule baselines], [3 paired validation runs/method; no training seeds.],
+    [Checkpoints], [6 retained.],
+    [Main endpoint], [3,000 actual interactions/run; no interim checkpoint selection.],
+    [Evaluation horizon], [Med evaluations may stop early; final/N1/N3 use 30 rounds.],
+    [Risk proxy], [One frozen version across comparisons; fit seed 8401.],
+    [Training budget], [3,000 actual/run; 27,000 total.],
+    [Collection budget], [90 actual; separate from policy training.],
+    [Validation budget], [1,944 actual total.],
+    [Total interactions], [29,034 = 90 collection + 27,000 training + 1,944 validation.],
+    [Node summaries], [101 returned.],
+    [Local run directories], [9 complete directories retrieved locally.],
+    [Validation files], [Per-round files for 66 validation runs are incomplete locally.],
 
     table.hline(stroke: 0.8pt),
   ),
   kind: table,
   caption: [
-    Training and evaluation configuration, interaction budgets, and artifact availability.
+    Training/evaluation settings, interaction budgets, and artifact availability.
   ],
 ) <tab:experimental-configuration>
 
-Task-model training, risk-proxy fitting, and scheduling-policy learning are different optimization processes. These three types of runs capture distinct sources of stochastic variation and are not interchangeable. The common evaluation panel is generated from runs, which is independent of those used for risk-proxy fitting and calibration, thereby enabling paired comparisons of predictions on the same uploaded updates. By contrast, the complete upload trajectories induced by each policy are used for the final risk evaluation.
+We first collect attack-audited uploads to fit the risk ensemble and estimate batch-conditioned residual offsets. And then freeze the proxy throughout policy training and evaluation. DQN, PPO, and PQN are trained separately under the same task interface. At the  evaluation state, disables exploration and uses paired validation seeds. Additionally, we get main results taken at the fixed 3,000-interaction endpoint, and N1/N3 ablation changes only the return horizon under a matched 1,200-interaction budget per arm.
 
-For each metric, the terminal value is first computed for each run, after which the mean and sample standard deviation are calculated with equal weight across the three paired seeds. The cross-seed mean risk is $overline(R) = 1 / n sum_(s = 1)^n R_("exp")(tau_s)$. Predicted risk is aggregated via the same trajectory-first, seed-averaging procedure. The specific results are presented in the @tab-methods.
+= Results
+== Overall Output of the Seven Methods
+Task-model training, risk-proxy fitting, and scheduling-policy learning are distinct optimization processes that capture non-interchangeable sources of stochastic variation. The common evaluation panel is generated from runs independent of those used for risk-proxy fitting and calibration, enabling paired comparisons on the same uploaded updates. Final policy risk is evaluated by auditing each policy's complete upload trajectories. For each metric, the terminal value is computed per run, then the equally weighted mean and sample standard deviation are calculated across the three paired seeds. Mean risk is $overline(R) = 1 / n sum_(s = 1)^n R_("exp")(tau_s)$; predicted risk follows the same trajectory-first, seed-averaging procedure.
 
 #figure(table(
-  columns: (0.9fr, 1.25fr, 1.1fr, 1.15fr, 1.15fr),
-  inset: 4pt, align: (left, right, right, right, right),
+  columns: (1.35fr, 1.2fr, 1fr, 1fr, 1.15fr),
+  inset: (x: 2pt, y: 4pt),
   table.header(
     [Method], [Accuracy (\%)], [Time (s)], [Energy (J)], [Predicted Risk],
   ),
-  [DQN], [75.778 ± 0.449], [5.909 ± 0.383], [49.712 ± 8.404], [0.44523 ± 0.00665],
-  [PPO], [75.809 ± 0.444], [4.892 ± 0.890], [40.048 ± 13.043], [0.49364 ± 0.04336],
-  [PQN], [75.752 ± 0.443], [4.145 ± 0.445], [31.090 ± 1.742], [0.49667 ± 0.02310],
-  [MetaCS], [75.712 ± 0.524], [3.721 ± 0.366], [30.113 ± 5.160], [0.50072 ± 0.04363],
-  [Fixed scheduling], [75.778 ± 0.460], [6.066 ± 0.305], [44.217 ± 1.499], [0.44466 ± 0.00227],
-  [Time-greedy], [75.568 ± 0.603], [3.190 ± 0.241], [26.841 ± 3.783], [0.51996 ± 0.00325],
-  [Risk-greedy], [75.681 ± 0.555], [3.417 ± 0.291], [30.480 ± 5.281], [0.49056 ± 0.03757],
-), kind: table, caption: [
-  Seven-method development results at the terminal checkpoint: mean ± sample
-  standard deviation ($n = 3$). Resource metrics are simulated, and risk is
-  predicted; learned methods are evaluated at the 3,000-interaction endpoint.
-]) <tab-methods>
+  [DQN], [75.78 ± 0.45], [5.91 ± 0.38], [49.71 ± 8.40], [0.4452 ± 0.0067],
+  [PPO], [75.81 ± 0.44], [4.89 ± 0.89], [40.05 ± 13.04], [0.4936 ± 0.0434],
+  [PQN], [75.75 ± 0.44], [4.15 ± 0.45], [31.09 ± 1.74], [0.4967 ± 0.0231],
+  [MetaCS], [75.71 ± 0.52], [3.72 ± 0.37], [30.11 ± 5.16], [0.5007 ± 0.0436],
+  [Fixed], [75.78 ± 0.46], [6.07 ± 0.31], [44.22 ± 1.50], [0.4447 ± 0.0023],
+  [Time-greedy], [75.57 ± 0.60], [3.19 ± 0.24], [26.84 ± 3.78], [0.5200 ± 0.0033],
+  [Risk-greedy], [75.68 ± 0.56], [3.42 ± 0.29], [30.48 ± 5.28], [0.4906 ± 0.0376],
+),
+  kind: table,
+  caption: [Seven-method results.]
+) <tab-methods>
+
+#figure(
+  image(
+    "figures/method_comparison.png",
+    width: 100%,
+    fit: "contain",
+  ),
+  caption: [Seven-method validation results.],
+) <fig:methods>
+
+@tab-methods and @fig:methods show similar mean accuracy across the seven methods (75.57–75.81%), but have a large different in resource–risk trade-offs. Compared with fixed scheduling, PPO reduced mean simulated time by 19.36% and energy by 9.43%, but take an 11.02% increase in predicted exposure risk. In addition, time-greedy achieved the lowest mean time and energy costs but the highest predicted risk, whereas DQN and fixed scheduling retained lower predicted risk at greater resource cost. These results demonstrate trade-offs in simulated resource efficiency and predicted risk.
+
+== Return-Horizon Ablation
+#figure(
+  image("figures/decision_atlas_1.png", width: 100%),
+  caption: [N1/N3 scheduling behavior.],
+) <fig:decision>
+
+N1 and N3 use 1-step and 3-step targets, respectively. Compared with N1, N3 reduced terminal simulated time by 4.60% and energy by 34.00%, with similar accuracy (74.79% VS 74.71%) but 13.80% higher exposure risk. Panels (a) and (b) of @fig:decision show that, after the shared warm-up, N1 mainly selected clients {1,2} and {0,2}, whereas N3 mainly selected {0,1}. Panels (c) and (d) show a consistent difference in requested batch size: N1 selected 32, and N3 selected 8. Panels (e) and (f) display the top-three Q-value rankings, with rings marking recorded actions, and the shaded warm-up region has no Q records.  Together, these rankings indicate action preferences, the terminal results and action trajectories characterize a resource–proxy-risk trade-off.
 
 
-== Attack Validity
-*To write:* Validate the implemented attack on controlled small batches and
-compare with marginal or prior-only reconstructions. Measure feature recovery,
-record exact-match rate, runtime, and sensitivity to iterations and restarts.
-The current 200-iteration, one-restart pilot attack was weaker than the marginal
-baseline and had zero exact-match rate. Strengthen and validate the auditor
-before drawing privacy conclusions from its labels.
 
-== Policy-Induced Underestimation
-*To write:* Answer RQ1 using matched independent audits along fixed, greedy,
-and learned trajectories. Report MAE, positive underestimation, worst-client
-error, and early-stage risk at comparable quality and client-wise processing.
-The small pilot risk comparison does not establish reliability: lower MAE and
-lower underestimation need not agree. Show trajectory shift and error by stage,
-with paired-seed uncertainty and the number of audited updates.
-
-== Uncertainty and Conservative Scheduling
-*To write:* Answer RQ2 with uncertainty-error associations, selective error
-curves, and conservative-score sensitivity. Compare no-privacy DQN, mean-risk
-DQN, conservative DQN, and conservative greedy under the same information.
-Report quality-risk-cost frontiers and failure cases, including high uncertainty
-that does not correspond to underestimation. Avoid treating post-hoc calibration
-as an implemented closed-loop reward correction unless it actually changes later stages.
-
-== Equal-Budget Audit Selection
-*To write:* Answer the audit-selection part of RQ3 on the shared trajectory.
-Compare periodic, random, and active selection under matched calls and GPU time.
-Show client, batch-size, and stage coverage together with subsequent independent
-prediction error. Score-query counts alone do not demonstrate attack-cost savings;
-uninformative pilot scores near one cannot establish useful audit prioritization.
-
-== Closed-Loop Evaluation and Ablation
-*To write:* Test calibrated policies using the independent final panel. Report
-equal simulated-time comparisons, similar client-wise processing, and cost to a
-common model-quality target. Ablate uncertainty, active selection, stagewise
-refitting, and policy continuation. The pilot's identical post-warmup actions
-across several methods do not establish policy superiority. Attribute measured
-effects to risk correction, sample selection, or long-term control using paired seeds.
 
 = Discussion
-== Interpretation and Practical Tradeoffs
-*To write:* Interpret each research question using the final independent
-measurements. Explain how training stage, batch size, participation, and repeated
-exposure affect risk and prediction shift. Discuss when a calibrated greedy
-policy may be sufficient and when learned long-term scheduling helps. Separate
-simulated communication and energy from actual Modal compute costs and startup time.
 
-== Negative Findings and Failure Cases
-*To write:* Retain unsupported hypotheses and counterexamples. Examples to test
-include no systematic underestimation, uncertainty with poor error ranking,
-calibration with negligible scheduling benefit, and greedy performance similar
-to DQN. Diagnose weak attacks, sparse risk labels, collapsed action choices, and
-unstable rewards before attributing a null result to the research mechanism.
+== Resource–Risk Trade-offs
 
-== Limitations and Validity
-*To write:* Discuss the one-dataset, small-model, simulated-client, known-label,
-pre-aggregation-gradient scope. Explain attack dependence, partial observability,
-selection bias, temporal dependence, finite seeds, and budget overruns at round
-boundaries. Do not generalize to secure aggregation, unknown-label attackers,
-strict differential privacy, or real edge deployments without further evidence.
-Describe the independent evaluation controls and remaining threats to validity.
+The seven-method comparison shows that these methods have similar mean accuracy but different in resource–risk balances. PPO reduces simulated resource costs relative to fixed scheduling, but these savings accompany higher predicted exposure risk.  PQN and several rule-based baselines achieve still lower costs, which indicate that resource efficiency is not exclusive to learned policies. Prior work aslo emphasizes balancing data utility and system execution costs in federated scheduling @oort @fedbalancer. The present results extend this evaluation perspective to include predicted recovery risk, explore the trade-offs involved in different approaches to cloud-edge federated scheduling.
 
-== Reproducibility, Cost, and Contributions
-*To write:* Identify source revision, UV lock, package versions, Notebook
-snapshots, seeds, data preprocessing, checkpoints, risk versions, and per-run
-artifacts. Report actual GPU seconds and monetary expenditure by stage. Attribute
-third-party implementations and licenses, distinguish original cores from
-adapters, and state every team member's contribution. Provide a compact rerun
-procedure that does not expose authentication credentials.
+== Behavioral Interpretation of the Ablation
+Multi-step returns change how subsequent rewards and bootstrap estimates enter value targets @sutton2018. In @fig:decision, N3 consistently selects smaller batches after warm-up and favors different client combinations from N1. These choices provide behavioral context for its lower simulated energy consumption. The higher predicted risk under N3 is qualitatively consistent with TabLeak's finding that smaller batches can be more vulnerable to
+reconstruction under its evaluated settings @tableak. However, this agreement neither validates the frozen proxy nor establishes greater actual leakage. The single paired run therefore characterizes a local scheduling trade-off, not a general advantage of multi-step returns.
+
+== Risk Interpretation and Scope
+The reported risk is an exposure-weighted average of predicted recovery scores, not total leakage. Therefore, fewer record exposures can coexist with higher average predicted risk. To establish actual privacy effects, attack audits along complete policy-induced trajectories are necessary.  Additionally, comparisons with gradient-free baselines are also important for distinguishing reconstruction supported by data priors from information extracted through gradients @tableak. The low prediction error get on the collection distribution can not ensure reliable decisions after policy optimization changes the visited distribution @learned_reward_perils. Likewise, prior classification studies show that ensembling is not necessarily for improving calibration @ensemble_calibration.
+
+Finally, three paired development seeds and one ablation pair provide limited evidence for stable rankings or statistical equivalence. This caution accords with concerns about uncertainty in few-run RL evaluation @rl_statistical_precipice. Additional paired seeds, heterogeneous datasets, and independent trajectory audits would help assess whether these findings extend beyond the current Adult/IID simulation.
 
 = Conclusion
-== Answers to the Research Questions
-*To write last:* Answer RQ1, RQ2, and RQ3 individually with the corresponding
-effect sizes and independent evidence. State whether the observations support
-each hypothesis and identify the best practical quality-risk-cost tradeoff.
-Summarize only contributions demonstrated by the completed experiments; neither
-DQN superiority nor successful calibration is a required outcome.
+This study formulated and implemented a trainable, auditable task for risk-aware client–batch scheduling in cloud–edge federated learning. The framework connects public observations, a 12-action joint space, and an exposure-weighted risk ledger via finite-horizon incremental rewards.
 
-== Next Steps
-*To write:* Prioritize extensions supported by observed limitations, such as
-stronger tabular inversion, additional datasets or heterogeneity, and PPO after
-the DQN main study. Keep future proposals separate from completed work. The
-planned final English manuscript has a 20-page content budget excluding
-references; this skeleton uses only the pages its actual content needs.
+Across three paired development seeds, PPO reduced mean simulated time and energy by 19.36% and 9.43% relative to fixed scheduling, with similar mean accuracy but 11.02% higher predicted exposure risk. In a separate single-pair ablation with 1,200 interactions per arm, three-step targets reduced simulated energy by 34.00% while increasing predicted risk by 13.80%. Recorded decisions revealed corresponding differences in batch size and client participation. These findings show that resource savings can coexist with higher proxy-estimated risk. This means that, in practical tasks, the choice of methods must be tailored to specific requirements. Even if the performance gains of certain algorithms far outweigh their performance costs, careful consideration is still required.
+
+The principal contribution is a unified task implementation and paired
+evaluation framework, which makes resource–risk trade-offs explicit and connects terminal outcomes to scheduling behavior. Future work needs to further test the aforementioned deployments in real-world environments, or explore ways to enhance safety while maintaining the excellent power efficiency of the current iteration of the RL method.
+
+
+
+
+#heading(level: 1, numbering: none)[Project Repository]
+The repository link for this project is: https://github.com/Oktinner0320/RL_project.git
+
+#heading(level: 1, numbering: none)[Acknowledgments]
+We are grateful to Dr Teddy Lazebnik and his co-authors, whose work on gradient inversion in tabular federated learning inspired this project @tabular_gia. Their emphasis on evaluating reconstructability alongside predictive performance, and on interpreting recovery rates against appropriate baselines, which help us shape this study's research questions and evaluation perspective. These ideas motivated the investigation of resource–risk trade-offs in joint client–batch scheduling.
 
 #bibliography("refs/refs.bib", title: "References", style: "association-for-computing-machinery")

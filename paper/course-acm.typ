@@ -53,6 +53,7 @@
   show math.equation: set text(font: "Cambria Math", size: 12pt)
   set math.equation(numbering: "(1)")
   set figure(gap: 6pt - ink-padding)
+  show figure.caption: set text(size: 10pt)
   show figure: it => if ink-padding > 0pt { pad(x: ink-padding, y: 0.5pt, it) } else { it }
   set place(clearance: 12pt)
   set enum(indent: 12pt, body-indent: 6pt)
