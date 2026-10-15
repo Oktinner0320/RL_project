@@ -499,12 +499,29 @@ This study uses the Adult binary-classification dataset @adult, an IID partition
   ],
 ) <tab:experimental-configuration>
 
+Task-model training, risk-proxy fitting, and scheduling-policy learning are different optimization processes. These three types of runs capture distinct sources of stochastic variation and are not interchangeable. The common evaluation panel is generated from runs, which is independent of those used for risk-proxy fitting and calibration, thereby enabling paired comparisons of predictions on the same uploaded updates. By contrast, the complete upload trajectories induced by each policy are used for the final risk evaluation.
 
+For each metric, the terminal value is first computed for each run, after which the mean and sample standard deviation are calculated with equal weight across the three paired seeds. The cross-seed mean risk is $overline(R) = 1 / n sum_(s = 1)^n R_("exp")(tau_s)$. Predicted risk is aggregated via the same trajectory-first, seed-averaging procedure. The specific results are presented in the @tab-methods.
 
-*To write:* Cite the archived configuration and artifact IDs from the integration
-report. Specify the final hardware, time budget, seeds, attacks, data skew,
-statistical summaries, and common quality targets. Keep pilot observations
-separate from formal result tables and state the effective denominators.
+#figure(table(
+  columns: (0.9fr, 1.25fr, 1.1fr, 1.15fr, 1.15fr),
+  inset: 4pt, align: (left, right, right, right, right),
+  table.header(
+    [Method], [Accuracy (\%)], [Time (s)], [Energy (J)], [Predicted Risk],
+  ),
+  [DQN], [75.778 ± 0.449], [5.909 ± 0.383], [49.712 ± 8.404], [0.44523 ± 0.00665],
+  [PPO], [75.809 ± 0.444], [4.892 ± 0.890], [40.048 ± 13.043], [0.49364 ± 0.04336],
+  [PQN], [75.752 ± 0.443], [4.145 ± 0.445], [31.090 ± 1.742], [0.49667 ± 0.02310],
+  [MetaCS], [75.712 ± 0.524], [3.721 ± 0.366], [30.113 ± 5.160], [0.50072 ± 0.04363],
+  [Fixed scheduling], [75.778 ± 0.460], [6.066 ± 0.305], [44.217 ± 1.499], [0.44466 ± 0.00227],
+  [Time-greedy], [75.568 ± 0.603], [3.190 ± 0.241], [26.841 ± 3.783], [0.51996 ± 0.00325],
+  [Risk-greedy], [75.681 ± 0.555], [3.417 ± 0.291], [30.480 ± 5.281], [0.49056 ± 0.03757],
+), kind: table, caption: [
+  Seven-method development results at the terminal checkpoint: mean ± sample
+  standard deviation ($n = 3$). Resource metrics are simulated, and risk is
+  predicted; learned methods are evaluated at the 3,000-interaction endpoint.
+]) <tab-methods>
+
 
 == Attack Validity
 *To write:* Validate the implemented attack on controlled small batches and
