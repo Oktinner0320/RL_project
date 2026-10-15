@@ -1,5 +1,43 @@
 #import "course-acm.typ": course-acm
 #let clip = math.op("clip")
+#let rl-algorithm(caption, setup, rows) = {
+  figure(
+    {
+      set text(lang: "en")
+      set align(left)
+      set par(justify: false, first-line-indent: 0pt, leading: 3pt, spacing: 0pt)
+      block(width: 100%, breakable: false)[
+      #setup
+      #v(6pt)
+      #grid(
+        columns: (1.5em, 1fr), column-gutter: 6pt, row-gutter: 3pt,
+        align: (right, left),
+        ..rows.enumerate().map(pair => (
+          align(right, text(fill: luma(100), str(pair.first() + 1))),
+          pair.last(),
+        )).flatten(),
+      )
+      ]
+    },
+    caption: figure.caption(position: top, caption),
+    kind: "algorithm", supplement: [Algorithm], numbering: "1",
+  )
+}
+#show figure.where(kind: "algorithm"): it => {
+  set align(left)
+  set par(justify: false, first-line-indent: 0pt, spacing: 0pt)
+  block(width: 100%, breakable: false)[
+    #line(length: 100%, stroke: 0.7pt)
+    #v(4pt)
+    #it.caption
+    #v(4pt)
+    #line(length: 100%, stroke: 0.4pt)
+    #v(6pt)
+    #it.body
+    #v(6pt)
+    #line(length: 100%, stroke: 0.7pt)
+  ]
+}
 // English writing skeleton; experimental parameters remain in experiment.ipynb.
 // 英文写作骨架；实验超参数仍只在 experiment.ipynb 中调整。
 #let title = [Risk Prediction Reliability in Cloud-Edge Federated Learning: Uncertainty-Aware Scheduling and Budgeted Auditing]
@@ -270,7 +308,145 @@ $
 
 The scales $s_T$ and $s_E$ normalize the reward. With a fixed risk-proxy version, fixed weights, and a discount factor of one, the max return corresponds to the terminal weighted objective over the risk proxy, accuracy, and resources. In addition, shared warm-up costs remain included in the final $T$ and $E$.
 
-=== DQN, Double DQN, and Multi-Step Experience Replay
+== Return Construction and Parameter Updates for Reinforcement Learning <rl-learning>
+In our architecture, the learners share the public observation $o_t$, the 12 joint actions, and the incremental reward in @aligned-reward. In each episode, the task model and exposure ledger evolve with the actions, while the risk proxy and reward weights remain frozen. Therefore, policy learning optimizes the terminal weighted objective under a fixed proxy, it is not online attack recovery rates directly as rewards. In addition, we use value learning from experience replay and policy optimization from rollouts to compare different return estimators and parameter-update procedures on the same scheduling task.
+
+=== Multi-Step Replay and DQN Value Learning
+DQN estimates action values with an online network $Q_theta (o,a)$ and constructs regression targets via experience replay and a target network $Q_(theta^-)$ @dqn. Double DQN separates successor-action selection from evaluation: the online network selects the action with the max value, and then the target network evaluates the action for bootstrapping @double_dqn. Additionally, we uses epsilon-greedy exploration for training, while disables random exploration and selects the action with the largest Q-value during validation.
+
+Let $d_(t+1)$ indicate true task termination after a transition; $chi_(t+1)$ indicate truncation due to ends of current episode. And then, a multi-step buffer stores single-step transitions in temporal order and sends a replay record when the specified length $n$ is reached @sutton2018. When the true termination or truncation happend, the remaining tail is flushed into replay with a record (actual length $m<=n$) once time. Define the segment return as:
+$
+  G_t^(m)=sum_(k=0)^(m-1) gamma^k r_(t+k).
+$
+
+The Double DQN learning target is:
+$
+  y_t=G_t^(m)+gamma^m (1-d_(t+m))Q_(theta^-) (o_(t+m),arg max_a Q_theta (o_(t+m),a)).
+$ <nstep-target>
+
+Standard DQN replaces the successor-value estimate with $max_a Q_(theta^-) (o_(t+m),a)$. Using $"sg"$ to denote stop-gradient, the loss minimized over a replay minibatch $cal(B)$ is:
+$
+  L_Q (theta)=1/abs(cal(B)) sum_(t in cal(B)) "Huber"(Q_theta (o_t,a_t)-"sg"(y_t)).
+$ <replay-loss>
+
+@algo-nstep demostrates multi-step sample construction and the Double DQN update. In the pseudocode, $o^+,d^+,chi^+$ denote the final observation and boundary flags of the incoming transition, $b_D$ is the replay minibatch size, and $g_("max")$ is the gradient-norm limit. These are distinct from the local batch size of clients. Furthermore, parameters are updated with the originally configured optimizer, and the target network is synchronized according to the original rule.
+#rl-algorithm(
+  [Multi-Step Replay Construction and Double DQN Update],
+  [*Input:* transition $(o,a,r,o^+,d^+,chi^+)$; horizon $n$; discount $gamma$. \
+   *State:* pending queue $cal(W)$; replay $cal(D)$; networks $theta,theta^-$.
+   Queues are initialized empty at the start of training.],
+  (
+    [*procedure* $"Emit"(cal(W),cal(D))$],
+    [#h(1em) $m <- abs(cal(W))$; $G <- sum_(k=0)^(m-1) gamma^k r_k$.],
+    [#h(1em) Read the first $(o,a)$ and the final $(o^+,d^+)$ from $cal(W)$.],
+    [#h(1em) Append $(o,a,G,o^+,d^+,m)$ to $cal(D)$; remove only the oldest entry of $cal(W)$.],
+    [*procedure* $"LearnFromTransition"(o,a,r,o^+,d^+,chi^+)$],
+    [#h(1em) Append $(o,a,r,o^+,d^+)$ to $cal(W)$.],
+    [#h(1em) *if* $abs(cal(W))=n$ *then*],
+    [#h(2em) $"Emit"(cal(W),cal(D))$.],
+    [#h(1em) *if* $d^+ or chi^+$ *then*],
+    [#h(2em) *while* $abs(cal(W))>0$ *do* $"Emit"(cal(W),cal(D))$.],
+    [#h(1em) *if* an update is due and replay is ready *then*],
+    [#h(2em) Sample $b_D$ records $cal(B)$ from $cal(D)$ without replacement.],
+    [#h(2em) *for each* $(o,a,G,o^+,d^+,m) in cal(B)$ *do*],
+    [#h(3em) $a^star <- arg max_(a' in cal(A)) Q_theta (o^+,a')$.],
+    [#h(3em) $y <- "sg"(G+gamma^m (1-d^+)Q_(theta^-) (o^+,a^star))$.],
+    [#h(2em) $L_Q <- 1/abs(cal(B)) sum_(cal(B)) "Huber"(Q_theta (o,a)-y)$.],
+    [#h(2em) Update $theta$ with the configured optimizer and norm-clipped $nabla_theta L_Q$.],
+    [#h(1em) Apply the configured target-network synchronization rule.],
+  ),
+) <algo-nstep>
+
+=== PPO Advantage Estimation and Policy Optimization
+PPO estimates advantages from rollouts collected under the current policy and optimizes action probabilities with a clipped surrogate objective @ppo. Denote the policy and value estimates saved at sampling time by $pi_("old")$ and $V_("old")$. For a rollout containing $L$ transitions, initialize $hat(A)_(L+1)=0$ and compute generalized advantage estimation (GAE) backward in time @gae:
+$
+  delta_t=r_t+gamma(1-d_(t+1))V_("old") (o_(t+1))-V_("old") (o_t),
+$
+$
+  hat(A)_t=delta_t+gamma lambda_("GAE")(1-d_(t+1))(1-chi_(t+1))hat(A)_(t+1).
+$ <gae-targets>
+
+The target of value-regression is $hat(V)_t="sg"(hat(A)_t+V_("old") (o_t))$. This construction disables successor-value bootstrapping at termination. At truncation, it keeps the final-observation value but stops the advantage recursion. If a rollout ends only because the sampling length has been reached, the subsequent advantage is also initialized to zero, but the task is not truly terminated.
+
+If advantage normalization is enabled, $hat(A)_t$ is centered and rescaled over the entire rollout; denote the advantage used in the policy loss by $tilde(A)_t$. Otherwise, $tilde(A)_t=hat(A)_t$. Value targets are still computed from the advantages before normalization. Define the new-to-old policy probability ratio as $q_t (theta)=(pi_theta (a_t|o_t))/(pi_("old") (a_t|o_t))$. The clipped surrogate objective is:
+$
+  L_("clip") (theta)=bb(E)_t [min(q_t (theta)tilde(A)_t,clip(q_t (theta),1-epsilon_p,1+epsilon_p)tilde(A)_t)].
+$
+
+The learning network jointly produces policy and value outputs. Its update minimizes:
+$
+  L_("PPO") (theta)=-L_("clip") (theta)+c_V/2 bb(E)_t [(V_theta (o_t)-hat(V)_t)^2]-c_H bb(E)_t [cal(H)(pi_theta (dot|o_t))].
+$ <ppo-update-loss>
+Where $c_V$ and $c_H$ are fixed value and entropy coefficients, and $cal(H)$ is policy entropy. @algo-ppo shows backward advantage estimation and minibatch updates. Old policy probabilities, sampling-time value estimates, and value targets remain fixed throughout multiple update epochs on the same rollout. Clipping modifies the surrogate objective, which not impose a hard constraint on all action-probability ratios or on resource consumption.
+
+In this scheduling task, PPO adjusts action probabilities according to their estimated advantages under the shared reward, jointly accounting for accuracy gains, resource costs, and predicted exposure risk. The value branch provides a baseline for advantage estimation, while entropy regularization encourages diversity among the 12 joint actions. These mechanisms guide optimization of the weighted objective, so their effectiveness requires empirical evaluation.
+#rl-algorithm(
+  [PPO Update with Termination-Aware Advantage Estimation],
+  [*Input:* rollout $cal(T)=\{(o_t,a_t,r_t,v_t,v_t^+,ell_t,d_(t+1),chi_(t+1))\}_(t=1)^L$; network $theta$. \
+   Here $v_t,v_t^+$ are stored old value estimates and $ell_t$ is the old log-probability.],
+  (
+    [$hat(A)_(L+1) <- 0$.],
+    [*for* $t=L,dots,1$ *do*],
+    [#h(1em) $delta_t <- r_t+gamma(1-d_(t+1))v_t^+-v_t$.],
+    [#h(1em) $hat(A)_t <- delta_t+gamma lambda_("GAE")(1-d_(t+1))(1-chi_(t+1))hat(A)_(t+1)$.],
+    [#h(1em) $hat(V)_t <- "sg"(hat(A)_t+v_t)$.],
+    [Detach $hat(A)$; set $tilde(A) <- hat(A)$.],
+    [*if* advantage normalization is enabled and $L>1$ *then*],
+    [#h(1em) $tilde(A) <- (hat(A)-"mean"(hat(A)))/max("std"_("pop")(hat(A)),10^(-8))$.],
+    [*for* each configured optimization epoch *do*],
+    [#h(1em) Shuffle rollout indices and partition them into minibatches $cal(B)$.],
+    [#h(1em) *for each* minibatch $cal(B)$ *do*],
+    [#h(2em) $q_t <- exp(log pi_theta (a_t|o_t)-ell_t)$ for $t in cal(B)$.],
+    [#h(2em) $L_("clip") <- "mean"_(cal(B))[min(q_t tilde(A)_t,clip(q_t,1-epsilon_p,1+epsilon_p)tilde(A)_t)]$.],
+    [#h(2em) $L_V <- 1/2 "mean"_(cal(B))[(V_theta (o_t)-hat(V)_t)^2]$.],
+    [#h(2em) $L <- -L_("clip")+c_V L_V-c_H "mean"_(cal(B))[cal(H)(pi_theta (dot|o_t))]$.],
+    [#h(2em) Update $theta$ with the configured optimizer and norm-clipped $nabla_theta L$.],
+    [*return* updated $theta$; discard the used rollout.],
+  ),
+) <algo-ppo>
+
+== Baselines and Comparisons
+@tab:baselines summarizes the supplementary learning baseline and non-learning scheduling controls. All methods share the public observation interface, 12 joint actions, warm-up, and task-update protocol used by DQN and PPO.
+#figure(
+  {
+    set par(justify: false, first-line-indent: 0pt)
+    table(
+      columns: (1fr, 3.5fr),
+      align: left + top,
+      inset: (x: 6pt, y: 5pt),
+      stroke: none,
+      table.hline(stroke: 0.8pt),
+      table.header([*Method*], [*Selection mechanism*]),
+      table.hline(stroke: 0.5pt),
+      [PQN @pqn],
+      [Rank joint actions by returns estimated with an online Q-network using LayerNorm and rollout-based $Q(lambda)$ learning targets.],
+      [MetaCS @metacs],
+      [Score all 12 joint actions using normalized resource costs, participation diversity, historical validation-gain utility, and predicted risk; select the minimum-cost action.],
+      [Fixed],
+      [Always select configured action ID 4, regardless of the current observation.],
+      [Time-greedy],
+      [Select the joint action with the lowest predicted latency for the current round, without directly scoring accuracy gains, energy, or risk.],
+      [Risk-greedy],
+      [Select the action with the highest immediate predicted net benefit, balancing historical validation gain against normalized time and energy costs and mean candidate risk (@greedy-rule).],
+      table.hline(stroke: 0.8pt),
+    )
+  },
+  kind: table,
+  caption: figure.caption(position: top)[Selection mechanisms of the scheduling baselines.],
+) <tab:baselines>
+
+For Risk-greedy, let $g_t(a)$, $hat(T)_t(a)$, $hat(E)_t(a)$, and $v_t(a)$ denote the candidate action's public historical validation-gain estimate, predicted round latency, energy, and mean risk score, respectively. Its selection rule is:
+$ a_t=arg max_(a in cal(A)) [lambda_A g_t(a)-lambda_T hat(T)_t(a)/s_T-lambda_E hat(E)_t(a)/s_E-lambda_R v_t(a)]. $ <greedy-rule>
+Risk-greedy evaluates the current action's mean risk score, whereas the learned policies are rewarded using increments in the cumulative exposure-weighted risk proportion. This difference distinguishes immediate scoring from terminal-objective optimization.
+
+== Training and Evaluation Protocol <method-protocol>
+The overall workflow comprises risk modeling, policy learning, and policy evaluation:
++ Generate uploads and public contexts through prespecified collection runs. Perform actual inversion attacks within the call and time budgets to obtain per-upload labels and prior-only baselines.
++ Fit the risk ensemble using complete runs as groups, select the weights with the lowest internal-validation MSE, and then estimate batch-conditioned residuals. Freeze the networks, input scaling, calibration offsets, and scoring configuration.
++ Train DQN, PPO, and PQN separately on the same task and public interface. Each episode updates the task model and exposure ledger, but does not retrain the risk proxy online. Fixed, greedy, and MetaCS rules have no policy-training budget.
++ At prespecified training checkpoints, disable exploration and use paired validation seeds to evaluate terminal accuracy, simulated time, simulated energy, and predicted exposure risk. Compute each run's terminal proportion first and then aggregate runs with equal seed weights, rather than pooling uploads from multiple trajectories.
+
+The seven-method comparison and the N1/N3 ablation use the same fixed risk-proxy version but follow their respective training budgets and parameter settings. The N1/N3 pair changes only the return horizon; specific seeds and statistical units are reported in the experimental results. Prediction-error evaluation should compare different calibration outputs from the same regressor on a common panel of fixed uploads. A policy's true risk, by contrast, requires auditing the uploads along its own complete trajectories. Existing descriptive calibration figures and conditional theoretical analyses are reserved for the methodological appendix and are not treated as completed independent calibration or true-risk validation.
 
 
 = Results
