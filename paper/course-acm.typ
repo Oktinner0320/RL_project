@@ -51,6 +51,11 @@
   show heading: set block(above: 12pt, below: 6pt - ink-padding, sticky: true)
   show raw: set text(font: fonts, size: 12pt)
   show math.equation: set text(font: "Cambria Math", size: 12pt)
+  show table: it => {
+    set text(size: 10pt)
+    show math.equation: set text(size: 10pt)
+    it
+  }
   set math.equation(numbering: "(1)")
   set figure(gap: 6pt - ink-padding)
   show figure.caption: set text(size: 10pt)

@@ -3,7 +3,8 @@
 #let rl-algorithm(caption, setup, rows) = {
   figure(
     {
-      set text(lang: "en")
+      set text(size: 10pt, lang: "en")
+      show math.equation: set text(size: 10pt)
       set align(left)
       set par(justify: false, first-line-indent: 0pt, leading: 3pt, spacing: 0pt)
       block(width: 100%, breakable: false)[
