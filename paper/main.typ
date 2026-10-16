@@ -91,7 +91,7 @@ A learned risk surrogate will provide estimates of potential outcome of attacks 
 
 This type of issue can be found in scheduling with a proxy for risk that has been trained. The way a scheduler operates changes what client and what batch context occurs, therefore, the choices made by the scheduler could potentially alter the distribution that the proxy will be evaluated on. Because of this relationship we have chosen to evaluate prediction errors and policy level outcomes separately. Specifically, we do not believe that having a lower predicted risk means you have a lower reconstruction risk.
 
-EEnsemble methods are an excellent way to estimate uncertainty, but you must be careful how you interpret those results. Deep ensembles may have better predictive power than other types of ensemble models, but they don't always result in more reliable calibration, as shown by Rahaman and Thiery @ensemble_calibration. herefore, this study views disagreement between risk predictors as a diagnostic signal for possible problems with the model, rather than as a guarantee of a lower limit on prediction error.
+Ensemble methods are an excellent way to estimate uncertainty, but you must be careful how you interpret those results. Deep ensembles may have better predictive power than other types of ensemble models, but they don't always result in more reliable calibration, as shown by Rahaman and Thiery @ensemble_calibration. herefore, this study views disagreement between risk predictors as a diagnostic signal for possible problems with the model, rather than as a guarantee of a lower limit on prediction error.
 
 == Budgeted Auditing and Calibration
 
