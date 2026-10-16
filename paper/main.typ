@@ -486,9 +486,12 @@ Task-model training, risk-proxy fitting, and scheduling-policy learning are dist
 #figure(table(
   columns: (1.35fr, 1.2fr, 1fr, 1fr, 1.15fr),
   inset: (x: 2pt, y: 4pt),
+  stroke: none,
+  table.hline(stroke: 0.8pt),
   table.header(
     [Method], [Accuracy (\%)], [Time (s)], [Energy (J)], [Predicted Risk],
   ),
+  table.hline(stroke: 0.5pt),
   [DQN], [75.78 ± 0.45], [5.91 ± 0.38], [49.71 ± 8.40], [0.4452 ± 0.0067],
   [PPO], [75.81 ± 0.44], [4.89 ± 0.89], [40.05 ± 13.04], [0.4936 ± 0.0434],
   [PQN], [75.75 ± 0.44], [4.15 ± 0.45], [31.09 ± 1.74], [0.4967 ± 0.0231],
@@ -496,6 +499,7 @@ Task-model training, risk-proxy fitting, and scheduling-policy learning are dist
   [Fixed], [75.78 ± 0.46], [6.07 ± 0.31], [44.22 ± 1.50], [0.4447 ± 0.0023],
   [Time-greedy], [75.57 ± 0.60], [3.19 ± 0.24], [26.84 ± 3.78], [0.5200 ± 0.0033],
   [Risk-greedy], [75.68 ± 0.56], [3.42 ± 0.29], [30.48 ± 5.28], [0.4906 ± 0.0376],
+  table.hline(stroke: 0.8pt),
 ),
   kind: table,
   caption: [Seven-method results.]
