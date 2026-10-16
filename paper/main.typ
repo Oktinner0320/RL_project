@@ -335,7 +335,7 @@ $
   L_Q (theta)=1/abs(cal(B)) sum_(t in cal(B)) "Huber"(Q_theta (o_t,a_t)-"sg"(y_t)).
 $ <replay-loss>
 
-@algo-nstep demostrates multi-step sample construction and the Double DQN update. In the pseudocode, $o^+,d^+,chi^+$ denote the final observation and boundary flags of the incoming transition, $b_D$ is the replay minibatch size, and $g_("max")$ is the gradient-norm limit. These are distinct from the local batch size of clients. Furthermore, parameters are updated with the originally configured optimizer, and the target network is synchronized according to the original rule.
+
 #rl-algorithm(
   [Multi-Step Replay Construction and Double DQN Update],
   [*Input:* transition $(o,a,r,o^+,d^+,chi^+)$; horizon $n$; discount $gamma$. \
@@ -362,6 +362,7 @@ $ <replay-loss>
     [#h(1em) Apply the configured target-network synchronization rule.],
   ),
 ) <algo-nstep>
+@algo-nstep demostrates multi-step sample construction and the Double DQN update. In the pseudocode, $o^+,d^+,chi^+$ denote the final observation and boundary flags of the incoming transition, $b_D$ is the replay minibatch size, and $g_("max")$ is the gradient-norm limit. These are distinct from the local batch size of clients. Furthermore, parameters are updated with the originally configured optimizer, and the target network is synchronized according to the original rule.
 
 === PPO Advantage Estimation and Policy Optimization
 PPO estimates advantages from rollouts collected under the current policy and optimizes action probabilities with a clipped surrogate objective @ppo. Denote the policy and value estimates saved at sampling time by $pi_("old")$ and $V_("old")$. For a rollout containing $L$ transitions, initialize $hat(A)_(L+1)=0$ and compute generalized advantage estimation (GAE) backward in time @gae:
@@ -511,15 +512,13 @@ Task-model training, risk-proxy fitting, and scheduling-policy learning are dist
 
 @tab-methods and @fig:methods show similar mean accuracy across the seven methods (75.57–75.81%), but have a large different in resource–risk trade-offs. Compared with fixed scheduling, PPO reduced mean simulated time by 19.36% and energy by 9.43%, but take an 11.02% increase in predicted exposure risk. In addition, time-greedy achieved the lowest mean time and energy costs but the highest predicted risk, whereas DQN and fixed scheduling retained lower predicted risk at greater resource cost. These results demonstrate trade-offs in simulated resource efficiency and predicted risk.
 
+N1 and N3 use 1-step and 3-step targets, respectively. Compared with N1, N3 reduced terminal simulated time by 4.60% and energy by 34.00%, with similar accuracy (74.79% VS 74.71%) but 13.80% higher exposure risk. Panels (a) and (b) of @fig:decision show that, after the shared warm-up, N1 mainly selected clients {1,2} and {0,2}, whereas N3 mainly selected {0,1}. Panels (c) and (d) show a consistent difference in requested batch size: N1 selected 32, and N3 selected 8. Panels (e) and (f) display the top-three Q-value rankings, with rings marking recorded actions, and the shaded warm-up region has no Q records.  Together, these rankings indicate action preferences, the terminal results and action trajectories characterize a resource–proxy-risk trade-off.
+
 == Return-Horizon Ablation
 #figure(
   image("figures/decision_atlas_1.png", width: 100%),
   caption: [N1/N3 scheduling behavior.],
 ) <fig:decision>
-
-N1 and N3 use 1-step and 3-step targets, respectively. Compared with N1, N3 reduced terminal simulated time by 4.60% and energy by 34.00%, with similar accuracy (74.79% VS 74.71%) but 13.80% higher exposure risk. Panels (a) and (b) of @fig:decision show that, after the shared warm-up, N1 mainly selected clients {1,2} and {0,2}, whereas N3 mainly selected {0,1}. Panels (c) and (d) show a consistent difference in requested batch size: N1 selected 32, and N3 selected 8. Panels (e) and (f) display the top-three Q-value rankings, with rings marking recorded actions, and the shaded warm-up region has no Q records.  Together, these rankings indicate action preferences, the terminal results and action trajectories characterize a resource–proxy-risk trade-off.
-
-
 
 
 = Discussion
