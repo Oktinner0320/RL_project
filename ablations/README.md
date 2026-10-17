@@ -51,5 +51,5 @@ notebook. Preserve failures and unknown consumption; do not retry blindly.
 Records are stored under `ablations/output/N-cloud-v1/phases/<phase>/`, including
 status, downloaded artifacts, and `closure.json`. The notebook displays available
 closure records; these artifacts are not shipped in Git. Results use **predicted
-risk**, not complete audited privacy risk, and do not load the official test set.
+risk** and do not load the official test set.
 Other L/Q/E/W studies remain definitions, not implemented alternatives.

@@ -51,7 +51,7 @@ uv run --locked --extra comparisons jupyter lab
 | `evaluation_rows.csv` | 已记录的检查点评估 |
 | `attack_diagnostics.csv` | 已保存的攻击诊断 |
 | `analysis.json` | 描述性汇总与证据范围 |
-| `diagnostics.json` | 数据与审计的限制 |
+| `diagnostics.json` | 数据限制 |
 | `analysis-validation.json` | 报告数值与交互次数的交叉检查 |
 
 无需训练即可直接读取这些文件。它们不包含完整检查点，也不能证明独立研究确认已通过。

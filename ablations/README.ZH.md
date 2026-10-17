@@ -45,5 +45,5 @@ uv run --locked --extra comparisons python -m ablations.runner status --name N-c
 
 记录位于 `ablations/output/N-cloud-v1/phases/<phase>/`，包括状态、下载产物和 `closure.json`。
 笔记本展示已有的完成记录；这些产物不包含在 Git 中。
-结果使用**预测风险**，不代表完整的真实隐私风险审计，也不读取官方测试集。
+结果使用**预测风险**，不读取官方测试集。
 其他 L/Q/E/W 研究仍为定义，尚未实现。

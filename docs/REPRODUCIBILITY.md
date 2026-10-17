@@ -53,7 +53,7 @@ contains six published files:
 | `evaluation_rows.csv` | Recorded checkpoint evaluations |
 | `attack_diagnostics.csv` | Saved attack diagnostics |
 | `analysis.json` | Descriptive summary and evidence scope |
-| `diagnostics.json` | Data and audit limitations |
+| `diagnostics.json` | Data limitations |
 | `analysis-validation.json` | Cross-checks of reported numbers and interaction counts |
 
 These files can be read directly without training. They are not a complete set

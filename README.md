@@ -50,10 +50,9 @@ For local inspection, set all six operation switches to `false` as described in
 - Git includes six development CSV/JSON summaries and historical playback JSON,
   **not** all checkpoints, raw runs, test files, current snapshots, or PNGs.
   [Reproducibility](docs/REPRODUCIBILITY.md) identifies the required supplements.
-- Published summaries are descriptive development results. Full local artifact
-  verification and independent research confirmation are not complete.
-- Predicted risk is not audited privacy risk. Reported time and energy are
-  simulated quantities; unknown cloud costs remain unknown.
+- Published summaries are descriptive development results.
+- Reported time and energy are simulated quantities; unknown cloud costs remain
+  unknown.
 
 See [Third-party attribution](docs/THIRD_PARTY.md) for source and license records.
 Git history records the actual development work; no separate history export is

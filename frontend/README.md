@@ -48,9 +48,9 @@ when its fixed original run files are available locally. It does not download
 them. Keep source identities and rebuild afterwards; do not substitute newer
 runs without updating the documented scope.
 
-Missing states, action mappings, costs, scores, and audits remain missing.
-Predicted risk is not audited risk; summary-only records do not become round
-traces. Playback does not establish fair cross-batch comparisons or acceptance.
+Missing states, action mappings, costs, and scores remain missing.
+Summary-only records do not become round traces. Playback does not establish fair
+cross-batch comparisons or acceptance.
 Exported snapshots use the `results_visualization_v1` format.
 
 <details>
